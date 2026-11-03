@@ -3,3 +3,7 @@ __pycache__/
 *.so
 .venv/
 mutants.out*/
+rust/core/fuzz/target/
+rust/core/fuzz/corpus/
+rust/core/fuzz/artifacts/
+rust/core/fuzz/Cargo.lock
