@@ -24,7 +24,7 @@ use std::io::Write;
 use std::str::FromStr;
 use std::{fmt, str};
 
-pub use crate::compression::{BrotliLevel, GzipLevel, ZstdLevel};
+pub use crate::compression::{BrotliLevel, GzipLevel, PcodecLevel, ZstdLevel};
 use crate::file::metadata::HeapSize;
 use crate::parquet_thrift::{
     ElementType, FieldType, ReadThrift, ThriftCompactInputProtocol, ThriftCompactOutputProtocol,
@@ -642,6 +642,7 @@ enum CompressionCodec {
   LZ4 = 5;     // DEPRECATED (Added in 2.4)
   ZSTD = 6;    // Added in 2.4
   LZ4_RAW = 7; // Added in 2.9
+  PCODEC = 20547; // parquet-pcodec fork, spec/FORMAT.md
 }
 );
 
@@ -684,6 +685,9 @@ pub enum Compression {
     ZSTD(ZstdLevel),
     /// [LZ4 compression](https://lz4.org/).
     LZ4_RAW,
+    /// [pcodec](https://github.com/pcodec/pcodec) for numeric columns (parquet-pcodec fork,
+    /// spec/FORMAT.md)
+    PCODEC(PcodecLevel),
 }
 
 impl From<CompressionCodec> for Compression {
@@ -697,6 +701,7 @@ impl From<CompressionCodec> for Compression {
             CompressionCodec::LZ4 => Compression::LZ4,
             CompressionCodec::ZSTD => Compression::ZSTD(Default::default()),
             CompressionCodec::LZ4_RAW => Compression::LZ4_RAW,
+            CompressionCodec::PCODEC => Compression::PCODEC(Default::default()),
         }
     }
 }
@@ -712,6 +717,7 @@ impl From<Compression> for CompressionCodec {
             Compression::LZ4 => CompressionCodec::LZ4,
             Compression::ZSTD(_) => CompressionCodec::ZSTD,
             Compression::LZ4_RAW => CompressionCodec::LZ4_RAW,
+            Compression::PCODEC(_) => CompressionCodec::PCODEC,
         }
     }
 }
@@ -787,6 +793,10 @@ impl FromStr for Compression {
                 check_level_is_none(level)?;
                 Compression::LZ4_RAW
             }
+            "PCODEC" | "pcodec" => match level {
+                Some(level) => Compression::PCODEC(PcodecLevel::try_new(level.try_into()?)?),
+                None => Compression::PCODEC(Default::default()),
+            },
             _ => {
                 return Err(ParquetError::General(format!(
                     "unsupported compression {codec}"
@@ -2380,6 +2390,44 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "Parquet error: unknown encoding: gzip(-10)"
+        );
+    }
+
+    #[test]
+    fn test_pcodec_compression() {
+        // parquet-pcodec fork: the PCODEC codec (spec/FORMAT.md section 2)
+        assert_eq!(CompressionCodec::PCODEC as i32, 20547);
+        test_roundtrip(CompressionCodec::PCODEC);
+        let level = PcodecLevel::try_new(3).unwrap();
+        assert_eq!(level.compression_level(), 3);
+        assert_eq!(PcodecLevel::default().compression_level(), 8);
+        assert_eq!(
+            CompressionCodec::from(Compression::PCODEC(level)),
+            CompressionCodec::PCODEC
+        );
+        assert_eq!(
+            Compression::from(CompressionCodec::PCODEC),
+            Compression::PCODEC(PcodecLevel::default())
+        );
+        assert_eq!(
+            Compression::PCODEC(Default::default()).to_string(),
+            "PCODEC(PcodecLevel(8))"
+        );
+
+        let parse = |s: &str| s.parse::<Compression>();
+        let pcodec = |l| Compression::PCODEC(PcodecLevel::try_new(l).unwrap());
+        assert_eq!(parse("PCODEC").unwrap(), pcodec(8));
+        assert_eq!(parse("pcodec").unwrap(), pcodec(8));
+        assert_eq!(parse("PCODEC(0)").unwrap(), pcodec(0));
+        assert_eq!(parse("pcodec(12)").unwrap(), pcodec(12));
+        assert_eq!(
+            parse("pcodec(13)").unwrap_err().to_string(),
+            "Parquet error: valid compression range 0..=12 exceeded."
+        );
+        assert!(parse("pcodec(-1)").is_err());
+        assert_eq!(
+            parse("Pcodec").unwrap_err().to_string(),
+            "Parquet error: unsupported compression Pcodec"
         );
     }
 

@@ -66,6 +66,7 @@ default = [
     "zstd",
     "base64",
     "simdutf8",
+    "pcodec",
 ]
 encryption = ["dep:ring"]
 experimental = ["variant_experimental"]
@@ -82,6 +83,7 @@ object_store = [
     "dep:object_store",
     "async",
 ]
+pcodec = ["dep:parquet-pcodec-core"]
 simdutf8 = ["dep:simdutf8"]
 test_common = ["arrow/test_utils"]
 variant_experimental = [
@@ -543,6 +545,10 @@ default-features = false
 version = "60.1.0"
 optional = true
 
+[dependencies.parquet-pcodec-core]
+path = "../core"
+optional = true
+
 [dependencies.parquet-variant]
 version = "60.1.0"
 optional = true
@@ -664,6 +670,9 @@ default-features = false
 version = "0.59.1"
 features = ["services-memory"]
 default-features = false
+
+[dev-dependencies.parquet-pcodec-core]
+path = "../core"
 
 [dev-dependencies.proptest]
 version = "1.0"

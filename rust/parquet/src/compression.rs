@@ -50,6 +50,7 @@ assert_eq!(output, data);
 "
 )]
 use crate::basic::Compression as CodecType;
+use crate::basic::Type;
 use crate::errors::{ParquetError, Result};
 
 /// Parquet compression codec interface.
@@ -81,6 +82,8 @@ pub trait Codec: Send {
 pub struct CodecOptions {
     /// Whether or not to fallback to other LZ4 older implementations on error in LZ4_HADOOP.
     backward_compatible_lz4: bool,
+    /// Physical type of the column, the PCODEC type hint (parquet-pcodec fork).
+    physical_type: Option<Type>,
 }
 
 impl Default for CodecOptions {
@@ -92,12 +95,15 @@ impl Default for CodecOptions {
 pub struct CodecOptionsBuilder {
     /// Whether or not to fallback to other LZ4 older implementations on error in LZ4_HADOOP.
     backward_compatible_lz4: bool,
+    /// Physical type of the column, the PCODEC type hint (parquet-pcodec fork).
+    physical_type: Option<Type>,
 }
 
 impl Default for CodecOptionsBuilder {
     fn default() -> Self {
         Self {
             backward_compatible_lz4: true,
+            physical_type: None,
         }
     }
 }
@@ -116,9 +122,19 @@ impl CodecOptionsBuilder {
         self
     }
 
+    /// Sets the physical type of the column (parquet-pcodec fork).
+    ///
+    /// PCODEC uses it as the type hint: it only affects the compression ratio, never
+    /// decompression.
+    pub fn set_physical_type(mut self, value: Type) -> CodecOptionsBuilder {
+        self.physical_type = Some(value);
+        self
+    }
+
     pub fn build(self) -> CodecOptions {
         CodecOptions {
             backward_compatible_lz4: self.backward_compatible_lz4,
+            physical_type: self.physical_type,
         }
     }
 }
@@ -161,14 +177,20 @@ pub fn create_codec(codec: CodecType, _options: &CodecOptions) -> Result<Option<
             feature = "flate2",
             feature = "lz4",
             feature = "snap",
-            feature = "zstd"
+            feature = "zstd",
+            feature = "pcodec"
         ),
         expect(unreachable_code)
     )]
     #[cfg_attr(
         all(
             not(test),
-            not(all(feature = "brotli", feature = "flate2", feature = "zstd"))
+            not(all(
+                feature = "brotli",
+                feature = "flate2",
+                feature = "zstd",
+                feature = "pcodec"
+            ))
         ),
         expect(unused_variables)
     )]
@@ -215,6 +237,16 @@ pub fn create_codec(codec: CodecType, _options: &CodecOptions) -> Result<Option<
             return Ok(Some(Box::new(LZ4RawCodec::new())));
             Err(ParquetError::General(
                 "Disabled feature at compile time: lz4".into(),
+            ))
+        }
+        CodecType::PCODEC(level) => {
+            #[cfg(any(feature = "pcodec", test))]
+            return Ok(Some(Box::new(PcodecCodec::new(
+                level,
+                _options.physical_type,
+            ))));
+            Err(ParquetError::General(
+                "Disabled feature at compile time: pcodec".into(),
             ))
         }
         CodecType::UNCOMPRESSED => Ok(None),
@@ -627,6 +659,90 @@ impl Default for ZstdLevel {
     }
 }
 
+#[cfg(any(feature = "pcodec", test))]
+mod pcodec_codec {
+    use crate::basic::Type;
+    use crate::compression::{Codec, PcodecLevel};
+    use crate::errors::{ParquetError, Result};
+    use parquet_pcodec_core::{Options, PhysicalType};
+
+    /// Codec for PCODEC (parquet-pcodec fork, spec/FORMAT.md).
+    pub struct PcodecCodec {
+        options: Options,
+    }
+
+    impl PcodecCodec {
+        /// Creates new PCODEC codec; `physical_type` is the column's type hint.
+        pub(crate) fn new(level: PcodecLevel, physical_type: Option<Type>) -> Self {
+            Self {
+                options: Options {
+                    level: level.compression_level() as u8,
+                    hint: physical_type.and_then(|t| PhysicalType::from_parquet(t as i32)),
+                    decimal: true,
+                },
+            }
+        }
+    }
+
+    impl Codec for PcodecCodec {
+        fn decompress(
+            &mut self,
+            input_buf: &[u8],
+            output_buf: &mut Vec<u8>,
+            uncompress_size: Option<usize>,
+        ) -> Result<usize> {
+            let Some(required_len) = uncompress_size else {
+                return Err(ParquetError::General(
+                    "PcodecCodec unsupported without uncompress_size".into(),
+                ));
+            };
+            let offset = output_buf.len();
+            output_buf.resize(offset + required_len, 0);
+            parquet_pcodec_core::decompress_into(input_buf, &mut output_buf[offset..])
+                .map_err(|e| ParquetError::External(Box::new(e)))?;
+            Ok(required_len)
+        }
+
+        fn compress(&mut self, input_buf: &[u8], output_buf: &mut Vec<u8>) -> Result<()> {
+            let payload = parquet_pcodec_core::compress(input_buf, &self.options)
+                .map_err(|e| ParquetError::External(Box::new(e)))?;
+            output_buf.extend_from_slice(&payload);
+            Ok(())
+        }
+    }
+}
+#[cfg(any(feature = "pcodec", test))]
+pub use pcodec_codec::*;
+
+/// Represents a valid pcodec compression level (parquet-pcodec fork).
+#[derive(Debug, Eq, PartialEq, Hash, Clone, Copy)]
+pub struct PcodecLevel(u32);
+
+impl CompressionLevel<u32> for PcodecLevel {
+    const MINIMUM_LEVEL: u32 = 0;
+    const MAXIMUM_LEVEL: u32 = 12;
+}
+
+impl PcodecLevel {
+    /// Attempts to create a pcodec compression level from a given compression level.
+    ///
+    /// Compression levels must be valid (i.e. be in 0..=12).
+    pub fn try_new(level: u32) -> Result<Self> {
+        Self::is_valid_level(level).map(|()| Self(level))
+    }
+
+    /// Returns the compression level.
+    pub fn compression_level(&self) -> u32 {
+        self.0
+    }
+}
+
+impl Default for PcodecLevel {
+    fn default() -> Self {
+        Self(8)
+    }
+}
+
 #[cfg(any(feature = "lz4", test))]
 mod lz4_raw_codec {
     use crate::compression::Codec;
@@ -972,5 +1088,83 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Takes too long
     fn test_codec_lz4_raw() {
         test_codec_with_size(CodecType::LZ4_RAW);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)] // pcodec and zstd are too slow under Miri
+    fn test_codec_pcodec() {
+        for level in PcodecLevel::MINIMUM_LEVEL..=PcodecLevel::MAXIMUM_LEVEL {
+            let level = PcodecLevel::try_new(level).unwrap();
+            test_codec_with_size(CodecType::PCODEC(level));
+        }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)] // pcodec and zstd are too slow under Miri
+    fn test_codec_pcodec_physical_type() {
+        use crate::basic::Type;
+        use parquet_pcodec_core::{Mode, mode_of};
+
+        let ints: Vec<u8> = (0..1000i64).flat_map(|v| (v * 7).to_le_bytes()).collect();
+        let prices: Vec<u8> = (0..1000).flat_map(|v| (v as f64 / 100.0).to_le_bytes()).collect();
+        let cases = [
+            (None, &ints, Mode::Zstd),
+            (Some(Type::INT64), &ints, Mode::Pco),
+            (Some(Type::INT32), &ints, Mode::Pco),
+            (Some(Type::DOUBLE), &prices, Mode::Decimal),
+            (Some(Type::BYTE_ARRAY), &ints, Mode::Zstd),
+        ];
+        for (physical_type, data, mode) in cases {
+            let mut builder = CodecOptionsBuilder::default();
+            if let Some(t) = physical_type {
+                builder = builder.set_physical_type(t);
+            }
+            let options = builder.build();
+            let mut codec = create_codec(CodecType::PCODEC(Default::default()), &options)
+                .unwrap()
+                .unwrap();
+            let mut compressed = vec![];
+            codec.compress(data, &mut compressed).unwrap();
+            assert_eq!(mode_of(&compressed).unwrap(), mode, "{physical_type:?}");
+            let mut decompressed = vec![];
+            let n = codec
+                .decompress(&compressed, &mut decompressed, Some(data.len()))
+                .unwrap();
+            assert_eq!(n, data.len());
+            assert_eq!(&decompressed, data);
+        }
+    }
+
+    #[test]
+    fn test_codec_pcodec_requires_size() {
+        let options = CodecOptionsBuilder::default().build();
+        let mut codec = create_codec(CodecType::PCODEC(Default::default()), &options)
+            .unwrap()
+            .unwrap();
+        let data = random_bytes(100);
+        let mut compressed = vec![];
+        codec.compress(&data, &mut compressed).unwrap();
+
+        let err = codec
+            .decompress(&compressed, &mut vec![], None)
+            .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Parquet error: PcodecCodec unsupported without uncompress_size"
+        );
+        let err = codec
+            .decompress(&compressed, &mut vec![], Some(data.len() + 1))
+            .unwrap_err();
+        assert!(err.to_string().contains("pcodec payload"), "{err}");
+    }
+
+    #[test]
+    fn test_codec_options_physical_type() {
+        use crate::basic::Type;
+        assert_eq!(CodecOptions::default().physical_type, None);
+        let options = CodecOptionsBuilder::default()
+            .set_physical_type(Type::FLOAT)
+            .build();
+        assert_eq!(options.physical_type, Some(Type::FLOAT));
     }
 }
