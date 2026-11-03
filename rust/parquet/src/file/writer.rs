@@ -353,6 +353,8 @@ impl<W: Write + Send> SerializedFileWriter<W> {
             None if self.kv_metadatas.is_empty() => None,
             None => Some(self.kv_metadatas.clone()),
         };
+        #[cfg(any(feature = "pcodec", test))]
+        let key_value_metadata = with_pcodec_version(&self.row_groups, key_value_metadata);
 
         // take ownership of metadata
         let row_groups = std::mem::take(&mut self.row_groups);
@@ -489,6 +491,30 @@ impl<W: Write + Send> SerializedFileWriter<W> {
     pub(crate) fn file_encryptor(&self) -> Option<Arc<FileEncryptor>> {
         self.file_encryptor.clone()
     }
+}
+
+/// parquet-pcodec fork: adds `parquet.pcodec.version = "1"` to the key-value metadata of a
+/// file with PCODEC column chunks, unless it is already there (spec/FORMAT.md section 2)
+#[cfg(any(feature = "pcodec", test))]
+fn with_pcodec_version(
+    row_groups: &[RowGroupMetaData],
+    mut key_value_metadata: Option<Vec<KeyValue>>,
+) -> Option<Vec<KeyValue>> {
+    let has_pcodec = row_groups
+        .iter()
+        .flat_map(|rg| rg.columns())
+        .any(|c| matches!(c.compression(), crate::basic::Compression::PCODEC(_)));
+    let has_version = key_value_metadata
+        .iter()
+        .flatten()
+        .any(|kv| kv.key == parquet_pcodec_core::KV_KEY);
+    if has_pcodec && !has_version {
+        key_value_metadata.get_or_insert_default().push(KeyValue::new(
+            parquet_pcodec_core::KV_KEY.to_string(),
+            parquet_pcodec_core::KV_VALUE.to_string(),
+        ));
+    }
+    key_value_metadata
 }
 
 /// Serialize all the bloom filters of the given row group to the given buffer,
@@ -2024,6 +2050,89 @@ mod tests {
         test_kv_metadata(Some(vec![]), Some(vec![]));
         test_kv_metadata(Some(vec![kv1]), Some(vec![]));
         test_kv_metadata(None, Some(vec![]));
+    }
+
+    /// parquet-pcodec fork: the key-value metadata of a one-column file written with
+    /// `compression`, `initial_kv` in the properties and `appended_kv` appended
+    fn pcodec_kv_metadata(
+        compression: Compression,
+        row_groups: usize,
+        initial_kv: Option<Vec<KeyValue>>,
+        appended_kv: Vec<KeyValue>,
+    ) -> Option<Vec<KeyValue>> {
+        let schema = Arc::new(
+            types::Type::group_type_builder("schema")
+                .with_fields(vec![Arc::new(
+                    types::Type::primitive_type_builder("col1", Type::INT64)
+                        .with_repetition(Repetition::REQUIRED)
+                        .build()
+                        .unwrap(),
+                )])
+                .build()
+                .unwrap(),
+        );
+        let props = WriterProperties::builder()
+            .set_compression(compression)
+            .set_key_value_metadata(initial_kv)
+            .build();
+        let mut out = Vec::with_capacity(1024);
+        let mut writer = SerializedFileWriter::new(&mut out, schema, Arc::new(props)).unwrap();
+        for _ in 0..row_groups {
+            let mut row_group_writer = writer.next_row_group().unwrap();
+            let mut column = row_group_writer.next_column().unwrap().unwrap();
+            column
+                .typed::<crate::data_type::Int64Type>()
+                .write_batch(&[1, 2, 3], None, None)
+                .unwrap();
+            column.close().unwrap();
+            row_group_writer.close().unwrap();
+        }
+        for kv in appended_kv {
+            writer.append_key_value_metadata(kv)
+        }
+        writer.close().unwrap();
+
+        let reader = SerializedFileReader::new(Bytes::from(out)).unwrap();
+        reader.metadata().file_metadata().key_value_metadata().cloned()
+    }
+
+    #[test]
+    fn test_pcodec_version_metadata() {
+        let pcodec = Compression::PCODEC(Default::default());
+        let version = KeyValue::new("parquet.pcodec.version".to_string(), "1".to_string());
+        let kv1 = KeyValue::new("cupcakes".to_string(), "awesome".to_string());
+
+        assert_eq!(
+            pcodec_kv_metadata(pcodec, 1, None, vec![]),
+            Some(vec![version.clone()])
+        );
+        assert_eq!(
+            pcodec_kv_metadata(pcodec, 2, Some(vec![kv1.clone()]), vec![]),
+            Some(vec![kv1.clone(), version.clone()])
+        );
+        assert_eq!(
+            pcodec_kv_metadata(pcodec, 1, None, vec![kv1.clone()]),
+            Some(vec![kv1.clone(), version.clone()])
+        );
+        // already there: not added twice
+        assert_eq!(
+            pcodec_kv_metadata(pcodec, 1, Some(vec![version.clone()]), vec![]),
+            Some(vec![version.clone()])
+        );
+        assert_eq!(
+            pcodec_kv_metadata(pcodec, 1, None, vec![version.clone()]),
+            Some(vec![version])
+        );
+        // no PCODEC column chunk: no marker
+        assert_eq!(pcodec_kv_metadata(pcodec, 0, None, vec![]), None);
+        assert_eq!(
+            pcodec_kv_metadata(Compression::SNAPPY, 1, None, vec![]),
+            None
+        );
+        assert_eq!(
+            pcodec_kv_metadata(Compression::SNAPPY, 1, Some(vec![kv1.clone()]), vec![]),
+            Some(vec![kv1])
+        );
     }
 
     #[test]
