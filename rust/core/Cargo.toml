@@ -1,0 +1,15 @@
+[package]
+name = "parquet-pcodec-core"
+version = "0.1.0"
+description = "The PCODEC Parquet compression codec payload (spec/FORMAT.md)"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+pco.workspace = true
+zstd.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

@@ -1,0 +1,10 @@
+# cargo-mutants configuration. Every exclusion says why the mutant cannot be caught.
+exclude_re = [
+    # Ties between candidate payloads: `<` vs `<=` only changes which of two payloads of equal
+    # length is written, and both decode to the same bytes (equivalent mutants).
+    'rust/core/src/lib\.rs:.*replace < with <= in compress',
+    'rust/core/src/lib\.rs:.*replace < with <= in float_payload',
+]
+# the vendored upstream crate is tested upstream; its patched functions are listed in
+# rust/parquet/FORK.md and mutated by the fork job with --re
+exclude_globs = ["rust/parquet/**"]

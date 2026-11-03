@@ -1,0 +1,14 @@
+[workspace]
+resolver = "3"
+members = ["rust/core", "rust/capi"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.88"
+license = "Apache-2.0"
+repository = "https://github.com/aperiodic-io/parquet-pcodec"
+
+[workspace.dependencies]
+pco = "=1.0.4"
+zstd = { version = "0.14", default-features = false }
+proptest = "1"

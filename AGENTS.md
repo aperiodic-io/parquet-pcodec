@@ -1,0 +1,31 @@
+# Working on parquet-pcodec
+
+## Layout
+
+| Path | What |
+|---|---|
+| `spec/FORMAT.md` | the file-format specification; the source of truth |
+| `rust/core` | `parquet-pcodec-core`: the codec payload (encode, decode), no Parquet dependency |
+| `rust/capi` | C ABI over the core (`include/parquet_pcodec.h`), linked by Go |
+| `rust/parquet` | fork of the arrow-rs `parquet` crate with the PCODEC codec; see `rust/parquet/FORK.md` |
+| `rust/parquet-pcodec` | high-level Rust API (auto selection, transcode) and the `parquet-pcodec` CLI |
+| `go/` | Go package: arrow-go codec plugin and writer helpers |
+| `python/` | Python package: pyarrow, pandas, Polars, DuckDB |
+| `duckdb/` | DuckDB loadable extension |
+| `testdata/` | conformance vectors shared by every implementation |
+| `acceptance/` | cross-language acceptance tests |
+
+## Rules
+
+- **TDD.** Write the failing test first, run it, see it fail for the right reason, then make it
+  pass. Each commit message says which test failed first, or why no test could.
+- **Every implementation passes the conformance vectors in `testdata/`.** A change to the payload
+  format changes `spec/FORMAT.md` and the vectors in the same commit.
+- **Mutation testing.** Rust: `cargo mutants` (config in `.cargo/mutants.toml`); Go: `gremlins`;
+  Python: `mutmut`. A surviving mutant is a missing test or dead code: add the test or remove the
+  code. Any exclusion carries a comment that says why.
+- **The fork stays small.** Changes to `rust/parquet` are listed in `rust/parquet/FORK.md` and
+  checked against upstream by `scripts/check-fork.sh`.
+- **Decoders treat payloads as untrusted.** No panics, no unbounded allocation; fuzz targets in
+  `rust/core/fuzz`.
+- Run the checks of what you changed before pushing (`make check` at the root runs everything).

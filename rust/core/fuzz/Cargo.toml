@@ -1,0 +1,29 @@
+[package]
+name = "parquet-pcodec-core-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+parquet-pcodec-core = { path = ".." }
+
+# not part of the root workspace: built only with `cargo +nightly fuzz`
+[workspace]
+
+[[bin]]
+name = "decompress"
+path = "fuzz_targets/decompress.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "roundtrip"
+path = "fuzz_targets/roundtrip.rs"
+test = false
+doc = false
+bench = false
