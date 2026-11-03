@@ -506,7 +506,9 @@ impl<'a, E: ColumnValueEncoder> GenericColumnWriter<'a, E> {
     ) -> Self {
         let column_props = props.resolve_column_properties(descr.path());
         let codec = column_props.compression;
-        let codec_options = CodecOptionsBuilder::default().build();
+        let codec_options = CodecOptionsBuilder::default()
+            .set_physical_type(descr.physical_type())
+            .build();
         let compressor = create_codec(codec, &codec_options).unwrap();
         let encoder = E::try_new(&descr, props.as_ref(), &column_props).unwrap();
 
@@ -3031,6 +3033,53 @@ mod tests {
             .set_compression(Compression::SNAPPY)
             .build();
         column_roundtrip_random::<Int32Type>(props, 2048, i32::MIN, i32::MAX, 10, 10);
+    }
+
+    #[test]
+    fn test_column_writer_pcodec_physical_type() {
+        // parquet-pcodec fork: data and dictionary pages get the column's physical type as
+        // the PCODEC type hint, so they are pcodec payloads rather than the ZSTD fallback
+        use parquet_pcodec_core::{Mode, mode_of};
+
+        struct CapturingPageWriter<'a>(&'a mut Vec<(PageType, Bytes)>);
+        impl PageWriter for CapturingPageWriter<'_> {
+            fn write_page(&mut self, page: CompressedPage) -> Result<PageWriteSpec> {
+                self.0.push((page.page_type(), page.data().to_vec().into()));
+                TestPageWriter {}.write_page(page)
+            }
+            fn close(&mut self) -> Result<()> {
+                Ok(())
+            }
+        }
+
+        fn modes<T: DataType>(props: WriterProperties, values: &[T::T]) -> Vec<(PageType, Mode)> {
+            let mut pages = vec![];
+            let page_writer = Box::new(CapturingPageWriter(&mut pages));
+            let mut writer = get_test_column_writer::<T>(page_writer, 0, 0, Arc::new(props));
+            writer.write_batch(values, None, None).unwrap();
+            writer.close().unwrap();
+            pages
+                .iter()
+                .map(|(t, data)| (*t, mode_of(data).unwrap()))
+                .collect()
+        }
+        let pcodec = || WriterProperties::builder().set_compression(Compression::PCODEC(Default::default()));
+
+        let ints: Vec<i64> = (0..1000).map(|v| v * 7).collect();
+        let props = pcodec()
+            .set_writer_version(WriterVersion::PARQUET_2_0)
+            .set_dictionary_enabled(false)
+            .set_encoding(Encoding::PLAIN)
+            .build();
+        assert_eq!(modes::<Int64Type>(props, &ints), [(PageType::DATA_PAGE_V2, Mode::Pco)]);
+
+        let props = pcodec().set_writer_version(WriterVersion::PARQUET_1_0).build();
+        let pages = modes::<Int32Type>(props, &(0..1000).collect::<Vec<i32>>());
+        assert_eq!(pages[0], (PageType::DICTIONARY_PAGE, Mode::Pco));
+
+        let prices: Vec<f64> = (0..1000).map(|v| v as f64 / 100.0).collect();
+        let props = pcodec().set_dictionary_enabled(false).build();
+        assert_eq!(modes::<DoubleType>(props, &prices), [(PageType::DATA_PAGE, Mode::Decimal)]);
     }
 
     #[test]
