@@ -84,3 +84,9 @@ func TestVendoredHeaderMatchesTheCAPI(t *testing.T) {
 		t.Fatal("include/parquet_pcodec.h differs from rust/capi/include/parquet_pcodec.h; copy it again")
 	}
 }
+
+func TestSmallerKeepsBaseOnATie(t *testing.T) {
+	if !smaller(9, 10) || smaller(10, 10) || smaller(11, 10) {
+		t.Fatal("smaller")
+	}
+}
