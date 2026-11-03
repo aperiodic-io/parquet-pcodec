@@ -95,7 +95,9 @@ func appendRandom(b array.Builder, typ arrow.DataType, nullable bool, r *rand.Ra
 		}
 		b.Append(v)
 	case *array.TimestampBuilder:
-		b.Append(arrow.Timestamp(1_700_000_000_000 + smooth(r)))
+		base := map[arrow.TimeUnit]int64{arrow.Second: 1_700_000_000, arrow.Millisecond: 1_700_000_000_000,
+			arrow.Microsecond: 1_700_000_000_000_000, arrow.Nanosecond: 1_700_000_000_000_000_000}
+		b.Append(arrow.Timestamp(base[typ.(*arrow.TimestampType).Unit] + smooth(r)%1_000_000_000))
 	case *array.Date32Builder:
 		b.Append(arrow.Date32(19000 + r.IntN(1000)))
 	case *array.Date64Builder:

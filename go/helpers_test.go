@@ -69,6 +69,27 @@ func assertSameData(t testing.TB, data []byte, recs ...arrow.RecordBatch) {
 	}
 }
 
+// assertSameTable checks that the file holds exactly the rows of want.
+func assertSameTable(t testing.TB, data []byte, want arrow.Table) {
+	t.Helper()
+	var w bytes.Buffer
+	if err := canonical.WriteTable(&w, want); err != nil {
+		t.Fatal(err)
+	}
+	tbl, err := readTable(t, data)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	defer tbl.Release()
+	var got bytes.Buffer
+	if err := canonical.WriteTable(&got, tbl); err != nil {
+		t.Fatal(err)
+	}
+	if ok, diff := canonical.Equal(got.Bytes(), w.Bytes()); !ok {
+		t.Fatalf("data differs: %s", diff)
+	}
+}
+
 // columnCodecs returns the codec of every column chunk, by path, checking that all row
 // groups agree.
 func columnCodecs(t testing.TB, md *metadata.FileMetaData) map[string]string {
