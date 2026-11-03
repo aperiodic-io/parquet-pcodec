@@ -1106,7 +1106,9 @@ mod tests {
         use parquet_pcodec_core::{Mode, mode_of};
 
         let ints: Vec<u8> = (0..1000i64).flat_map(|v| (v * 7).to_le_bytes()).collect();
-        let prices: Vec<u8> = (0..1000).flat_map(|v| (v as f64 / 100.0).to_le_bytes()).collect();
+        let prices: Vec<u8> = (0..1000)
+            .flat_map(|v| (v as f64 / 100.0).to_le_bytes())
+            .collect();
         let cases = [
             (None, &ints, Mode::Zstd),
             (Some(Type::INT64), &ints, Mode::Pco),

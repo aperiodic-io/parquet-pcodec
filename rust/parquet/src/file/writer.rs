@@ -509,10 +509,12 @@ fn with_pcodec_version(
         .flatten()
         .any(|kv| kv.key == parquet_pcodec_core::KV_KEY);
     if has_pcodec && !has_version {
-        key_value_metadata.get_or_insert_default().push(KeyValue::new(
-            parquet_pcodec_core::KV_KEY.to_string(),
-            parquet_pcodec_core::KV_VALUE.to_string(),
-        ));
+        key_value_metadata
+            .get_or_insert_default()
+            .push(KeyValue::new(
+                parquet_pcodec_core::KV_KEY.to_string(),
+                parquet_pcodec_core::KV_VALUE.to_string(),
+            ));
     }
     key_value_metadata
 }
@@ -2093,7 +2095,11 @@ mod tests {
         writer.close().unwrap();
 
         let reader = SerializedFileReader::new(Bytes::from(out)).unwrap();
-        reader.metadata().file_metadata().key_value_metadata().cloned()
+        reader
+            .metadata()
+            .file_metadata()
+            .key_value_metadata()
+            .cloned()
     }
 
     #[test]

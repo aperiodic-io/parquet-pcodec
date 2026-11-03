@@ -18,6 +18,7 @@
 //! Tests for [`ArrowWriter`]
 
 mod layout;
+mod pcodec;
 mod roundtrip;
 mod roundtrip_helpers;
 

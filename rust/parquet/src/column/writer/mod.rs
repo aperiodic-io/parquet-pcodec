@@ -3063,7 +3063,8 @@ mod tests {
                 .map(|(t, data)| (*t, mode_of(data).unwrap()))
                 .collect()
         }
-        let pcodec = || WriterProperties::builder().set_compression(Compression::PCODEC(Default::default()));
+        let pcodec =
+            || WriterProperties::builder().set_compression(Compression::PCODEC(Default::default()));
 
         let ints: Vec<i64> = (0..1000).map(|v| v * 7).collect();
         let props = pcodec()
@@ -3071,15 +3072,23 @@ mod tests {
             .set_dictionary_enabled(false)
             .set_encoding(Encoding::PLAIN)
             .build();
-        assert_eq!(modes::<Int64Type>(props, &ints), [(PageType::DATA_PAGE_V2, Mode::Pco)]);
+        assert_eq!(
+            modes::<Int64Type>(props, &ints),
+            [(PageType::DATA_PAGE_V2, Mode::Pco)]
+        );
 
-        let props = pcodec().set_writer_version(WriterVersion::PARQUET_1_0).build();
+        let props = pcodec()
+            .set_writer_version(WriterVersion::PARQUET_1_0)
+            .build();
         let pages = modes::<Int32Type>(props, &(0..1000).collect::<Vec<i32>>());
         assert_eq!(pages[0], (PageType::DICTIONARY_PAGE, Mode::Pco));
 
         let prices: Vec<f64> = (0..1000).map(|v| v as f64 / 100.0).collect();
         let props = pcodec().set_dictionary_enabled(false).build();
-        assert_eq!(modes::<DoubleType>(props, &prices), [(PageType::DATA_PAGE, Mode::Decimal)]);
+        assert_eq!(
+            modes::<DoubleType>(props, &prices),
+            [(PageType::DATA_PAGE, Mode::Decimal)]
+        );
     }
 
     #[test]
