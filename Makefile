@@ -7,7 +7,7 @@ UPSTREAM := acceptance/rust-upstream/Cargo.toml
 FUZZ_TIME ?= 60
 
 .PHONY: check fmt fmt-check clippy test c-test check-fork testdata testdata-check fuzz-smoke \
-	mutants fork-mutants fork-upstream-tests
+	mutants fork-mutants fork-upstream-tests python-test python-mutants
 
 check: fmt-check clippy test c-test check-fork testdata-check
 
@@ -48,8 +48,22 @@ fuzz-smoke:
 	cd rust/core && for t in $$($(CARGO) +nightly fuzz list); do \
 		$(CARGO) +nightly fuzz run $$t -- -max_total_time=$(FUZZ_TIME) || exit 1; done
 
+# python/rust is judged by the Python suite: see python-mutants
 mutants:
-	$(CARGO) mutants --workspace -j $(JOBS)
+	$(CARGO) mutants --workspace -j $(JOBS) --exclude 'python/**'
+
+PYTHON_VENV := $(CURDIR)/python/.venv/bin/python
+
+# the Python package: `uv sync` (Python 3.14) and `maturin develop`, then pytest
+python-test:
+	cd python && uv sync --python 3.14 && uv run --no-sync maturin develop --uv && uv run --no-sync pytest
+
+# mutmut on the Python modules; cargo mutants on the pyo3 crate, with pytest as its test
+python-mutants:
+	cd python && HYPOTHESIS_PROFILE=mutation PARQUET_PCODEC_TESTDATA=$(CURDIR)/testdata \
+	  uv run --no-sync python scripts/mutmut_check.py
+	HYPOTHESIS_PROFILE=mutation PARQUET_PCODEC_PYTHON=$(PYTHON_VENV) PYO3_PYTHON=$(PYTHON_VENV) \
+	  $(CARGO) mutants -p parquet-pcodec-python -j $(JOBS)
 
 # the fork's changed functions only (rust/parquet/FORK.md)
 fork-mutants:

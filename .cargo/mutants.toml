@@ -11,6 +11,10 @@ exclude_re = [
 ]
 # the vendored upstream crate is tested upstream; its patched functions are listed in
 # rust/parquet/FORK.md and mutated by `make fork-mutants`
-exclude_globs = ["rust/parquet/**"]
+#
+# python/rust/pytest_suite.rs is the test that runs the Python suite against the extension
+# (python/rust is mutated with `make python-mutants`, which needs the Python environment;
+# `make mutants` leaves it out with --exclude)
+exclude_globs = ["rust/parquet/**", "python/rust/pytest_suite.rs"]
 # one build of the parquet fork per scratch tree is slow; give the first one time
 build_timeout_multiplier = 3

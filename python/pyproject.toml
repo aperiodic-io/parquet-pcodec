@@ -76,7 +76,7 @@ known-first-party = ["parquet_pcodec", "conftest"]
 [tool.mypy]
 strict = true
 python_version = "3.10"
-files = ["src", "tests"]
+files = ["src", "tests", "scripts"]
 mypy_path = "tests"
 
 [[tool.mypy.overrides]]
@@ -91,3 +91,15 @@ markers = [
     "slow: long-running tests, left out of the mutation runs",
 ]
 filterwarnings = ["error"]
+
+[tool.mutmut]
+# run from python/: `HYPOTHESIS_PROFILE=mutation PARQUET_PCODEC_TESTDATA=$PWD/../testdata mutmut run`
+# (the copy in mutants/ cannot find ../testdata by itself); the extension module is copied
+# with the sources, so build it first (maturin develop)
+source_paths = ["src/parquet_pcodec"]
+pytest_add_cli_args = ["-m", "not slow", "-p", "no:cacheprovider"]
+pytest_add_cli_args_test_selection = ["tests/"]
+# Polars, DuckDB and the extension start thread pools: workers forked from the process that
+# ran the suite inherit them broken and hang. Fork them from a clean server instead.
+process_isolation = "forkserver"
+forkserver_warmup = "none"

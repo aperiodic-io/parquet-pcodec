@@ -191,12 +191,6 @@ def test_bad_batch_size(path: pathlib.Path) -> None:
         (pl.col("day") >= datetime.date(2025, 1, 10), [9]),
         (pl.col("ts") < datetime.datetime(2025, 1, 2, 14, 30, 30, tzinfo=datetime.timezone.utc), [0, 1]),
         (pl.col("ts") >= datetime.datetime(2025, 1, 2, 14, 34, tzinfo=datetime.timezone.utc), [9]),
-        # Polars folds the cast into a literal in the column's unit
-        (
-            pl.col("ts")
-            < pl.lit(datetime.datetime(2025, 1, 2, 14, 30, 30, tzinfo=datetime.timezone.utc)).dt.cast_time_unit("ns"),
-            [0, 1],
-        ),
         # a float literal is not used
         (pl.col("seq") < 150.5, list(range(10))),
         # float columns are never pruned: Parquet min/max leave NaN out
@@ -214,6 +208,17 @@ def test_row_groups_are_pruned(
     out = lf.filter(predicate).collect()
     assert_frame_equal(out, frame().filter(predicate))
     assert spy.calls[0]["row_groups"] == kept
+
+
+def test_literal_in_another_unit(path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Polars >= 2.1 folds the cast into a literal in the column's unit (then it prunes);
+    # older Polars passes the cast (then it does not)
+    lit = pl.lit(datetime.datetime(2025, 1, 2, 14, 30, 30, tzinfo=datetime.timezone.utc)).dt.cast_time_unit("ns")
+    lf = ppl.scan_parquet(path)
+    spy = Spy(monkeypatch)
+    out = lf.filter(pl.col("ts") < lit).collect()
+    assert_frame_equal(out, frame().filter(pl.col("ts") < lit))
+    assert spy.calls[0]["row_groups"] in ([0, 1], list(range(10)))
 
 
 def test_pruning_off_without_statistics(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:

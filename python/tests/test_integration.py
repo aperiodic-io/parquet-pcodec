@@ -92,9 +92,12 @@ def test_every_column_type_round_trips(tmp_path: pathlib.Path, policy: ppc.Polic
     back = ppc.read_table(path)
     assert back.schema == t.schema
     assert canonical.dumps(back) == canonical.dumps(t)
-    # pyarrow reads what it can: base files entirely
+    # pyarrow reads base files (pyarrow < 26 cannot read arrow-rs's fixed-size lists with nulls,
+    # PCODEC or not)
     if policy == "base":
-        assert canonical.dumps(pq.read_table(path)) == canonical.dumps(t)
+        skip = [] if int(pa.__version__.split(".")[0]) >= 26 else ["fixed_list"]
+        names = [n for n in t.column_names if n not in skip]
+        assert canonical.dumps(pq.read_table(path, columns=names)) == canonical.dumps(t.select(names))
 
 
 def test_auto_choices_on_mixed_columns(tmp_path: pathlib.Path) -> None:
