@@ -11,6 +11,11 @@ on:
 permissions:
   contents: read
 
+# a newer push to the same branch or pull request cancels the runs it supersedes
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
@@ -55,10 +60,19 @@ jobs:
       - name: unit tests and the SQL tests on the debug build cargo makes for them
         run: make -C duckdb test
 
+  # Each mutant rebuilds the extension and runs the SQL suite through DuckDB; on one 2-vCPU
+  # runner the ~280 mutants of the crate take hours and run out of memory, so they are split
+  # into shards (cargo mutants --shard) on 4-vCPU runners.
   mutants:
     if: github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubicloud-standard-2
+    runs-on: ubicloud-standard-4
     timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    env:
+      SHARD: --shard ${{ matrix.shard }}/4
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -79,12 +93,12 @@ jobs:
         if: github.event_name == 'pull_request'
         run: |
           git diff "origin/${{ github.base_ref }}...HEAD" > "$RUNNER_TEMP/pr.diff"
-          make -C duckdb mutation MUTANTS_ARGS="--in-diff $RUNNER_TEMP/pr.diff"
+          make -C duckdb mutation MUTANTS_ARGS="$SHARD --in-diff $RUNNER_TEMP/pr.diff"
       - name: every mutant of the extension (weekly and on demand)
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-        run: make -C duckdb mutation
+        run: make -C duckdb mutation MUTANTS_ARGS="$SHARD"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
-          name: mutants-duckdb.out
+          name: mutants-duckdb-${{ matrix.shard }}.out
           path: target/mutants-duckdb
