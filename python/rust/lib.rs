@@ -28,5 +28,7 @@ fn _lib(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(writer::transcode, m)?)?;
     m.add_function(wrap_pyfunction!(writer::write_stream, m)?)?;
     codec::register(m)?;
+    m.add_function(wrap_pyfunction!(errors::panic_for_tests, m)?)?;
+    m.add_class::<errors::PanickingStream>()?;
     Ok(())
 }

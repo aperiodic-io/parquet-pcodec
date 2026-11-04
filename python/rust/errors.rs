@@ -88,3 +88,53 @@ pub fn from_parquet(e: parquet_pcodec::parquet::errors::ParquetError) -> PyErr {
 pub fn from_arrow(e: arrow_schema::ArrowError) -> PyErr {
     invalid(format!("arrow: {e}"))
 }
+
+/// Panics in Rust code called from Python, for the tests that check a panic becomes a
+/// `PcodecError`: with a `String` payload (`message`), a `&str` one (`None`) or neither
+/// (`""`, a payload that is not a string).
+#[pyfunction]
+#[pyo3(name = "_panic", signature = (message=None))]
+pub fn panic_for_tests(py: Python<'_>, message: Option<String>) -> PyResult<()> {
+    detached(py, move || match message.as_deref() {
+        None => panic!("a static message"),
+        Some("") => std::panic::panic_any(42_u8),
+        Some(_) => std::panic::panic_any(message.unwrap_or_default()),
+    })
+}
+
+/// A stream whose reader panics on its first batch, for the same tests.
+#[pyclass(frozen, module = "parquet_pcodec._lib")]
+pub struct PanickingStream;
+
+struct Panics(arrow_schema::SchemaRef);
+
+impl Iterator for Panics {
+    type Item = Result<arrow_array::RecordBatch, arrow_schema::ArrowError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        panic!("the reader panicked")
+    }
+}
+
+impl arrow_array::RecordBatchReader for Panics {
+    fn schema(&self) -> arrow_schema::SchemaRef {
+        self.0.clone()
+    }
+}
+
+#[pymethods]
+impl PanickingStream {
+    #[new]
+    fn new() -> Self {
+        Self
+    }
+
+    fn stream(&self) -> crate::ffi::RecordBatchStream {
+        let schema = std::sync::Arc::new(arrow_schema::Schema::new(vec![arrow_schema::Field::new(
+            "x",
+            arrow_schema::DataType::Int64,
+            true,
+        )]));
+        crate::ffi::RecordBatchStream::new(Box::new(Panics(schema)))
+    }
+}

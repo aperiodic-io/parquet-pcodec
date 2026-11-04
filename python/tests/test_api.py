@@ -548,5 +548,22 @@ def test_public_defaults() -> None:
     assert defaults(pdd.read_parquet) == {"connection": None, "columns": None}
 
 
+def test_rust_panics_become_pcodec_errors() -> None:
+    from parquet_pcodec import _lib
+
+    with pytest.raises(ppc.PcodecError, match="^internal error: boom$"):
+        _lib._panic("boom")
+    with pytest.raises(ppc.PcodecError, match="^internal error: a static message$"):
+        _lib._panic()
+    with pytest.raises(ppc.PcodecError, match="^internal error: $"):
+        _lib._panic("")
+    # in a stream: through __next__, and through the C stream (where unwinding would abort)
+    with pytest.raises(ppc.PcodecError, match="internal error: the reader panicked"):
+        next(iter(_lib.PanickingStream().stream()))
+    reader = pa.RecordBatchReader.from_stream(_lib.PanickingStream().stream())
+    with pytest.raises(pa.ArrowException, match="internal error: the reader panicked"):
+        reader.read_all()
+
+
 def test_version() -> None:
     assert ppc.__version__ == "0.1.0"
