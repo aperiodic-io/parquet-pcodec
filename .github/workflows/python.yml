@@ -1,0 +1,178 @@
+name: python
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "41 4 * * 2" # weekly: thorough property tests and every mutant
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  UV_PYTHON_PREFERENCE: only-managed
+
+jobs:
+  lint:
+    runs-on: ubicloud-standard-2
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1 (master)
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: uv sync --locked --python 3.14
+      - run: uv run --no-sync ruff check src tests
+      - run: uv run --no-sync ruff format --check src tests
+      # the extension's stubs (_lib.pyi) are what mypy checks the package against
+      - run: uv run --no-sync mypy --strict
+      - run: cargo fmt -p parquet-pcodec-python --check
+      - run: cargo clippy -j 2 --no-deps -p parquet-pcodec-python --all-targets -- -D warnings
+        env:
+          PYO3_PYTHON: ${{ github.workspace }}/python/.venv/bin/python
+
+  test:
+    runs-on: ubicloud-standard-2
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1 (master)
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: python-${{ matrix.python }}
+      - run: uv sync --locked --python ${{ matrix.python }}
+      - run: uv run --no-sync maturin develop --uv
+      - name: pytest (the slow acceptance tests on the newest Python only)
+        run: |
+          if [ "${{ matrix.python }}" = "3.14" ]; then
+            uv run --no-sync pytest
+          else
+            uv run --no-sync pytest -m "not slow"
+          fi
+        env:
+          HYPOTHESIS_PROFILE: ${{ github.event_name == 'schedule' && 'thorough' || 'default' }}
+          PARQUET_PCODEC_ACCEPTANCE_LOG: ${{ github.workspace }}/acceptance-${{ matrix.python }}.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: acceptance-${{ matrix.python }}
+          path: acceptance-${{ matrix.python }}.json
+          if-no-files-found: ignore
+
+  mutmut:
+    if: github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 180
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1 (master)
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: uv sync --locked --python 3.14
+      - run: uv run --no-sync maturin develop --uv
+      - name: mutmut (fails on any mutant that is not killed)
+        run: uv run --no-sync python scripts/mutmut_check.py
+        env:
+          HYPOTHESIS_PROFILE: mutation
+          PARQUET_PCODEC_TESTDATA: ${{ github.workspace }}/testdata
+
+  rust-mutants:
+    if: github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1 (master)
+        with:
+          toolchain: stable
+      - uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2.90.0
+        with:
+          tool: cargo-mutants@27
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: uv sync --locked --python 3.14
+        working-directory: python
+      # mutants of python/rust are judged by the pytest suite (python/rust/pytest_suite.rs)
+      - name: mutants in the pull request's diff
+        if: github.event_name == 'pull_request'
+        run: |
+          git diff "origin/${{ github.base_ref }}...HEAD" > pr.diff
+          cargo mutants -p parquet-pcodec-python --in-diff pr.diff -j 2
+        env:
+          PARQUET_PCODEC_PYTHON: ${{ github.workspace }}/python/.venv/bin/python
+          PYO3_PYTHON: ${{ github.workspace }}/python/.venv/bin/python
+          HYPOTHESIS_PROFILE: mutation
+      - name: every mutant (weekly and on demand)
+        if: github.event_name != 'pull_request'
+        run: cargo mutants -p parquet-pcodec-python -j 2
+        env:
+          PARQUET_PCODEC_PYTHON: ${{ github.workspace }}/python/.venv/bin/python
+          PYO3_PYTHON: ${{ github.workspace }}/python/.venv/bin/python
+          HYPOTHESIS_PROFILE: mutation
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: python-mutants.out
+          path: mutants.out*
+
+  wheels:
+    runs-on: ubicloud-standard-2
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x86_64, aarch64]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+      - name: build the abi3 wheel (CPython >= 3.10)
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          target: ${{ matrix.target }}
+          manylinux: auto
+          args: --release --locked --out dist --manifest-path python/Cargo.toml
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: wheel-linux-${{ matrix.target }}
+          path: dist/*.whl
+          if-no-files-found: error
+
+  sdist:
+    runs-on: ubicloud-standard-2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          command: sdist
+          args: --out dist --manifest-path python/Cargo.toml
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error

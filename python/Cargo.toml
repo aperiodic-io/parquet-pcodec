@@ -1,0 +1,39 @@
+[package]
+name = "parquet-pcodec-python"
+version = "0.1.0"
+description = "Python bindings of parquet-pcodec (the parquet_pcodec._lib extension module)"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+autotests = false
+
+[lib]
+name = "_lib"
+path = "rust/lib.rs"
+# rlib too, so that `cargo test` builds the library (and with it the cdylib) for the test
+crate-type = ["cdylib", "rlib"]
+# the extension is tested from Python: rust/pytest_suite.rs runs the pytest suite against it
+test = false
+doctest = false
+
+[features]
+default = ["extension-module"]
+# do not link libpython: the interpreter that imports the module provides it
+extension-module = ["pyo3/extension-module"]
+
+[dependencies]
+parquet-pcodec = { path = "../rust/parquet-pcodec" }
+parquet-pcodec-core = { path = "../rust/core" }
+# the fork that [patch.crates-io] puts in place of parquet 60.1.0: named here by path so that
+# the sdist (which follows path dependencies, not patches) contains it
+parquet = { path = "../rust/parquet", version = "=60.1.0", default-features = false }
+arrow-array = { workspace = true, features = ["ffi"] }
+arrow-schema = { workspace = true, features = ["ffi"] }
+bytes = "1"
+pyo3 = { version = "0.30", features = ["abi3-py310"] }
+
+[[test]]
+name = "pytest"
+path = "rust/pytest_suite.rs"

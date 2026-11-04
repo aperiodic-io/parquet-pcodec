@@ -4,7 +4,17 @@ exclude_re = [
     # length is written, and both decode to the same bytes (equivalent mutants).
     'rust/core/src/lib\.rs:.*replace < with <= in compress',
     'rust/core/src/lib\.rs:.*replace < with <= in float_payload',
+    # Ties in Auto (spec section 6): `<` vs `<=` only changes which of two candidates of the
+    # same size is written (a column chunk, or the whole first batch); both hold the same data
+    # and the same number of bytes, and the spec leaves ties to the writer (equivalent mutants).
+    'rust/parquet-pcodec/src/writer\.rs:.*replace < with <= in Writer<W>::open',
 ]
 # the vendored upstream crate is tested upstream; its patched functions are listed in
-# rust/parquet/FORK.md and mutated by the fork job with --re
-exclude_globs = ["rust/parquet/**"]
+# rust/parquet/FORK.md and mutated by `make fork-mutants`
+#
+# python/rust/pytest_suite.rs is the test that runs the Python suite against the extension
+# (python/rust is mutated with `make python-mutants`, which needs the Python environment;
+# `make mutants` leaves it out with --exclude)
+exclude_globs = ["rust/parquet/**", "python/rust/pytest_suite.rs"]
+# one build of the parquet fork per scratch tree is slow; give the first one time
+build_timeout_multiplier = 3

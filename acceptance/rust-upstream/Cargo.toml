@@ -1,0 +1,13 @@
+# Acceptance test (a): the upstream, unmodified `parquet` crate from crates.io must fail
+# loudly on PCODEC files. This crate has its own workspace so that the root workspace's
+# [patch.crates-io] (the fork) does not apply.
+[package]
+name = "acceptance-rust-upstream"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dev-dependencies]
+parquet = { version = "=60.1.0", default-features = false, features = ["arrow", "zstd", "snap"] }
