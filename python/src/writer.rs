@@ -1,6 +1,6 @@
 //! Writing: the streaming [`Writer`] and [`transcode`].
 
-use crate::errors::{Pending, detached, from_pcodec, invalid};
+use crate::errors::{Pending, detached, from_pcodec, invalid, locked};
 use crate::ffi::{import_batch, import_schema, import_stream};
 use crate::file::File;
 use crate::options::{Options, base_codec, codec_map, codec_name};
@@ -11,7 +11,7 @@ use parquet_pcodec::Target;
 use parquet_pcodec::parquet::file::metadata::ParquetMetaData;
 use pyo3::prelude::*;
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 
 type Codecs = BTreeMap<String, String>;
 
@@ -40,10 +40,6 @@ impl Writer {
         Ok(Self { schema, state: Mutex::new(State::Open(Box::new(w))), pending })
     }
 
-    fn state(&self) -> MutexGuard<'_, State> {
-        self.state.lock().unwrap_or_else(|p| p.into_inner())
-    }
-
     /// Runs `f` on the open writer with the GIL released; an exception raised by a Python
     /// sink is re-raised as it was.
     fn with_open<T: Send>(
@@ -51,9 +47,11 @@ impl Writer {
         py: Python<'_>,
         f: impl FnOnce(&mut parquet_pcodec::Writer<Sink>) -> PyResult<T> + Send,
     ) -> PyResult<T> {
-        let mut state = self.state();
-        let State::Open(w) = &mut *state else { return Err(invalid("the writer is closed")) };
-        detached(py, || f(w)).map_err(|e| self.pending.or(e))
+        locked(py, &self.state, |state| match state {
+            State::Open(w) => f(w),
+            State::Closed(_) => Err(closed()),
+        })
+        .map_err(|e| self.pending.or(e))
     }
 
     fn write_batches(
@@ -102,36 +100,42 @@ impl Writer {
 
     /// The codec of every leaf column, once chosen.
     #[getter]
-    fn codecs(&self) -> Option<Codecs> {
-        match &*self.state() {
-            State::Open(w) => w.codecs().map(|c| codec_map(&c)),
-            State::Closed(c) => c.clone(),
-        }
+    fn codecs(&self, py: Python<'_>) -> PyResult<Option<Codecs>> {
+        locked(py, &self.state, |state| {
+            Ok(match state {
+                State::Open(w) => w.codecs().map(|c| codec_map(&c)),
+                State::Closed(c) => c.clone(),
+            })
+        })
     }
 
     /// Writes the footer; returns the codec of every leaf column.
     fn close(&self, py: Python<'_>) -> PyResult<Codecs> {
-        let mut state = self.state();
-        let State::Open(_) = &*state else { return Err(invalid("the writer is closed")) };
-        let State::Open(w) = std::mem::replace(&mut *state, State::Closed(None)) else { unreachable!() };
-        let codecs = detached(py, move || {
+        locked(py, &self.state, |state| {
+            let State::Open(w) = std::mem::replace(state, State::Closed(None)) else { return Err(closed()) };
             let (_, codecs) = w.finish().map_err(from_pcodec)?;
+            *state = State::Closed(Some(codec_map(&codecs)));
             Ok(codec_map(&codecs))
         })
-        .map_err(|e| self.pending.or(e))?;
-        *state = State::Closed(Some(codecs.clone()));
-        Ok(codecs)
+        .map_err(|e| self.pending.or(e))
     }
 
     /// Drops the writer without writing the footer.
-    fn abort(&self) {
-        *self.state() = State::Closed(None);
+    fn abort(&self, py: Python<'_>) -> PyResult<()> {
+        locked(py, &self.state, |state| {
+            *state = State::Closed(None);
+            Ok(())
+        })
     }
 
     #[getter]
-    fn closed(&self) -> bool {
-        matches!(*self.state(), State::Closed(_))
+    fn closed(&self, py: Python<'_>) -> PyResult<bool> {
+        locked(py, &self.state, |state| Ok(matches!(state, State::Closed(_))))
     }
+}
+
+fn closed() -> PyErr {
+    invalid("the writer is closed")
 }
 
 /// Writes every batch of an `arrow_array_stream` capsule to `sink` (a `str` path or a binary

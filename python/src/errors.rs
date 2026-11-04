@@ -45,6 +45,17 @@ pub fn detached<T: Send>(py: Python<'_>, f: impl FnOnce() -> PyResult<T> + Send)
     })
 }
 
+/// Runs `f` on the value behind `m` with the GIL released, waiting for the lock without it:
+/// a thread that holds the GIL must never wait for a lock that a thread without the GIL holds
+/// (that thread may need the GIL to finish, through a Python file object).
+pub fn locked<T: Send, R: Send>(
+    py: Python<'_>,
+    m: &Mutex<T>,
+    f: impl FnOnce(&mut T) -> PyResult<R> + Send,
+) -> PyResult<R> {
+    detached(py, || f(&mut m.lock().unwrap_or_else(|p| p.into_inner())))
+}
+
 /// Where a sink backed by a Python object keeps the exception it raised, so that it reaches
 /// the caller unchanged instead of as an I/O error message.
 #[derive(Clone, Default)]

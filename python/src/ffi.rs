@@ -1,7 +1,7 @@
 //! The Arrow PyCapsule interface: importing streams, arrays and schemas from any Python Arrow
 //! library and exporting them, through arrow-rs's C data and C stream support.
 
-use crate::errors::{PcodecError, detached, from_arrow, invalid, panic_message};
+use crate::errors::{PcodecError, from_arrow, invalid, locked, panic_message};
 use arrow_array::ffi::{FFI_ArrowArray, FFI_ArrowSchema, from_ffi};
 use arrow_array::ffi_stream::{FFI_ArrowArrayStream, RecordBatchStreamReader};
 use arrow_array::{Array, RecordBatch, RecordBatchReader, StructArray};
@@ -90,6 +90,10 @@ impl RecordBatchReader for Detached {
     }
 }
 
+fn consumed() -> PyErr {
+    invalid("the stream was already consumed")
+}
+
 /// A stream of record batches, exported once through `__arrow_c_stream__`.
 #[pyclass(frozen, module = "parquet_pcodec._lib")]
 pub struct RecordBatchStream {
@@ -121,12 +125,7 @@ impl RecordBatchStream {
                 )));
             }
         }
-        let reader = self
-            .reader
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .take()
-            .ok_or_else(|| invalid("the stream was already consumed"))?;
+        let reader = locked(py, &self.reader, |r| r.take().ok_or_else(consumed))?;
         PyCapsule::new_with_value(py, FFI_ArrowArrayStream::new(Box::new(Detached(reader))), STREAM)
     }
 
@@ -141,9 +140,10 @@ impl RecordBatchStream {
 
     /// The next batch, decoded with the GIL released.
     fn __next__(&self, py: Python<'_>) -> PyResult<Option<Batch>> {
-        let mut reader = self.reader.lock().unwrap_or_else(|p| p.into_inner());
-        let Some(r) = reader.as_mut() else { return Err(invalid("the stream was already consumed")) };
-        let next = detached(py, || r.next().transpose().map_err(from_arrow))?;
+        let next = locked(py, &self.reader, |r| match r {
+            Some(r) => r.next().transpose().map_err(from_arrow),
+            None => Err(consumed()),
+        })?;
         Ok(next.map(|batch| Batch { batch, schema: self.schema.clone() }))
     }
 }

@@ -9,6 +9,14 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
+from hypothesis import HealthCheck, settings
+
+# HYPOTHESIS_PROFILE: "default", "thorough" (CI weekly) or "mutation" (fixed examples)
+_slow_ok = [HealthCheck.too_slow, HealthCheck.data_too_large]
+settings.register_profile("default", max_examples=40, deadline=None, suppress_health_check=_slow_ok)
+settings.register_profile("thorough", max_examples=400, deadline=None, suppress_health_check=_slow_ok)
+settings.register_profile("mutation", max_examples=10, deadline=None, derandomize=True, suppress_health_check=_slow_ok)
+settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "default"))
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 TESTDATA = pathlib.Path(os.environ.get("PARQUET_PCODEC_TESTDATA", REPO / "testdata"))
