@@ -168,6 +168,36 @@ fn auto_without_rows_uses_the_base_codec() {
 }
 
 #[test]
+fn finish_returns_the_codecs_written() {
+    // without rows, Auto columns get the base codec and forced ones keep theirs
+    let empty = mixed(0, 9);
+    let options = WriterOptions::default().with_column("price", Policy::Pcodec);
+    let w = Writer::try_new(Vec::new(), empty.schema(), options).unwrap();
+    assert!(w.codecs().is_none());
+    let (metadata, chosen) = w.finish().unwrap();
+    assert_eq!(metadata.num_row_groups(), 0);
+    let names: Vec<(String, String)> = chosen.iter().map(|c| (c.path.clone(), c.codec.to_string())).collect();
+    let zstd = Compression::ZSTD(parquet_pcodec::parquet::basic::ZstdLevel::try_new(3).unwrap()).to_string();
+    let pcodec = Compression::PCODEC(Default::default()).to_string();
+    assert_eq!(
+        names,
+        [("ts", &zstd), ("price", &pcodec), ("flag", &zstd), ("name", &zstd)]
+            .map(|(p, c)| (p.to_string(), c.clone()))
+            .to_vec()
+    );
+    // with rows: what codecs() said, and the file it wrote
+    let batch = mixed(N, 11);
+    let mut out = Vec::new();
+    let mut w = Writer::try_new(&mut out, batch.schema(), WriterOptions::default()).unwrap();
+    w.write(&batch).unwrap();
+    let before = w.codecs().unwrap();
+    let (metadata, after) = w.finish().unwrap();
+    assert_eq!(before, after);
+    assert_eq!(metadata.file_metadata().num_rows(), N as i64);
+    assert_eq!(lines(&bytes::Bytes::from(out)), batch_lines(&[batch]));
+}
+
+#[test]
 fn forced_policies_open_at_once() {
     let batch = mixed(N, 10);
     let mut out = Vec::new();

@@ -248,13 +248,20 @@ impl<W: Write + Send> Writer<W> {
 
     /// Writes the footer and returns the file metadata. Auto columns that never saw a row
     /// use the base codec.
-    pub fn close(mut self) -> Result<ParquetMetaData> {
+    pub fn close(self) -> Result<ParquetMetaData> {
+        self.finish().map(|(metadata, _)| metadata)
+    }
+
+    /// Writes the footer and returns the file metadata and the codec of every leaf column
+    /// (known even when no batch had rows: Auto columns then use the base codec).
+    pub fn finish(mut self) -> Result<(ParquetMetaData, Vec<ColumnCodec>)> {
         if let State::Pending(_) = self.state {
             let State::Pending(sink) = std::mem::replace(&mut self.state, State::Failed) else { unreachable!() };
             self.open(sink, &[])?;
         }
-        match self.state {
-            State::Open(w) => Ok(w.close()?),
+        let codecs = self.codecs();
+        match (self.state, codecs) {
+            (State::Open(w), Some(codecs)) => Ok((w.close()?, codecs)),
             _ => Err(invalid("the writer failed earlier and cannot be used")),
         }
     }
