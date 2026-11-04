@@ -23,7 +23,7 @@ env:
 
 jobs:
   lint:
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: python
@@ -46,7 +46,7 @@ jobs:
           PYO3_PYTHON: ${{ github.workspace }}/python/.venv/bin/python
 
   test:
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -84,7 +84,7 @@ jobs:
 
   mutmut:
     if: github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     timeout-minutes: 180
     defaults:
       run:
@@ -106,7 +106,7 @@ jobs:
 
   rust-mutants:
     if: github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     timeout-minutes: 300
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -147,7 +147,7 @@ jobs:
           path: mutants.out*
 
   wheels:
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -170,7 +170,7 @@ jobs:
           if-no-files-found: error
 
   sdist:
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0

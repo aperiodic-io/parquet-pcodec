@@ -22,7 +22,7 @@ env:
 
 jobs:
   build:
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1 (master)
@@ -45,7 +45,7 @@ jobs:
           if-no-files-found: error
 
   test:
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1 (master)
@@ -60,12 +60,11 @@ jobs:
       - name: unit tests and the SQL tests on the debug build cargo makes for them
         run: make -C duckdb test
 
-  # Each mutant rebuilds the extension and runs the SQL suite through DuckDB; on one 2-vCPU
-  # runner the ~280 mutants of the crate take hours and run out of memory, so they are split
-  # into shards (cargo mutants --shard) on 4-vCPU runners.
+  # Each mutant rebuilds the extension and runs the SQL suite through DuckDB: about 280 mutants
+  # of the crate, split into shards (cargo mutants --shard) so the run takes minutes, not hours.
   mutants:
     if: github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubicloud-standard-4
+    runs-on: ubuntu-latest
     timeout-minutes: 350
     strategy:
       fail-fast: false
