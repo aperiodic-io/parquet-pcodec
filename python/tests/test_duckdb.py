@@ -94,6 +94,20 @@ def test_sql_view(con: duckdb.DuckDBPyConnection, trades: pathlib.Path) -> None:
     assert [d[0] for d in con.sql("select * from trades_v").description] == ["sym"]
 
 
+def test_sql_view_names_are_quoted(con: duckdb.DuckDBPyConnection, trades: pathlib.Path) -> None:
+    pdd.sql_view(con, 'odd "name"', trades, columns=["size"])
+    assert con.sql('select count(*) from "odd ""name"""').fetchall() == [(1000,)]
+
+
+def test_read_parquet_uses_the_connection_and_columns(trades: pathlib.Path) -> None:
+    con = duckdb.connect()
+    rel = pdd.read_parquet(trades, connection=con, columns=["size", "sym"])
+    assert rel.columns == ["size", "sym"]
+    con.close()
+    with pytest.raises(duckdb.ConnectionException):
+        rel.fetchall()
+
+
 def test_read_parquet_relation(trades: pathlib.Path, con: duckdb.DuckDBPyConnection) -> None:
     rel = pdd.read_parquet(trades, connection=con)
     assert rel.columns == ["ts", "sym", "price", "size"]
@@ -117,6 +131,11 @@ def test_source_object(trades: pathlib.Path) -> None:
     assert first.num_rows == 1000
     assert max(b.num_rows for b in first.to_batches()) == 128
     assert "ArrowSource" in repr(src)
+    # the requested schema reaches the stream
+    same = pa.RecordBatchReader.from_stream(src, schema=pa.schema([pa.field("size", pa.int32())]))
+    assert same.read_all().num_rows == 1000
+    with pytest.raises(ppc.PcodecError, match="cast"):
+        pa.RecordBatchReader.from_stream(src, schema=pa.schema([pa.field("size", pa.int64())]))
 
 
 def test_works_without_pyarrow(trades: pathlib.Path) -> None:

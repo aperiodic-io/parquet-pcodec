@@ -396,8 +396,33 @@ def test_writer_abort_keeps_file_objects(numbers: pa.Table) -> None:
     assert w.closed
 
 
+def test_writer_takes_batches_through_c_array(tmp_path: pathlib.Path, numbers: pa.Table) -> None:
+    batch = numbers.to_batches()[0]
+
+    class OnlyArray:
+        def __arrow_c_array__(self, requested_schema: object | None = None) -> tuple[object, object]:
+            return batch.__arrow_c_array__(requested_schema)  # type: ignore[no-any-return,no-untyped-call]
+
+    path = tmp_path / "w.parquet"
+    with ppc.Writer(path, numbers.schema) as w:
+        w.write(OnlyArray())
+        w.write(OnlyArray())
+        with pytest.raises(TypeError, match="__arrow_c_stream__ or __arrow_c_array__, got list"):
+            w.write([1, 2])  # type: ignore[arg-type]
+    assert ppc.read_table(path).equals(pa.concat_tables([numbers, numbers]))
+
+
+def test_writer_column_policies(tmp_path: pathlib.Path, numbers: pa.Table) -> None:
+    path = tmp_path / "w.parquet"
+    with ppc.Writer(path, numbers.schema, policy="base", columns={"i64": "pcodec"}) as w:
+        w.write(numbers)
+    assert w.codecs is not None
+    assert w.codecs["i64"] == "PCODEC"
+    assert w.codecs["i32"] == "ZSTD"
+
+
 def test_writer_needs_a_schema(tmp_path: pathlib.Path) -> None:
-    with pytest.raises(TypeError, match="__arrow_c_schema__"):
+    with pytest.raises(TypeError, match="__arrow_c_schema__, got str"):
         ppc.Writer(tmp_path / "x.parquet", "nope")  # type: ignore[arg-type]
 
 
@@ -470,6 +495,57 @@ def test_verify_reports_differences(tmp_path: pathlib.Path, numbers: pa.Table) -
     schema_diff = ppc.verify(a, c)
     assert schema_diff is not None
     assert "schemas differ" in schema_diff
+
+
+def test_empty_stream(tmp_path: pathlib.Path, numbers: pa.Table) -> None:
+    path = tmp_path / "t.parquet"
+    ppc.write_table(numbers, path)
+    f = ppc.ParquetFile(path)
+    assert pa.RecordBatchReader.from_stream(f.empty()).read_all().equals(numbers.slice(0, 0))
+    assert pa.schema(f.empty(["s", "i32"])) == numbers.select(["s", "i32"]).schema  # type: ignore[arg-type]
+    with pytest.raises(ppc.PcodecError, match="no column named 'x'"):
+        f.empty(["x"])
+
+
+def test_public_defaults() -> None:
+    import inspect
+
+    import parquet_pcodec.duckdb as pdd
+    import parquet_pcodec.pandas as ppd
+    import parquet_pcodec.polars as ppl
+
+    def defaults(f: object) -> dict[str, object]:
+        return {
+            k: v.default
+            for k, v in inspect.signature(f).parameters.items()  # type: ignore[arg-type]
+            if v.default is not inspect.Parameter.empty
+        }
+
+    write = {"policy": "auto", "columns": None, "level": 8, "base": "zstd(3)", "row_group_size": None}
+    assert defaults(ppc.write_table) == write
+    assert defaults(ppc.Writer) == write
+    assert defaults(ppd.to_parquet) == {"index": None, **write}
+    assert defaults(ppl.write_parquet) == write
+    assert defaults(ppc.transcode) == {
+        "target": "pcodec",
+        "policy": "auto",
+        "columns": None,
+        "level": 8,
+        "base": "zstd(3)",
+    }
+    read = {"columns": None, "row_groups": None, "batch_size": 65536}
+    assert defaults(ppc.read_table) == read
+    assert defaults(ppc.read_batches) == read
+    assert defaults(ppc.ParquetFile.read) == read
+    assert defaults(ppc.ParquetFile.iter_batches) == {"batch_size": 65536, "columns": None, "row_groups": None}
+    assert defaults(ppc.ParquetFile.stream) == {**read, "limit": None}
+    assert defaults(ppl.scan_parquet) == {"batch_size": None}
+    assert defaults(ppl.read_parquet) == {"columns": None}
+    assert defaults(ppd.read_parquet) == {"columns": None}
+    assert defaults(pdd.ArrowSource) == {"columns": None, "batch_size": 65536}
+    assert defaults(pdd.register) == {"columns": None}
+    assert defaults(pdd.sql_view) == {"columns": None}
+    assert defaults(pdd.read_parquet) == {"connection": None, "columns": None}
 
 
 def test_version() -> None:

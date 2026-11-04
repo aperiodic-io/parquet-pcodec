@@ -70,16 +70,17 @@ def _decode_categories(table: pa.Table) -> pa.Table:
         categories = _from_ipc(data)
         field = table.schema.field(i)
         t = field.type
+        # a table without rows may have no chunks: one empty chunk then carries the categories
+        stored_chunks: list[Any] = table.column(i).chunks or [pa.array([], t)]
         chunks = [
             pa.DictionaryArray.from_arrays(
                 pc.index_in(chunk.dictionary, value_set=categories).cast(t.index_type).take(chunk.indices),
                 categories,
                 ordered=t.ordered,
             )
-            for chunk in table.column(i).chunks
-            if isinstance(chunk, pa.DictionaryArray)
+            for chunk in stored_chunks
         ]
-        table = table.set_column(i, field, pa.chunked_array(chunks, t))
+        table = table.set_column(i, field, pa.chunked_array(chunks))
     return table
 
 

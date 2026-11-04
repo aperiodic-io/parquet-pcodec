@@ -90,6 +90,15 @@ def test_categoricals_keep_order_and_unused_categories(tmp_path: pathlib.Path) -
     pd.testing.assert_frame_equal(ppd.read_parquet(path, columns=["code"]), df[["code"]])
 
 
+def test_empty_frame_with_categories(tmp_path: pathlib.Path) -> None:
+    df = pd.DataFrame({"c": pd.Categorical([], categories=["b", "a"], ordered=True), "x": pd.Series([], dtype="int64")})
+    path = tmp_path / "empty.parquet"
+    ppd.to_parquet(df, path)
+    back = ppd.read_parquet(path)
+    pd.testing.assert_frame_equal(back, df)
+    assert list(back["c"].cat.categories) == ["b", "a"]
+
+
 def test_files_without_categories_metadata(tmp_path: pathlib.Path) -> None:
     # a file written by pyarrow (no restored categories needed) and plain Arrow dictionaries
     df = pd.DataFrame({"c": pd.Categorical(["b", "a"], categories=["b", "a", "z"])})
@@ -147,6 +156,12 @@ def _pyarrow_copy(df: pd.DataFrame, tmp_path: pathlib.Path) -> pathlib.Path:
     p = tmp_path / "pa.parquet"
     df.to_parquet(p, engine="pyarrow")
     return p
+
+
+def test_column_selection_without_pandas_metadata(tmp_path: pathlib.Path) -> None:
+    path = tmp_path / "plain.parquet"
+    ppc.write_table(pa.table({"a": [1, 2], "b": [3.0, 4.0]}), path)
+    pd.testing.assert_frame_equal(ppd.read_parquet(path, columns=["b"]), pd.DataFrame({"b": [3.0, 4.0]}))
 
 
 def test_to_pandas_kwargs(tmp_path: pathlib.Path) -> None:

@@ -3,7 +3,7 @@
 use crate::errors::{detached, from_arrow, from_parquet, from_pcodec, invalid, os_error};
 use crate::ffi::{ArrowSchema, RecordBatchStream};
 use crate::options::codec_name;
-use arrow_array::{RecordBatch, RecordBatchReader};
+use arrow_array::{RecordBatch, RecordBatchIterator, RecordBatchReader};
 use arrow_schema::{ArrowError, SchemaRef};
 use bytes::Bytes;
 use parquet_pcodec::parquet::arrow::ProjectionMask;
@@ -89,6 +89,23 @@ impl File {
 
     pub fn reader(&self) -> PyResult<Reader> {
         self.source.open()
+    }
+
+    /// For the top-level `columns` (all by default): their root indices in file order, where
+    /// each requested column is among those, and the schema of the requested columns in the
+    /// requested order. The reader's own schema lacks the file's schema metadata: this one is
+    /// the file's, projected.
+    fn projection(&self, columns: Option<Vec<String>>) -> PyResult<(Vec<usize>, Vec<usize>, SchemaRef)> {
+        let file_schema = self.metadata.schema();
+        let wanted = match columns {
+            Some(columns) => roots(file_schema, &columns)?,
+            None => (0..file_schema.fields().len()).collect(),
+        };
+        let mut sorted = wanted.clone();
+        sorted.sort_unstable();
+        let order: Vec<usize> = wanted.iter().map(|i| sorted.binary_search(i).unwrap_or_default()).collect();
+        let schema = Arc::new(file_schema.project(&sorted).and_then(|s| s.project(&order)).map_err(from_arrow)?);
+        Ok((sorted, order, schema))
     }
 }
 
@@ -179,19 +196,17 @@ impl File {
                 usize::try_from(limit).map_err(|_| invalid(format!("limit must not be negative, got {limit}")))?;
             builder = builder.with_limit(limit);
         }
-        // the reader's own schema lacks the file's schema metadata: use the file's, projected
-        let file_schema = self.metadata.schema();
-        let wanted = match columns {
-            Some(columns) => roots(file_schema, &columns)?,
-            None => (0..file_schema.fields().len()).collect(),
-        };
-        let mut sorted = wanted.clone();
-        sorted.sort_unstable();
-        let order: Vec<usize> = wanted.iter().map(|i| sorted.binary_search(i).unwrap_or_default()).collect();
-        let schema = Arc::new(file_schema.project(&sorted).and_then(|s| s.project(&order)).map_err(from_arrow)?);
+        let (sorted, order, schema) = self.projection(columns)?;
         let mask = ProjectionMask::roots(self.metadata.parquet_schema(), sorted);
         let inner = builder.with_projection(mask).build().map_err(from_parquet)?;
         Ok(RecordBatchStream::new(Box::new(Reordered { inner, order, schema })))
+    }
+
+    /// A stream without rows, with the schema `stream(columns)` has.
+    #[pyo3(signature = (columns=None))]
+    fn empty(&self, columns: Option<Vec<String>>) -> PyResult<RecordBatchStream> {
+        let (_, _, schema) = self.projection(columns)?;
+        Ok(RecordBatchStream::new(Box::new(RecordBatchIterator::new(vec![], schema))))
     }
 
     /// The footer as a dict: rows, row groups, per leaf column its physical type and codecs.

@@ -187,10 +187,9 @@ DEFAULT_BATCH_SIZE = 65536
 
 
 def _source(
-    f: ParquetFile, batch_size: int | None
+    f: ParquetFile, batch_size: int | None, schema: pl.Schema
 ) -> Callable[[list[str] | None, pl.Expr | None, int | None, int | None], Iterator[pl.DataFrame]]:
-    """The IO plugin's generator over `f`."""
-    schema = pl.DataFrame(f.stream(row_groups=[])).schema
+    """The IO plugin's generator over `f`, whose Polars schema is `schema`."""
 
     def source(
         with_columns: list[str] | None, predicate: pl.Expr | None, n_rows: int | None, hint: int | None
@@ -228,5 +227,5 @@ def scan_parquet(source: Source, *, batch_size: int | None = None) -> pl.LazyFra
     if batch_size is not None and batch_size <= 0:
         raise ValueError(f"batch_size must be positive, got {batch_size}")
     f = ParquetFile(source)
-    schema = pl.DataFrame(f.stream(row_groups=[])).schema
-    return register_io_source(_source(f, batch_size), schema=schema)
+    schema = pl.DataFrame(f.empty()).schema
+    return register_io_source(_source(f, batch_size, schema), schema=schema)

@@ -32,7 +32,7 @@ class ArrowSource:
         return self._file.stream(self._columns, None, self._batch_size).__arrow_c_stream__(requested_schema)
 
     def __arrow_c_schema__(self) -> object:
-        return self._file.stream(self._columns, []).__arrow_c_schema__()
+        return self._file.empty(self._columns).__arrow_c_schema__()
 
     def __repr__(self) -> str:
         return f"<ArrowSource {self._file!r} columns={self._columns}>"

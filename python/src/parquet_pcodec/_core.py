@@ -184,6 +184,10 @@ class ParquetFile:
         """The Arrow schema as an object with `__arrow_c_schema__`, for any Arrow library."""
         return self._file.schema()
 
+    def empty(self, columns: Sequence[str] | None = None) -> _lib.RecordBatchStream:
+        """A stream with the schema `stream(columns)` has and no rows."""
+        return self._file.empty(None if columns is None else list(columns))
+
     def integer_bounds(self) -> list[dict[str, tuple[int, int]]]:
         """Per row group, `{leaf path: (min, max)}` from the statistics of its `INT32` and
         `INT64` leaves, as stored (signed; timestamps in their unit, dates in days). Leaves
@@ -302,16 +306,11 @@ class Writer:
     def write(self, data: ArrowData) -> None:
         """Writes a table, a record batch, or any object with `__arrow_c_stream__` or
         `__arrow_c_array__` with the writer's schema."""
-        stream = getattr(data, "__arrow_c_stream__", None)
-        if stream is not None:
-            self._writer.write_stream(stream())
-            return
-        array = getattr(data, "__arrow_c_array__", None)
-        if array is None:
-            raise TypeError(
-                f"expected Arrow data with __arrow_c_stream__ or __arrow_c_array__, got {type(data).__name__}"
-            )
-        self._writer.write_batch(*array())
+        first, second = _capsules(data)
+        if second is None:
+            self._writer.write_stream(first)
+        else:
+            self._writer.write_batch(first, second)
 
     def flush(self) -> None:
         """Ends the current row group."""
@@ -349,9 +348,8 @@ class Writer:
             self.abort()
 
 
-def _schema_of(data: ArrowData) -> tuple[object, object]:
-    """The schema capsule of `data` and a way to write it: a stream capsule, or the schema
-    and array capsules of one batch."""
+def _capsules(data: ArrowData) -> tuple[object, object]:
+    """`data` as `(stream capsule, None)`, or as the `(schema, array)` capsules of one batch."""
     stream = getattr(data, "__arrow_c_stream__", None)
     if stream is not None:
         return stream(), None
@@ -376,7 +374,7 @@ def write_table(
     reader, a DuckDB result...) or `__arrow_c_array__` (a record batch). The options are
     those of `Writer`. Returns the codec chosen for every leaf column, by dotted path.
     """
-    first, second = _schema_of(data)
+    first, second = _capsules(data)
     target = _sink(sink)
     options = _options(policy, columns, level, base, row_group_size)
     if second is None:

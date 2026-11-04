@@ -147,14 +147,16 @@ def test_batch_size(path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_batch_size_hint_and_default(path: pathlib.Path) -> None:
-    source = ppl._source(ppc.ParquetFile(path), None)
+    f = ppc.ParquetFile(path)
+    schema = pl.DataFrame(f.empty()).schema
+    source = ppl._source(f, None, schema)
     assert [b.height for b in source(None, None, None, 300)][:2] == [300, 300]
     # batches run across row groups
     assert [b.height for b in source(None, None, None, None)] == [1000]
-    small = ppl._source(ppc.ParquetFile(path), None)
+    small = ppl._source(f, None, schema)
     assert [b.height for b in small(None, None, None, 999)] == [999, 1]
     assert ppl.DEFAULT_BATCH_SIZE == 65536
-    capped = ppl._source(ppc.ParquetFile(path), 250)
+    capped = ppl._source(f, 250, schema)
     assert [b.height for b in capped(None, None, None, 300)][:2] == [250, 250]
 
 
