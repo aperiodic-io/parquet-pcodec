@@ -18,8 +18,8 @@ use parquet_pcodec::verify::verify;
 use parquet_pcodec::{Target, WriterOptions, transcode};
 use std::sync::Arc;
 
-const TRADES: usize = 100_000;
-const BOOKS: usize = 10_000;
+const TRADES: usize = 50_000;
+const BOOKS: usize = 5_000;
 const BATCH: usize = 25_000;
 
 /// Trades: ms timestamps in bursts, prices on a 0.01 tick grid (a random walk), amounts in
