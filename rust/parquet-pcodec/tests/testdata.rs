@@ -51,13 +51,13 @@ fn generator_reproduces_testdata_byte_for_byte() {
 
 #[test]
 fn generator_usage_errors() {
-    for args in [&["--frob"][..], &["--frob", "dir"], &["--out", "a", "b"]] {
+    for args in [&["--frob"][..], &["--frob", "dir"], &["--out", "a", "b"], &["--check"], &["--check", "a", "b"]] {
         Command::cargo_bin("gen-testdata")
             .unwrap()
             .args(args)
             .assert()
             .code(1)
-            .stderr("gen-testdata: usage: gen-testdata [--out DIR]\n");
+            .stderr("gen-testdata: usage: gen-testdata [--out DIR | --check DIR]\n");
     }
     let file = tempfile::NamedTempFile::new().unwrap();
     Command::cargo_bin("gen-testdata")
@@ -140,4 +140,65 @@ fn payload_vectors_decode_or_fail() {
         }
     }
     assert_eq!((valid, invalid), (14, 21));
+}
+
+/// Copies `files/` and `expected/` of `from` into `to`.
+fn copy_vectors(from: &Path, to: &Path) {
+    for sub in ["files", "expected"] {
+        std::fs::create_dir_all(to.join(sub)).unwrap();
+        for e in std::fs::read_dir(from.join(sub)).unwrap() {
+            let e = e.unwrap();
+            std::fs::copy(e.path(), to.join(sub).join(e.file_name())).unwrap();
+        }
+    }
+}
+
+fn check(dir: &Path) -> assert_cmd::assert::Assert {
+    Command::cargo_bin("gen-testdata").unwrap().arg("--check").arg(dir).assert()
+}
+
+#[test]
+fn check_reads_every_vector_of_a_directory() {
+    let _lock = TESTDATA.lock().unwrap_or_else(|e| e.into_inner());
+    check(&testdata()).success().stdout("13 vectors match\n").stderr("");
+
+    // the vectors of another writer: files/ and expected/ only (no manifests needed)
+    let dir = tempfile::tempdir().unwrap();
+    copy_vectors(&testdata(), dir.path());
+    std::fs::remove_file(dir.path().join("files/manifest.json")).unwrap();
+    check(dir.path()).success().stdout("13 vectors match\n");
+
+    // a changed row is reported by vector and line
+    let path = dir.path().join("expected/temporal.jsonl");
+    let mut rows: Vec<String> = std::fs::read_to_string(&path).unwrap().lines().map(String::from).collect();
+    rows[2] = rows[2].replacen('1', "2", 1);
+    std::fs::write(&path, rows.join("\n") + "\n").unwrap();
+    check(dir.path()).code(1).stdout("").stderr("gen-testdata: temporal: line 3 differs from expected/temporal.jsonl\n");
+
+    // missing or extra rows are differences too
+    std::fs::write(&path, "").unwrap();
+    check(dir.path()).code(1).stderr("gen-testdata: temporal: line 1 differs from expected/temporal.jsonl\n");
+    let rows = std::fs::read_to_string(testdata().join("expected/temporal.jsonl")).unwrap();
+    std::fs::write(&path, rows.clone() + "{}\n").unwrap();
+    let n = rows.lines().count();
+    check(dir.path()).code(1).stderr(format!("gen-testdata: temporal: line {} differs from expected/temporal.jsonl\n", n + 1));
+
+    // every file needs its expected rows
+    std::fs::remove_file(&path).unwrap();
+    check(dir.path()).code(1).stderr(predicates::str::starts_with("gen-testdata: temporal: "));
+}
+
+#[test]
+fn check_refuses_a_directory_without_vectors_or_with_a_corrupt_file() {
+    let dir = tempfile::tempdir().unwrap();
+    check(dir.path()).code(1).stderr(predicates::str::starts_with("gen-testdata: "));
+    std::fs::create_dir_all(dir.path().join("files")).unwrap();
+    std::fs::create_dir_all(dir.path().join("expected")).unwrap();
+    std::fs::write(dir.path().join("files/notes.txt"), b"not a vector").unwrap();
+    check(dir.path())
+        .code(1)
+        .stderr(format!("gen-testdata: no files/*.parquet in {}\n", dir.path().display()));
+    std::fs::write(dir.path().join("files/bad.parquet"), b"PAR1 not parquet").unwrap();
+    std::fs::write(dir.path().join("expected/bad.jsonl"), b"").unwrap();
+    check(dir.path()).code(1).stderr(predicates::str::starts_with("gen-testdata: bad: "));
 }

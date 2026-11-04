@@ -7,7 +7,7 @@ UPSTREAM := acceptance/rust-upstream/Cargo.toml
 FUZZ_TIME ?= 60
 
 .PHONY: check fmt fmt-check clippy test c-test check-fork testdata testdata-check fuzz-smoke \
-	mutants fork-mutants fork-upstream-tests python-test python-mutants
+	mutants fork-mutants fork-upstream-tests python-test python-mutants acceptance
 
 check: fmt-check clippy test c-test check-fork testdata-check
 
@@ -90,3 +90,8 @@ fork-mutants:
 # for want of that data, before and after the fork (see rust/parquet/FORK.md)
 fork-upstream-tests:
 	$(CARGO) test -j $(JOBS) -p parquet --all-features --no-fail-fast -- --test-threads $(JOBS)
+
+# cross-language acceptance (acceptance/cross/run.sh): Rust, Go, Python and DuckDB each read
+# the vectors all four wrote; needs python/.venv with the package and `make -C duckdb build`
+acceptance:
+	acceptance/cross/run.sh
