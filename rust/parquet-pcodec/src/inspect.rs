@@ -120,7 +120,7 @@ fn scan_pages<R: ChunkReader>(reader: &R, chunk: &ColumnChunkMetaData, report: &
     while pos < bytes.len() {
         let mut p = Compact::new(&bytes[pos..]);
         let h = p.page_header().map_err(|e| invalid(format!("column {}: page header: {e}", report.path)))?;
-        let body_start = pos + p.pos;
+        let body_start = pos + p.consumed();
         let body_end = usize::try_from(h.compressed_size)
             .ok()
             .and_then(|n| body_start.checked_add(n))
@@ -161,8 +161,10 @@ struct PageHeader {
 
 /// A reader of the Thrift compact protocol, just enough for page headers.
 struct Compact<'a> {
+    /// The bytes not read yet.
     buf: &'a [u8],
-    pos: usize,
+    /// Length of the whole input.
+    len: usize,
     depth: usize,
 }
 
@@ -171,23 +173,23 @@ type Parse<T> = std::result::Result<T, String>;
 
 impl<'a> Compact<'a> {
     fn new(buf: &'a [u8]) -> Self {
-        Self { buf, pos: 0, depth: 0 }
+        Self { buf, len: buf.len(), depth: 0 }
+    }
+
+    /// Bytes read so far.
+    fn consumed(&self) -> usize {
+        self.len - self.buf.len()
     }
 
     fn byte(&mut self) -> Parse<u8> {
-        let b = *self.buf.get(self.pos).ok_or("truncated")?;
-        self.pos += 1;
+        let (&b, rest) = self.buf.split_first().ok_or("truncated")?;
+        self.buf = rest;
         Ok(b)
     }
 
     fn take(&mut self, n: usize) -> Parse<()> {
-        match self.pos.checked_add(n) {
-            Some(end) if end <= self.buf.len() => {
-                self.pos = end;
-                Ok(())
-            }
-            _ => Err("truncated".into()),
-        }
+        self.buf = self.buf.get(n..).ok_or("truncated")?;
+        Ok(())
     }
 
     fn varint(&mut self) -> Parse<u64> {
@@ -386,7 +388,7 @@ mod tests {
             p.page_header().unwrap(),
             PageHeader { page_type: 0, uncompressed_size: 10, compressed_size: 7, v2: None }
         );
-        assert_eq!(p.pos, b.len());
+        assert_eq!(p.consumed(), b.len());
     }
 
     #[test]
@@ -432,6 +434,8 @@ mod tests {
             (&[0x1b, 1, 0x55][..], "truncated"),
             (&[0x05, 0xfe, 0xff, 0x7f][..], "field id out of range"),
             (&[0x8c, 0x55, 1, 0x15, 0, 0, 0][..], "bad level lengths"),
+            // def = -2 (zigzag 3), rep = 1 (zigzag 2)
+            (&[0x8c, 0x55, 3, 0x15, 2, 0, 0][..], "bad level lengths"),
             (&[0x8c, 0x55, 0xfe, 0xff, 0xff, 0xff, 0x0f, 0x15, 2, 0, 0][..], "bad level lengths"),
         ] {
             assert_eq!(Compact::new(bytes).page_header().unwrap_err(), err, "{bytes:?}");
@@ -477,6 +481,52 @@ mod tests {
         assert_eq!(page_mode(&h(3, Some((5, true))), &[9, 9]), "EMPTY");
         assert_eq!(page_mode(&h(9, Some((5, true))), &[9, 9]), "INVALID");
         assert_eq!(page_mode(&h(6, Some((2, false))), &[9, 9, 1, 1]), "UNCOMPRESSED");
+    }
+
+    fn report(path: &str) -> ColumnReport {
+        ColumnReport {
+            path: path.into(),
+            physical_type: "INT64".into(),
+            codecs: vec![],
+            compressed_bytes: 0,
+            uncompressed_bytes: 0,
+            pages: BTreeMap::new(),
+            modes: BTreeMap::new(),
+        }
+    }
+
+    /// a PCODEC column chunk at `offset` of `len` bytes
+    fn chunk(offset: i64, len: i64) -> ColumnChunkMetaData {
+        use parquet::schema::types::{ColumnDescriptor, ColumnPath, Type as SchemaType};
+        let t = SchemaType::primitive_type_builder("x", parquet::basic::Type::INT64).build().unwrap();
+        let descr = std::sync::Arc::new(ColumnDescriptor::new(std::sync::Arc::new(t), 0, 0, ColumnPath::from("x")));
+        ColumnChunkMetaData::builder(descr)
+            .set_compression(Compression::PCODEC(Default::default()))
+            .set_data_page_offset(offset)
+            .set_total_compressed_size(len)
+            .build()
+            .unwrap()
+    }
+
+    #[test]
+    fn column_chunks_must_lie_in_the_file() {
+        // one data page: type 0, uncompressed 4, compressed 6 (a RAW payload of 4 bytes)
+        let page = bytes::Bytes::from_static(&[0x15, 0, 0x15, 8, 0x15, 12, 0, 1, 0, 9, 9, 9, 9]);
+        let n = page.len() as i64;
+        let mut r = report("x");
+        // a chunk that ends exactly at the end of the input is fine
+        scan_pages(&page, &chunk(0, n), &mut r).unwrap();
+        assert_eq!(r.pages["DATA_PAGE"], 1);
+        assert_eq!(r.modes["RAW"], 1);
+        for (offset, len) in [(0, n + 1), (1, n), (-1, 2), (0, -1), (i64::MAX, 1)] {
+            let err = scan_pages(&page, &chunk(offset, len), &mut report("x")).unwrap_err();
+            assert_eq!(err.to_string(), "column x: bad column chunk offsets", "{offset} {len}");
+        }
+        // a page that runs past its chunk, a broken header
+        let err = scan_pages(&page, &chunk(0, n - 1), &mut report("x")).unwrap_err();
+        assert_eq!(err.to_string(), "column x: page runs past the column chunk");
+        let err = scan_pages(&page, &chunk(1, n - 1), &mut report("x")).unwrap_err();
+        assert!(err.to_string().starts_with("column x: page header: "), "{err}");
     }
 
     #[test]

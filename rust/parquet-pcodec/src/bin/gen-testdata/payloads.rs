@@ -78,7 +78,7 @@ pub fn all() -> Vec<Vector> {
     let fprices: Vec<f32> = (0..n).map(|_| (100_000 + rng.below(40_000)) as f32 / 100.0).collect();
     let mut with_exc = prices.clone();
     for i in (3..with_exc.len()).step_by(200) {
-        with_exc[i] = f64::from_bits(0x7ff8_0000_0000_0000 | i as u64);
+        with_exc[i] = f64::from_bits(0x7ff8_0000_0000_0000 + i as u64);
     }
     let random: Vec<u8> = (0..4096).map(|_| rng.next() as u8).collect();
     let text: Vec<u8> = (0..300).flat_map(|i| format!("row {i}: hello pcodec\n").into_bytes()).collect();
