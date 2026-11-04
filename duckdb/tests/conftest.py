@@ -7,9 +7,33 @@ The extension comes from $PCODEC_DUCKDB_EXTENSION (a `parquet_pcodec.duckdb_exte
 import os
 import pathlib
 import subprocess
+import sys
+import threading
+import time
 
 import duckdb
 import pytest
+
+
+def _watch_memory(limit_mb: int) -> None:
+    """Ends the process when its resident memory passes `limit_mb`."""
+    page = os.sysconf("SC_PAGE_SIZE")
+    while True:
+        with open("/proc/self/statm") as f:
+            resident = int(f.read().split()[1]) * page
+        if resident > limit_mb << 20:
+            print(f"conftest: resident memory {resident >> 20} MB is over {limit_mb} MB", file=sys.stderr)
+            os._exit(3)
+        time.sleep(0.2)
+
+
+# $PCODEC_DUCKDB_MEMORY_LIMIT_MB bounds the resident memory of the test process (`make
+# mutation` sets it). A mutant that makes a scan loop forever produces rows without end, about
+# 65 MB/s, which exhausts a CI runner before cargo-mutants' timeout. Over the limit the process
+# exits, the tests fail, and the mutant is caught. (An address-space limit does not work:
+# DuckDB and the other native libraries reserve far more address space than they use.)
+if limit := os.environ.get("PCODEC_DUCKDB_MEMORY_LIMIT_MB"):
+    threading.Thread(target=_watch_memory, args=(int(limit),), daemon=True).start()
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 TESTDATA = ROOT / "testdata"
