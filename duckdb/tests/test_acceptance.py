@@ -6,6 +6,7 @@ import subprocess
 import sys
 
 import duckdb
+import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
@@ -65,11 +66,15 @@ def test_c_ratio_against_duckdb_zstd_9_with_a_bit_exact_round_trip(con, tmp_path
     back = f"read_pcodec_parquet('{ours}')"
     for a, b in [("ticks", back), (back, "ticks")]:
         assert con.execute(f"SELECT count(*) FROM (SELECT * FROM {a} EXCEPT ALL SELECT * FROM {b})").fetchall() == [(0,)]
-    # bit for bit, in order
-    schema = pq.read_schema(zstd)
-    want = lines(con.sql("SELECT * FROM ticks").to_arrow_table(), schema)
-    got = lines(con.sql(f"SELECT * FROM {back}").to_arrow_table(), schema)
-    assert got == want
+    # bit for bit, in order: the doubles compared as their 64-bit patterns
+    want = con.sql("SELECT * FROM ticks").to_arrow_table()
+    got = con.sql(f"SELECT * FROM {back}").to_arrow_table()
+    assert got.schema == want.schema
+    for name in ["price", "qty"]:
+        a, b = (t.column(name).combine_chunks().view(pa.uint64()) for t in (got, want))
+        assert a.equals(b), name
+    for name in ["ts", "buy"]:
+        assert got.column(name).combine_chunks().equals(want.column(name).combine_chunks()), name
 
 
 @pytest.mark.slow

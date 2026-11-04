@@ -3,8 +3,8 @@
 //! DuckDB actually loads.
 //!
 //! The Python environment is `duckdb/.venv` (`uv sync` in `duckdb/`), or the interpreter in
-//! `$PCODEC_DUCKDB_PYTHON`; `$PCODEC_DUCKDB_PYTEST_ARGS` adds pytest arguments (the mutation run
-//! passes `-m "not slow"`).
+//! `$PCODEC_DUCKDB_PYTHON`; `$PCODEC_DUCKDB_PYTEST_MARK` selects tests by marker (the mutation
+//! run passes `not slow`).
 
 use parquet_pcodec_duckdb::metadata::{Metadata, current_platform, package};
 use std::path::{Path, PathBuf};
@@ -70,8 +70,8 @@ fn sql_tests() {
         .env("PCODEC_DUCKDB_EXTENSION", &extension)
         .env("PCODEC_DUCKDB_SCRATCH", dir.path())
         .env("PCODEC_CLI", cli(manifest));
-    if let Ok(extra) = std::env::var("PCODEC_DUCKDB_PYTEST_ARGS") {
-        cmd.args(extra.split_whitespace());
+    if let Ok(mark) = std::env::var("PCODEC_DUCKDB_PYTEST_MARK") {
+        cmd.args(["-m", &mark]);
     }
     let out = cmd.output().expect("run pytest");
     let stdout = String::from_utf8_lossy(&out.stdout);
