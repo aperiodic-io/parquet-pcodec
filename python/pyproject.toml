@@ -1,0 +1,87 @@
+[build-system]
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
+
+[project]
+name = "parquet-pcodec"
+description = "pcodec as a Parquet compression codec: read and write PCODEC Parquet files from Python, pandas, Polars and DuckDB"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+dynamic = ["version"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Rust",
+    "Topic :: Database",
+    "Typing :: Typed",
+]
+# the core needs nothing: data goes in and out through the Arrow PyCapsule interface
+dependencies = []
+
+[project.optional-dependencies]
+pyarrow = ["pyarrow>=16"]
+pandas = ["pandas>=2.2", "pyarrow>=16"]
+polars = ["polars>=1.20"]
+duckdb = ["duckdb>=1.1"]
+
+[project.urls]
+Repository = "https://github.com/aperiodic-io/parquet-pcodec"
+
+[dependency-groups]
+dev = [
+    "maturin>=1.9,<2",
+    "pytest>=8",
+    "hypothesis>=6.100",
+    "pyarrow>=16",
+    "pandas>=2.2",
+    "polars>=1.20",
+    "duckdb>=1.1",
+    "nanoarrow>=0.6",
+    "mypy>=1.13",
+    "ruff>=0.8",
+    "pandas-stubs>=2.2",
+    "pyarrow-stubs>=17",
+    "mutmut>=3.3",
+]
+
+[tool.uv]
+# the extension is built by `maturin develop`, not by `uv sync`
+package = false
+
+[tool.maturin]
+python-source = "python"
+module-name = "parquet_pcodec._lib"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "PT", "C4", "PIE", "RET", "TC"]
+ignore = [
+    # `Union[...]` aliases are kept: `X | Y` of string forward references fails at runtime on 3.10
+    "UP007",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["parquet_pcodec", "conftest"]
+
+[tool.mypy]
+strict = true
+python_version = "3.10"
+files = ["python", "tests"]
+mypy_path = "tests"
+
+[[tool.mypy.overrides]]
+# no type information published
+module = ["duckdb.*", "nanoarrow.*", "hypothesis.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "slow: long-running tests, left out of the mutation runs",
+]
+filterwarnings = ["error"]

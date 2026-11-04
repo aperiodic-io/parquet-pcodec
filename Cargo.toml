@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["rust/core", "rust/capi", "rust/parquet", "rust/parquet-pcodec"]
+members = ["rust/core", "rust/capi", "rust/parquet", "rust/parquet-pcodec", "python"]
 
 [workspace.package]
 edition = "2024"
