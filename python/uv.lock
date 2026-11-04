@@ -1599,6 +1599,7 @@ dev = [
     { name = "pyarrow", version = "26.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "pyarrow-stubs" },
     { name = "pytest" },
+    { name = "pytz" },
     { name = "ruff" },
 ]
 
@@ -1626,6 +1627,7 @@ dev = [
     { name = "pyarrow", specifier = ">=16" },
     { name = "pyarrow-stubs", specifier = ">=17" },
     { name = "pytest", specifier = ">=8" },
+    { name = "pytz" },
     { name = "ruff", specifier = ">=0.8" },
 ]
 

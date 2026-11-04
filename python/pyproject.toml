@@ -37,6 +37,8 @@ dev = [
     "pandas>=2.2",
     "polars>=1.20",
     "duckdb>=1.1",
+    # duckdb fetches zoned timestamps as pytz datetimes
+    "pytz",
     "nanoarrow>=0.6",
     "mypy>=1.13",
     "ruff>=0.8",
