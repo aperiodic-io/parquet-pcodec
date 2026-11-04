@@ -325,6 +325,8 @@ def binary(left: object, op: str, right: object) -> dict[str, Any]:
         (dyn(5), pl.Date(), None),
         (dyn(5.0, "Float"), pl.Int64(), None),
         (dyn("5"), pl.Int64(), None),
+        (scalar("Int8", 7), pl.Int64(), 7),
+        (scalar("Int16", 7), pl.Int64(), 7),
         (scalar("Int32", 7), pl.Int64(), 7),
         (scalar("Int64", 7), pl.Int16(), 7),
         (scalar("UInt64", 7), pl.Int64(), None),

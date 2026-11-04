@@ -138,9 +138,19 @@ def test_rows_tables_batches_and_streams() -> None:
     assert canonical.dumps(table.slice(0, 0)) == ""
 
 
+def test_c_array_objects() -> None:
+    batch = pa.record_batch({"a": [1, 2]})
+
+    class OnlyArray:
+        def __arrow_c_array__(self, requested_schema: object | None = None) -> object:
+            return batch.__arrow_c_array__(requested_schema)  # type: ignore[no-untyped-call]
+
+    assert list(canonical.lines(OnlyArray())) == ['{"a":1}', '{"a":2}']
+
+
 def test_unsupported_types() -> None:
     lv = pa.array([[1]], pa.list_view(pa.int32()))
     with pytest.raises(TypeError, match="list_view"):
         line(lv)
-    with pytest.raises(TypeError, match="Arrow data"):
+    with pytest.raises(TypeError, match=r"^expected Arrow data \(a table, a record batch or a stream\), got int$"):
         list(canonical.lines(42))

@@ -273,12 +273,12 @@ def test_file_object_errors_propagate(numbers: pa.Table) -> None:
 
 def test_buffered_file_objects_are_flushed(numbers: pa.Table) -> None:
     raw = io.BytesIO()
-    buffered = io.BufferedWriter(raw, buffer_size=1 << 20)  # type: ignore[arg-type]
+    buffered = io.BufferedWriter(raw, buffer_size=1 << 20)
     ppc.write_table(numbers, buffered)
     # write_table flushes what it wrote: the raw stream has the whole file
     assert ppc.read_table(io.BytesIO(raw.getvalue())).equals(numbers)
     raw2 = io.BytesIO()
-    buffered2 = io.BufferedWriter(raw2, buffer_size=1 << 20)  # type: ignore[arg-type]
+    buffered2 = io.BufferedWriter(raw2, buffer_size=1 << 20)
     std = io.BytesIO()
     ppc.write_table(numbers, std, policy="base")
     ppc.transcode(io.BytesIO(std.getvalue()), buffered2)
@@ -308,11 +308,11 @@ def test_write_returning_none_means_all_written(numbers: pa.Table) -> None:
 
 
 def test_bad_path_types(numbers: pa.Table) -> None:
-    with pytest.raises(TypeError, match="path"):
+    with pytest.raises(TypeError, match=r"^expected a path or a binary file object, got int$"):
         ppc.read_table(42)  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match="path"):
+    with pytest.raises(TypeError, match=r"^expected a path or a binary file object, got int$"):
         ppc.write_table(numbers, 42)  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match="bytes"):
+    with pytest.raises(TypeError, match=r"^the file object must return bytes from read\(\), got str$"):
         ppc.read_table(io.StringIO("PAR1"))  # type: ignore[arg-type]
 
 
@@ -565,11 +565,11 @@ def test_public_defaults() -> None:
 def test_rust_panics_become_pcodec_errors() -> None:
     from parquet_pcodec import _lib
 
-    with pytest.raises(ppc.PcodecError, match="^internal error: boom$"):
+    with pytest.raises(ppc.PcodecError, match=r"^internal error: boom$"):
         _lib._panic("boom")
-    with pytest.raises(ppc.PcodecError, match="^internal error: a static message$"):
+    with pytest.raises(ppc.PcodecError, match=r"^internal error: a static message$"):
         _lib._panic()
-    with pytest.raises(ppc.PcodecError, match="^internal error: $"):
+    with pytest.raises(ppc.PcodecError, match=r"^internal error: $"):
         _lib._panic("")
     # in a stream: through __next__, and through the C stream (where unwinding would abort)
     with pytest.raises(ppc.PcodecError, match="internal error: the reader panicked"):
@@ -577,6 +577,37 @@ def test_rust_panics_become_pcodec_errors() -> None:
     reader = pa.RecordBatchReader.from_stream(_lib.PanickingStream().stream())
     with pytest.raises(pa.ArrowException, match="internal error: the reader panicked"):
         reader.read_all()
+
+
+def test_functions_returning_pyarrow_say_what_to_do(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+
+    from parquet_pcodec import _core
+
+    monkeypatch.setitem(sys.modules, "pyarrow", None)
+    with pytest.raises(ImportError) as e:
+        _core._pyarrow()
+    assert str(e.value) == (
+        "this function returns pyarrow objects: install pyarrow, or use read_batches(), whose result "
+        "any Arrow library reads through __arrow_c_stream__"
+    )
+
+
+def test_stream_options_are_passed_on(tmp_path: pathlib.Path, numbers: pa.Table) -> None:
+    path = tmp_path / "t.parquet"
+    ppc.write_table(numbers, path, row_group_size=500)
+    f = ppc.ParquetFile(path)
+    assert pa.RecordBatchReader.from_stream(f.stream(limit=5)).read_all().equals(numbers.slice(0, 5))
+    assert (
+        pa.RecordBatchReader.from_stream(f.stream(row_groups=[1], limit=600)).read_all().equals(numbers.slice(500, 500))
+    )
+    batches = list(f.iter_batches(batch_size=200, row_groups=[3]))
+    assert [b.num_rows for b in batches] == [200, 200, 100]
+    assert pa.Table.from_batches(batches).equals(numbers.slice(1500))
+    stream = ppc.read_batches(path, row_groups=[2], batch_size=300)
+    assert [b.num_rows for b in pa.RecordBatchReader.from_stream(stream)] == [300, 200]
+    with pytest.raises(ppc.PcodecError, match="limit must not be negative, got -1"):
+        f.stream(limit=-1)
 
 
 def test_version() -> None:
