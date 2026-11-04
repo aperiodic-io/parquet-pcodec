@@ -103,7 +103,9 @@ jobs:
         if: github.event_name == 'pull_request'
         run: |
           git diff "origin/${{ github.base_ref }}...HEAD" > pr.diff
-          cargo mutants --workspace --in-diff pr.diff -j 2
+          # exit 3: some mutants made the tests hang (detected); accepted only when none was
+          # missed (see the Makefile's MUTANTS_OK)
+          cargo mutants --workspace --in-diff pr.diff -j 2 || { [ $? -eq 3 ] && [ ! -s mutants.out/missed.txt ]; }
       - name: every mutant (weekly and on demand)
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: make mutants JOBS=2

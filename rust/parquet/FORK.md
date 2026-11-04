@@ -42,7 +42,9 @@ intended change, which must also be listed below.
 Unit tests added: `basic::tests::test_pcodec_compression`; `compression::tests::{test_codec_pcodec,
 test_codec_pcodec_physical_type, test_codec_pcodec_requires_size,
 test_codec_options_physical_type}`; `column::writer::tests::test_column_writer_pcodec_physical_type`;
-`file::writer::tests::test_pcodec_version_metadata` (with its helper `pcodec_kv_metadata`).
+`file::writer::tests::test_pcodec_version_metadata` (with its helper `pcodec_kv_metadata`)
+and `file::writer::tests::test_write_metadata_page_indexes`, which pins upstream's page index
+decisions in `write_metadata` (a function the fork changes) so that its mutants are caught.
 
 ### Decompression call sites without the expected size
 
@@ -94,3 +96,11 @@ cargo mutants --no-config -p parquet \
 generates no mutants in `GenericColumnWriter::new` (a constructor) and none in the
 `CompressionCodec` enum; the one-line change in `new` is covered by
 `test_column_writer_pcodec_physical_type`.
+
+Result (47 mutants): 36 caught and 7 unviable on the first run; the two `||` mutants in the
+upstream part of `write_metadata` survived and are caught since
+`test_write_metadata_page_indexes`; `CodecOptionsBuilder::build` replaced by
+`Default::default()` times out (twice, the file is listed by two `-f` patterns):
+`CodecOptions::default()` calls `build`, so the mutant recurses forever and the tests hang.
+A hang is a detected mutant: `make fork-mutants` accepts cargo-mutants' exit code 3 when
+`missed.txt` is empty.

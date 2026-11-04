@@ -48,8 +48,13 @@ fuzz-smoke:
 	cd rust/core && for t in $$($(CARGO) +nightly fuzz list); do \
 		$(CARGO) +nightly fuzz run $$t -- -max_total_time=$(FUZZ_TIME) || exit 1; done
 
+# cargo mutants exits 3 when some mutants only made the tests hang (a timeout). A hang is a
+# detected mutant, so exit 3 is accepted, but only when no mutant was missed: cargo-mutants
+# also exits 3 when there are both timeouts and missed mutants, so missed.txt is checked.
+MUTANTS_OK = || { [ $$? -eq 3 ] && [ ! -s mutants.out/missed.txt ]; }
+
 mutants:
-	$(CARGO) mutants --workspace -j $(JOBS)
+	$(CARGO) mutants --workspace -j $(JOBS) $(MUTANTS_OK)
 
 # the fork's changed functions only (rust/parquet/FORK.md); the fork is rebuilt for every
 # mutant, so it is built without optimization here
@@ -60,7 +65,8 @@ fork-mutants:
 	  --re 'PcodecLevel|PcodecCodec|with_pcodec_version|CodecOptionsBuilder::set_physical_type|CodecOptionsBuilder::build|create_codec|<impl From<CompressionCodec> for Compression>::from|<impl From<Compression> for CompressionCodec>::from|<impl FromStr for Compression>::from_str|write_metadata' \
 	  --cargo-arg=--lib -- -- basic:: compression:: column::writer:: file::writer:: \
 	  --skip test_byte_stream_split_extended_roundtrip --skip test_int96_interop \
-	  --skip test_rewrite_missing_column_index --skip test_rewrite_no_page_indexes
+	  --skip test_rewrite_missing_column_index --skip test_rewrite_no_page_indexes \
+	  $(MUTANTS_OK)
 
 # the upstream suite of the fork; without parquet-testing/arrow-testing, 340 tests fail
 # for want of that data, before and after the fork (see rust/parquet/FORK.md)

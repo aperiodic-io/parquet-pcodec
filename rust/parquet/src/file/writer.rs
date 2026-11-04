@@ -2103,6 +2103,52 @@ mod tests {
     }
 
     #[test]
+    fn test_write_metadata_page_indexes() {
+        // parquet-pcodec fork: pins the page index decisions of `write_metadata`, a function
+        // the fork changes (its mutants must be caught by these modules' tests)
+        let page_indexes = |props: WriterProperties| {
+            let schema = Arc::new(
+                types::Type::group_type_builder("schema")
+                    .with_fields(vec![Arc::new(
+                        types::Type::primitive_type_builder("col1", Type::INT64)
+                            .with_repetition(Repetition::REQUIRED)
+                            .build()
+                            .unwrap(),
+                    )])
+                    .build()
+                    .unwrap(),
+            );
+            let mut out = Vec::new();
+            let mut writer = SerializedFileWriter::new(&mut out, schema, Arc::new(props)).unwrap();
+            let mut row_group_writer = writer.next_row_group().unwrap();
+            let mut column = row_group_writer.next_column().unwrap().unwrap();
+            column
+                .typed::<crate::data_type::Int64Type>()
+                .write_batch(&[1, 2, 3], None, None)
+                .unwrap();
+            column.close().unwrap();
+            row_group_writer.close().unwrap();
+            let metadata = writer.close().unwrap();
+            metadata
+                .page_index()
+                .map(|p| (p.has_column_indexes(), p.has_offset_indexes()))
+        };
+        let builder = WriterProperties::builder;
+        assert_eq!(page_indexes(builder().build()), Some((true, true)));
+        let no_stats = builder()
+            .set_statistics_enabled(EnabledStatistics::None)
+            .build();
+        assert_eq!(page_indexes(no_stats), Some((false, true)));
+        let no_offsets = builder().set_offset_index_disabled(true).build();
+        assert_eq!(page_indexes(no_offsets), Some((true, false)));
+        let neither = builder()
+            .set_statistics_enabled(EnabledStatistics::None)
+            .set_offset_index_disabled(true)
+            .build();
+        assert_eq!(page_indexes(neither), None);
+    }
+
+    #[test]
     fn test_pcodec_version_metadata() {
         let pcodec = Compression::PCODEC(Default::default());
         let version = KeyValue::new("parquet.pcodec.version".to_string(), "1".to_string());

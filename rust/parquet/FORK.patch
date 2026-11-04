@@ -494,7 +494,7 @@ index d5d8d7cb3b93fbf046a7f266c84be38eca25b925..2ca111c9080f6cea336dddd10ad3ce46
 +    }
  }
 diff --git upstream/src/file/writer.rs fork/src/file/writer.rs
-index 7030cb28c6715f80b0e29f9f5961b718edce7cb1..f06fd259ce564c74d02592f74c0d3706c31d0618 100644
+index 7030cb28c6715f80b0e29f9f5961b718edce7cb1..efd64a38f35f7da8a500a6283d1e47432023c15c 100644
 --- upstream/src/file/writer.rs
 +++ fork/src/file/writer.rs
 @@ -353,6 +353,8 @@ impl<W: Write + Send> SerializedFileWriter<W> {
@@ -539,7 +539,7 @@ index 7030cb28c6715f80b0e29f9f5961b718edce7cb1..f06fd259ce564c74d02592f74c0d3706
  /// Serialize all the bloom filters of the given row group to the given buffer,
  /// and returns the updated row group metadata.
  fn write_bloom_filters<W: Write + Send>(
-@@ -2026,6 +2054,93 @@ mod tests {
+@@ -2026,6 +2054,139 @@ mod tests {
          test_kv_metadata(None, Some(vec![]));
      }
  
@@ -589,6 +589,52 @@ index 7030cb28c6715f80b0e29f9f5961b718edce7cb1..f06fd259ce564c74d02592f74c0d3706
 +            .file_metadata()
 +            .key_value_metadata()
 +            .cloned()
++    }
++
++    #[test]
++    fn test_write_metadata_page_indexes() {
++        // parquet-pcodec fork: pins the page index decisions of `write_metadata`, a function
++        // the fork changes (its mutants must be caught by these modules' tests)
++        let page_indexes = |props: WriterProperties| {
++            let schema = Arc::new(
++                types::Type::group_type_builder("schema")
++                    .with_fields(vec![Arc::new(
++                        types::Type::primitive_type_builder("col1", Type::INT64)
++                            .with_repetition(Repetition::REQUIRED)
++                            .build()
++                            .unwrap(),
++                    )])
++                    .build()
++                    .unwrap(),
++            );
++            let mut out = Vec::new();
++            let mut writer = SerializedFileWriter::new(&mut out, schema, Arc::new(props)).unwrap();
++            let mut row_group_writer = writer.next_row_group().unwrap();
++            let mut column = row_group_writer.next_column().unwrap().unwrap();
++            column
++                .typed::<crate::data_type::Int64Type>()
++                .write_batch(&[1, 2, 3], None, None)
++                .unwrap();
++            column.close().unwrap();
++            row_group_writer.close().unwrap();
++            let metadata = writer.close().unwrap();
++            metadata
++                .page_index()
++                .map(|p| (p.has_column_indexes(), p.has_offset_indexes()))
++        };
++        let builder = WriterProperties::builder;
++        assert_eq!(page_indexes(builder().build()), Some((true, true)));
++        let no_stats = builder()
++            .set_statistics_enabled(EnabledStatistics::None)
++            .build();
++        assert_eq!(page_indexes(no_stats), Some((false, true)));
++        let no_offsets = builder().set_offset_index_disabled(true).build();
++        assert_eq!(page_indexes(no_offsets), Some((true, false)));
++        let neither = builder()
++            .set_statistics_enabled(EnabledStatistics::None)
++            .set_offset_index_disabled(true)
++            .build();
++        assert_eq!(page_indexes(neither), None);
 +    }
 +
 +    #[test]
