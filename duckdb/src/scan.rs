@@ -445,13 +445,23 @@ mod tests {
         v.iter().map(|s| s.to_string()).collect()
     }
 
-    fn all_rows(scan: &Scan) -> Vec<ScanBatch> {
-        let mut local = Local::default();
+    /// More batches than any test file has: a scan that goes past it does not end. Without the
+    /// bound, a mutant that makes the scan endless fills memory (about 70 MB/s here) before
+    /// cargo-mutants' timeout, which shut down the CI runners.
+    const ENDLESS: usize = 10_000;
+
+    /// Every batch the scan gives `local`; panics if the scan does not end.
+    fn drain(scan: &Scan, local: &mut Local) -> Vec<ScanBatch> {
         let mut out = vec![];
-        while let Some(b) = scan.next(&mut local).unwrap() {
+        while let Some(b) = scan.next(local).unwrap() {
             out.push(b);
+            assert!(out.len() < ENDLESS, "the scan does not end");
         }
         out
+    }
+
+    fn all_rows(scan: &Scan) -> Vec<ScanBatch> {
+        drain(scan, &mut Local::default())
     }
 
     fn ids(batches: &[ScanBatch], col: usize) -> Vec<Option<i64>> {
@@ -620,14 +630,7 @@ mod tests {
         let handles: Vec<_> = (0..4)
             .map(|_| {
                 let scan = scan.clone();
-                std::thread::spawn(move || {
-                    let mut local = Local::default();
-                    let mut got = vec![];
-                    while let Some(b) = scan.next(&mut local).unwrap() {
-                        got.push(b);
-                    }
-                    ids(&got, 0)
-                })
+                std::thread::spawn(move || ids(&drain(&scan, &mut Local::default()), 0))
             })
             .collect();
         let mut all: Vec<Option<i64>> = handles.into_iter().flat_map(|h| h.join().unwrap()).collect();
