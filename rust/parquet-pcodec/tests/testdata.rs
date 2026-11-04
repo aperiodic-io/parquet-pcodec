@@ -72,15 +72,36 @@ fn generator_usage_errors() {
 /// Tests that read `testdata/` hold this lock against the one that rewrites it.
 static TESTDATA: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+fn read_all() -> Vec<(Vec<u8>, PathBuf)> {
+    tree(&testdata()).into_iter().map(|f| (std::fs::read(testdata().join(&f)).unwrap(), f)).collect()
+}
+
+/// Puts `testdata/` back as it was when dropped, even after a failed assertion: a generator
+/// that writes other vectors (a mutant, under cargo mutants) must not leave them behind for
+/// the tests that run after it in the same tree.
+struct Restore(Vec<(Vec<u8>, PathBuf)>);
+
+impl Drop for Restore {
+    fn drop(&mut self) {
+        let keep: BTreeSet<&PathBuf> = self.0.iter().map(|(_, f)| f).collect();
+        for f in tree(&testdata()) {
+            if !keep.contains(&f) {
+                let _ = std::fs::remove_file(testdata().join(&f));
+            }
+        }
+        for (bytes, f) in &self.0 {
+            let _ = std::fs::write(testdata().join(f), bytes);
+        }
+    }
+}
+
 #[test]
 fn generator_rewrites_testdata_in_place_unchanged() {
     let _lock = TESTDATA.lock().unwrap_or_else(|e| e.into_inner());
-    let read_all =
-        || tree(&testdata()).into_iter().map(|f| (std::fs::read(testdata().join(&f)).unwrap(), f)).collect::<Vec<_>>();
-    let before = read_all();
+    let before = Restore(read_all());
     // without arguments it writes the repository's testdata/
     Command::cargo_bin("gen-testdata").unwrap().assert().success();
-    assert!(read_all() == before, "regenerating changed testdata/");
+    assert!(read_all() == before.0, "regenerating changed testdata/");
 }
 
 #[test]

@@ -116,6 +116,12 @@ fn canonical_rows(path: &Path) -> Result<String> {
     Ok(rows)
 }
 
+/// The index of the first line where `a` and `b` differ, a missing line included.
+fn first_difference(a: &str, b: &str) -> Option<usize> {
+    let (a, b): (Vec<&str>, Vec<&str>) = (a.lines().collect(), b.lines().collect());
+    (0..a.len().max(b.len())).find(|&i| a.get(i) != b.get(i))
+}
+
 /// Checks every vector in `dir` (see the module docs) and returns how many there are.
 fn check(dir: &Path) -> Result<usize> {
     let files = dir.join("files");
@@ -135,9 +141,7 @@ fn check(dir: &Path) -> Result<usize> {
         let expected = format!("expected/{name}.jsonl");
         let want = std::fs::read_to_string(dir.join(&expected)).map_err(|e| fail(format!("{expected}: {e}")))?;
         let got = canonical_rows(&files.join(format!("{name}.parquet"))).map_err(fail)?;
-        if let Some(i) =
-            (0..got.lines().count().max(want.lines().count())).find(|&i| got.lines().nth(i) != want.lines().nth(i))
-        {
+        if let Some(i) = first_difference(&got, &want) {
             return Err(fail(format!("line {} differs from {expected}", i + 1)));
         }
     }
