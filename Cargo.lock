@@ -2168,6 +2168,7 @@ dependencies = [
  "arrow-schema",
  "bytes",
  "parquet-pcodec",
+ "parquet-pcodec-core",
  "pyo3",
 ]
 

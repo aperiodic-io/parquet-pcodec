@@ -24,6 +24,7 @@ extension-module = ["pyo3/extension-module"]
 
 [dependencies]
 parquet-pcodec = { path = "../rust/parquet-pcodec" }
+parquet-pcodec-core = { path = "../rust/core" }
 arrow-array = { workspace = true, features = ["ffi"] }
 arrow-schema = { workspace = true, features = ["ffi"] }
 bytes = "1"

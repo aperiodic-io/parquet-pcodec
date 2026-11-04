@@ -3,6 +3,7 @@
 //! Data crosses the boundary only through the Arrow PyCapsule interface, so the module needs
 //! no Python Arrow library. The GIL is released while files are read, encoded and decoded.
 
+mod codec;
 mod errors;
 mod ffi;
 mod file;
@@ -26,5 +27,6 @@ fn _lib(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(file::verify, m)?)?;
     m.add_function(wrap_pyfunction!(writer::transcode, m)?)?;
     m.add_function(wrap_pyfunction!(writer::write_stream, m)?)?;
+    codec::register(m)?;
     Ok(())
 }
