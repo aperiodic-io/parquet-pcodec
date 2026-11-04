@@ -157,10 +157,9 @@ func NewPlan(sc *arrow.Schema, sample arrow.RecordBatch, opts ...Option) (*Plan,
 		if !set {
 			pol = cfg.defPolicy
 		}
-		switch {
-		case pol == Pcodec && (set || Eligible(l.typ)):
+		if pol == Pcodec && (set || Eligible(l.typ)) {
 			p.pcodec[l.path] = true
-		case pol == Auto && Eligible(l.typ) && sample != nil && sample.NumRows() > 0:
+		} else if pol == Auto && Eligible(l.typ) && sample != nil && sample.NumRows() > 0 {
 			auto = append(auto, l.path)
 		}
 	}

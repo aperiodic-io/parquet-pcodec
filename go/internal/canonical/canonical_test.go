@@ -2,6 +2,7 @@ package canonical
 
 import (
 	"bytes"
+	"errors"
 	"math"
 	"strings"
 	"testing"
@@ -156,5 +157,44 @@ func TestEqual(t *testing.T) {
 		if ok != tc.ok || !strings.Contains(diff, tc.diff) {
 			t.Errorf("Equal(%q, %q) = %v, %q", tc.a, tc.b, ok, diff)
 		}
+	}
+}
+
+func TestWriteTable(t *testing.T) {
+	fields := []arrow.Field{{Name: "x", Type: arrow.PrimitiveTypes.Int16}}
+	a := record(t, fields, func(b *array.RecordBuilder) { b.Field(0).(*array.Int16Builder).AppendValues([]int16{1, 2}, nil) })
+	c := record(t, fields, func(b *array.RecordBuilder) { b.Field(0).(*array.Int16Builder).AppendValues([]int16{3}, nil) })
+	defer a.Release()
+	defer c.Release()
+	tbl := array.NewTableFromRecords(a.Schema(), []arrow.RecordBatch{a, c})
+	defer tbl.Release()
+	var buf bytes.Buffer
+	if err := WriteTable(&buf, tbl); err != nil {
+		t.Fatal(err)
+	}
+	if buf.String() != "{\"x\":1}\n{\"x\":2}\n{\"x\":3}\n" {
+		t.Fatalf("got %q", buf.String())
+	}
+
+	m := record(t, []arrow.Field{{Name: "m", Type: arrow.MapOf(arrow.BinaryTypes.String, arrow.PrimitiveTypes.Int8)}},
+		func(b *array.RecordBuilder) { b.Field(0).(*array.MapBuilder).Append(true) })
+	defer m.Release()
+	mt := array.NewTableFromRecords(m.Schema(), []arrow.RecordBatch{m})
+	defer mt.Release()
+	if err := WriteTable(&bytes.Buffer{}, mt); err == nil {
+		t.Fatal("WriteTable should pass on the record's error")
+	}
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("disk full") }
+
+func TestWriteErrors(t *testing.T) {
+	rec := record(t, []arrow.Field{{Name: "x", Type: arrow.PrimitiveTypes.Int16}},
+		func(b *array.RecordBuilder) { b.Field(0).(*array.Int16Builder).Append(1) })
+	defer rec.Release()
+	if err := WriteRecord(failingWriter{}, rec); err == nil || err.Error() != "disk full" {
+		t.Fatalf("err = %v", err)
 	}
 }
