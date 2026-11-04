@@ -1,0 +1,36 @@
+[package]
+name = "parquet-pcodec"
+version = "0.1.0"
+description = "Parquet files with the PCODEC codec: writer with automatic codec selection, transcoding, and the parquet-pcodec CLI"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+default-run = "parquet-pcodec"
+
+[dependencies]
+parquet = { workspace = true, features = ["arrow", "zstd", "snap", "lz4", "brotli", "flate2-zlib-rs", "pcodec"] }
+parquet-pcodec-core = { path = "../core" }
+arrow-array.workspace = true
+arrow-schema.workspace = true
+arrow-buffer.workspace = true
+arrow-select.workspace = true
+bytes = "1"
+base64 = "0.23"
+serde_json = "1"
+clap = { version = "4.5", features = ["derive"] }
+
+[dev-dependencies]
+proptest.workspace = true
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"
+
+[[bin]]
+name = "parquet-pcodec"
+path = "src/bin/parquet-pcodec.rs"
+
+[[bin]]
+name = "gen-testdata"
+path = "src/bin/gen-testdata/main.rs"

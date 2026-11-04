@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["rust/core", "rust/capi", "rust/parquet"]
+members = ["rust/core", "rust/capi", "rust/parquet", "rust/parquet-pcodec"]
 
 [workspace.package]
 edition = "2024"
@@ -26,3 +26,11 @@ arrow-csv = "=60.1.0"
 
 [patch.crates-io]
 parquet = { path = "rust/parquet" }
+
+# the vendored parquet crate and its test suite are large: keep debug info small
+[profile.dev]
+debug = "line-tables-only"
+incremental = false
+
+[profile.dev.package."*"]
+debug = false
