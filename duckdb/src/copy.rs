@@ -10,7 +10,7 @@ use arrow_schema::{Field, Schema, SchemaRef};
 use parquet::basic::{BrotliLevel, Compression, GzipLevel, ZstdLevel};
 use parquet::file::properties::WriterProperties;
 use parquet_pcodec::policy::parse_column_policy;
-use parquet_pcodec::{Policy, Writer, WriterOptions};
+use parquet_pcodec::{Writer, WriterOptions};
 use std::fs::File;
 use std::sync::Arc;
 
@@ -257,6 +257,7 @@ mod tests {
     use arrow_array::{ArrayRef, Float64Array, Int64Array};
     use arrow_schema::DataType;
     use parquet::file::reader::{FileReader, SerializedFileReader};
+    use parquet_pcodec::Policy;
 
     fn opts(pairs: &[(&str, Val)]) -> Vec<(String, Val)> {
         pairs.iter().map(|(n, v)| (n.to_string(), v.clone())).collect()

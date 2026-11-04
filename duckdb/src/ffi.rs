@@ -217,18 +217,21 @@ pub unsafe fn val(v: ffi::duckdb_value) -> Val {
         | DUCKDB_TYPE_DUCKDB_TYPE_INTEGER_LITERAL => Val::Int(unsafe { duckdb_get_int64(v) }),
         DUCKDB_TYPE_DUCKDB_TYPE_LIST | DUCKDB_TYPE_DUCKDB_TYPE_ARRAY => {
             let n = unsafe { duckdb_get_list_size(v) };
-            Val::List((0..n).map(|i| owned_val(unsafe { duckdb_get_list_child(v, i) })).collect())
+            Val::List((0..n).map(|i| unsafe { owned_val(duckdb_get_list_child(v, i)) }).collect())
         }
         DUCKDB_TYPE_DUCKDB_TYPE_STRUCT => {
             let n = unsafe { duckdb_struct_type_child_count(t) };
-            Val::List((0..n).map(|i| owned_val(unsafe { duckdb_get_struct_child(v, i) })).collect())
+            Val::List((0..n).map(|i| unsafe { owned_val(duckdb_get_struct_child(v, i)) }).collect())
         }
         _ => Val::Str(unsafe { take_string(duckdb_get_varchar(v)) }),
     }
 }
 
 /// Reads and destroys a value DuckDB handed over.
-pub fn owned_val(mut v: ffi::duckdb_value) -> Val {
+///
+/// # Safety
+/// `v` is null or a valid value the caller owns.
+pub unsafe fn owned_val(mut v: ffi::duckdb_value) -> Val {
     let out = unsafe { val(v) };
     if !v.is_null() {
         unsafe { ffi::duckdb_destroy_value(&mut v) };
@@ -237,7 +240,10 @@ pub fn owned_val(mut v: ffi::duckdb_value) -> Val {
 }
 
 /// The named members of a STRUCT value (COPY options), destroying it.
-pub fn owned_struct(mut v: ffi::duckdb_value) -> Vec<(String, Val)> {
+///
+/// # Safety
+/// `v` is null or a valid value the caller owns.
+pub unsafe fn owned_struct(mut v: ffi::duckdb_value) -> Vec<(String, Val)> {
     use ffi::*;
     if v.is_null() {
         return vec![];

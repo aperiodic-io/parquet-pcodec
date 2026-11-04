@@ -89,7 +89,7 @@ impl fmt::Display for SqlType {
             Self::Timestamp => "TIMESTAMP",
             Self::TimestampNs => "TIMESTAMP_NS",
             Self::TimestampTz => "TIMESTAMP WITH TIME ZONE",
-            Self::TimestampTzNs => "TIMESTAMP_NS WITH TIME ZONE",
+            Self::TimestampTzNs => "TIMESTAMPTZ_NS",
             Self::Interval => "INTERVAL",
             Self::Enum(values) => {
                 f.write_str("ENUM(")?;
@@ -589,7 +589,7 @@ mod tests {
             (SqlType::Timestamp, "TIMESTAMP"),
             (SqlType::TimestampNs, "TIMESTAMP_NS"),
             (SqlType::TimestampTz, "TIMESTAMP WITH TIME ZONE"),
-            (SqlType::TimestampTzNs, "TIMESTAMP_NS WITH TIME ZONE"),
+            (SqlType::TimestampTzNs, "TIMESTAMPTZ_NS"),
             (SqlType::Interval, "INTERVAL"),
             (SqlType::Unsupported("BIT".into()), "BIT"),
         ];

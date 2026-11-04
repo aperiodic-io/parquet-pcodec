@@ -16,7 +16,7 @@ use parquet::arrow::ProjectionMask;
 use parquet::arrow::arrow_reader::{ArrowReaderMetadata, ArrowReaderOptions, ParquetRecordBatchReaderBuilder};
 use parquet_pcodec::read::ParquetRecordBatchReader;
 use std::fs::File;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 /// The name of the table function.
@@ -91,13 +91,13 @@ pub enum Slot {
     Other,
 }
 
-fn open_metadata(path: &PathBuf) -> Result<ArrowReaderMetadata, String> {
+fn open_metadata(path: &Path) -> Result<ArrowReaderMetadata, String> {
     let file = File::open(path).map_err(|e| format!("cannot open {}: {e}", path.display()))?;
     ArrowReaderMetadata::load(&file, ArrowReaderOptions::new())
         .map_err(|e| format!("cannot read {} as Parquet: {e}", path.display()))
 }
 
-fn columns_of(path: &PathBuf, schema: &SchemaRef) -> Result<Vec<Column>, String> {
+fn columns_of(path: &Path, schema: &SchemaRef) -> Result<Vec<Column>, String> {
     schema
         .fields()
         .iter()
@@ -364,11 +364,11 @@ impl Scan {
     fn next_unit(&self) -> Result<Option<(Arc<OpenFile>, usize)>, String> {
         let mut q = self.queue.lock().map_err(|_| "a reader thread panicked")?;
         loop {
-            if let Some((file, rg)) = q.current.take() {
-                if rg < file.row_groups() {
-                    q.current = Some((file.clone(), rg + 1));
-                    return Ok(Some((file, rg)));
-                }
+            if let Some((file, rg)) = q.current.take()
+                && rg < file.row_groups()
+            {
+                q.current = Some((file.clone(), rg + 1));
+                return Ok(Some((file, rg)));
             }
             let i = q.next_file;
             let Some(path) = self.bound.files.get(i) else { return Ok(None) };
@@ -423,7 +423,6 @@ mod tests {
     use arrow_schema::{Field, Schema};
     use parquet::file::properties::WriterProperties;
     use parquet_pcodec::{Policy, Writer, WriterOptions};
-    use std::path::Path;
 
     /// Writes `batch` with PCODEC to `dir/name`, `rows_per_group` rows per row group.
     fn write(dir: &Path, name: &str, batch: &RecordBatch, rows_per_group: usize) -> PathBuf {

@@ -602,8 +602,7 @@ pub(crate) mod tests {
 
         let keys = Mem::strings(&[Some(b"a"), Some(b"b"), Some(b"c")]);
         let values = Mem::of(&[1i64, 2, 3]).nulls(3, &[1]);
-        let mut kv = Mem::default();
-        kv.children = vec![keys, values];
+        let kv = Mem { children: vec![keys, values], ..Default::default() };
         let mut m = Mem::of(&entries(&[(0, 2), (0, 0), (2, 1)])).nulls(3, &[1]);
         m.children = vec![kv];
         m.child_len = 3;

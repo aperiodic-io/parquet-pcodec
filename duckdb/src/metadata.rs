@@ -91,6 +91,28 @@ impl Metadata {
     }
 }
 
+impl Metadata {
+    /// The metadata of this build of the extension, for `platform`.
+    pub fn for_platform(platform: &str) -> Self {
+        Self {
+            platform: platform.to_string(),
+            duckdb_version: crate::C_API_VERSION.to_string(),
+            extension_version: format!("v{}", env!("CARGO_PKG_VERSION")),
+            abi_type: ABI_C_STRUCT.to_string(),
+        }
+    }
+}
+
+/// The `.duckdb_extension` file: the shared library with the footer appended.
+pub fn package(library: &[u8], metadata: &Metadata) -> Result<Vec<u8>, String> {
+    if Metadata::parse(library).is_some() {
+        return Err("the library already ends with extension metadata".into());
+    }
+    let mut out = library.to_vec();
+    out.extend(metadata.footer()?);
+    Ok(out)
+}
+
 /// The DuckDB platform name of the target this crate is compiled for.
 pub fn current_platform() -> Option<&'static str> {
     platform_of(std::env::consts::OS, std::env::consts::ARCH)
@@ -195,5 +217,23 @@ mod tests {
         assert_eq!(platform_of("windows", "aarch64"), Some("windows_arm64"));
         assert_eq!(platform_of("freebsd", "x86_64"), None);
         assert_eq!(current_platform(), platform_of(std::env::consts::OS, std::env::consts::ARCH));
+    }
+
+    #[test]
+    fn packages_a_library_once() {
+        let m = Metadata::for_platform("linux_arm64");
+        assert_eq!(m.platform, "linux_arm64");
+        assert_eq!(m.duckdb_version, "v1.5.6");
+        assert_eq!(m.extension_version, format!("v{}", env!("CARGO_PKG_VERSION")));
+        assert_eq!(m.abi_type, "C_STRUCT");
+        let lib = b"\x7fELF library bytes".to_vec();
+        let file = package(&lib, &m).unwrap();
+        assert_eq!(&file[..lib.len()], &lib[..]);
+        assert_eq!(file.len(), lib.len() + 22 + 512);
+        assert_eq!(Metadata::parse(&file), Some(m.clone()));
+        assert_eq!(package(&file, &m).unwrap_err(), "the library already ends with extension metadata");
+        let mut bad = m;
+        bad.platform = "x".repeat(40);
+        assert!(package(&lib, &bad).is_err());
     }
 }
