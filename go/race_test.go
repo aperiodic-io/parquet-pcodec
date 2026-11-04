@@ -3,8 +3,8 @@ package pcodec_test
 import (
 	"bytes"
 	"fmt"
-	"strings"
 	"math/rand/v2"
+	"strings"
 	"sync"
 	"testing"
 
