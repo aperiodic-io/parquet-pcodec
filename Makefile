@@ -48,9 +48,10 @@ fuzz-smoke:
 	cd rust/core && for t in $$($(CARGO) +nightly fuzz list); do \
 		$(CARGO) +nightly fuzz run $$t -- -max_total_time=$(FUZZ_TIME) || exit 1; done
 
-# python/rust is judged by the Python suite: see python-mutants
+# python/rust is judged by the Python suite (see python-mutants); the DuckDB extension has its
+# own run, `make -C duckdb mutation`: the tests of both need Python
 mutants:
-	$(CARGO) mutants --workspace -j $(JOBS) --exclude 'python/**'
+	$(CARGO) mutants --workspace -j $(JOBS) --exclude 'python/**' --exclude 'duckdb/**'
 
 PYTHON_VENV := $(CURDIR)/python/.venv/bin/python
 

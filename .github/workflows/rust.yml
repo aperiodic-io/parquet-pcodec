@@ -103,7 +103,8 @@ jobs:
         if: github.event_name == 'pull_request'
         run: |
           git diff "origin/${{ github.base_ref }}...HEAD" > pr.diff
-          cargo mutants --workspace --in-diff pr.diff -j 2 --exclude 'python/**' # python.yml
+          # python/ and duckdb/ have their own mutation runs (python.yml, duckdb.yml)
+          cargo mutants --workspace --in-diff pr.diff -j 2 --exclude 'python/**' --exclude 'duckdb/**'
       - name: every mutant (weekly and on demand)
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: make mutants JOBS=2

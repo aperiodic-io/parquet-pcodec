@@ -1,0 +1,90 @@
+name: duckdb
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "41 4 * * 2" # weekly full mutation run of the extension
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  build:
+    runs-on: ubicloud-standard-2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1 (master)
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: install uv 0.11.32 (hash-pinned)
+        run: |
+          printf 'uv==0.11.32 --hash=sha256:3da76cd4e2697de30928b8a8524bd39183ac1e08cb7e72833807c022b7cba6c4\n' > "$RUNNER_TEMP/uv.txt"
+          python3 -m pip install --user --require-hashes -r "$RUNNER_TEMP/uv.txt"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: make -C duckdb fmt-check check-arrow clippy
+      - name: build the extension and run the SQL tests on it (slow tests included)
+        run: make -C duckdb sql
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: parquet_pcodec-linux_amd64
+          path: duckdb/build/parquet_pcodec.duckdb_extension
+          if-no-files-found: error
+
+  test:
+    runs-on: ubicloud-standard-2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1 (master)
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: install uv 0.11.32 (hash-pinned)
+        run: |
+          printf 'uv==0.11.32 --hash=sha256:3da76cd4e2697de30928b8a8524bd39183ac1e08cb7e72833807c022b7cba6c4\n' > "$RUNNER_TEMP/uv.txt"
+          python3 -m pip install --user --require-hashes -r "$RUNNER_TEMP/uv.txt"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: unit tests and the SQL tests on the debug build cargo makes for them
+        run: make -C duckdb test
+
+  mutants:
+    if: github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1 (master)
+        with:
+          toolchain: stable
+      - uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2.90.0
+        with:
+          tool: cargo-mutants@27
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: install uv 0.11.32 (hash-pinned)
+        run: |
+          printf 'uv==0.11.32 --hash=sha256:3da76cd4e2697de30928b8a8524bd39183ac1e08cb7e72833807c022b7cba6c4\n' > "$RUNNER_TEMP/uv.txt"
+          python3 -m pip install --user --require-hashes -r "$RUNNER_TEMP/uv.txt"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: mutants in the pull request's diff
+        if: github.event_name == 'pull_request'
+        run: |
+          git diff "origin/${{ github.base_ref }}...HEAD" > "$RUNNER_TEMP/pr.diff"
+          make -C duckdb mutation MUTANTS_ARGS="--in-diff $RUNNER_TEMP/pr.diff"
+      - name: every mutant of the extension (weekly and on demand)
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: make -C duckdb mutation
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: mutants-duckdb.out
+          path: target/mutants-duckdb
