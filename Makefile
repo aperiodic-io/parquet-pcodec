@@ -48,8 +48,10 @@ fuzz-smoke:
 	cd rust/core && for t in $$($(CARGO) +nightly fuzz list); do \
 		$(CARGO) +nightly fuzz run $$t -- -max_total_time=$(FUZZ_TIME) || exit 1; done
 
+# the DuckDB extension (duckdb/) has its own run, `make -C duckdb mutation`: its tests need
+# Python and DuckDB
 mutants:
-	$(CARGO) mutants --workspace -j $(JOBS)
+	$(CARGO) mutants --workspace -e 'duckdb/**' -j $(JOBS)
 
 # the fork's changed functions only (rust/parquet/FORK.md)
 fork-mutants:

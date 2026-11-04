@@ -103,7 +103,8 @@ jobs:
         if: github.event_name == 'pull_request'
         run: |
           git diff "origin/${{ github.base_ref }}...HEAD" > pr.diff
-          cargo mutants --workspace --in-diff pr.diff -j 2
+          # the DuckDB extension has its own mutation run in duckdb.yml
+          cargo mutants --workspace -e 'duckdb/**' --in-diff pr.diff -j 2
       - name: every mutant (weekly and on demand)
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: make mutants JOBS=2
