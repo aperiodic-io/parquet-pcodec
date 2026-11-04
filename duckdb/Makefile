@@ -25,7 +25,7 @@ $(PYTHON): pyproject.toml uv.lock
 	@touch $@
 
 build:
-	$(CARGO) build --release -j $(JOBS) $(CRATE) -p parquet-pcodec --bin parquet-pcodec --bin package-extension
+	$(CARGO) build --release -j $(JOBS) $(CRATE) -p parquet-pcodec --lib --bin parquet-pcodec --bin package-extension
 	@mkdir -p build
 	rm -f $(EXTENSION)
 	$(TARGET)/release/package-extension $(TARGET)/release/$(DYLIB) $(EXTENSION)
