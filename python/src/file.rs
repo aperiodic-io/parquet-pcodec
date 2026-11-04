@@ -12,9 +12,11 @@ use parquet_pcodec::parquet::arrow::arrow_reader::{
 };
 use parquet_pcodec::parquet::errors::Result as ParquetResult;
 use parquet_pcodec::parquet::file::reader::{ChunkReader, Length};
+use parquet_pcodec::parquet::file::statistics::Statistics;
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
 use pyo3::types::PyDict;
+use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -223,6 +225,29 @@ impl File {
             .collect::<Vec<_>>();
         d.set_item("columns", columns)?;
         Ok(d)
+    }
+
+    /// Per row group, the bounds its statistics give for each `INT32` and `INT64` leaf:
+    /// `{path: (min, max)}`, the values as stored (signed). Leaves without both bounds are left
+    /// out.
+    fn integer_bounds(&self) -> Vec<BTreeMap<String, (i64, i64)>> {
+        let md = self.metadata.metadata();
+        md.row_groups()
+            .iter()
+            .map(|rg| {
+                rg.columns()
+                    .iter()
+                    .filter_map(|c| {
+                        let bounds = match c.statistics()? {
+                            Statistics::Int32(s) => (i64::from(*s.min_opt()?), i64::from(*s.max_opt()?)),
+                            Statistics::Int64(s) => (*s.min_opt()?, *s.max_opt()?),
+                            _ => return None,
+                        };
+                        Some((c.column_path().string(), bounds))
+                    })
+                    .collect()
+            })
+            .collect()
     }
 
     /// The `parquet-pcodec inspect --json` report.

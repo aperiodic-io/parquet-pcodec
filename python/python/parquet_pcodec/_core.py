@@ -184,6 +184,12 @@ class ParquetFile:
         """The Arrow schema as an object with `__arrow_c_schema__`, for any Arrow library."""
         return self._file.schema()
 
+    def integer_bounds(self) -> list[dict[str, tuple[int, int]]]:
+        """Per row group, `{leaf path: (min, max)}` from the statistics of its `INT32` and
+        `INT64` leaves, as stored (signed; timestamps in their unit, dates in days). Leaves
+        without both bounds are left out."""
+        return self._file.integer_bounds()
+
     def stream(
         self,
         columns: Sequence[str] | None = None,
