@@ -427,6 +427,10 @@ mod tests {
             (&[0x15, 0xfe, 0xff, 0xff, 0xff, 0x7f][..], "i32 out of range"),
             (&[0x1d][..], "unknown field type 13"),
             (&[0x15, 1, 0][..], "missing or negative required field"),
+            // each required field missing on its own
+            (&[0x25, 0, 0x15, 0, 0][..], "missing or negative required field"),
+            (&[0x15, 0, 0x25, 0, 0][..], "missing or negative required field"),
+            (&[0x15, 0, 0x15, 0, 0][..], "missing or negative required field"),
             (&[0x18, 5, 0][..], "truncated"),
             (&[0x17, 0, 0][..], "truncated"),
             (&[0x13][..], "truncated"),
