@@ -271,6 +271,20 @@ def test_file_object_errors_propagate(numbers: pa.Table) -> None:
         ppc.write_table(numbers, Broken())
 
 
+def test_buffered_file_objects_are_flushed(numbers: pa.Table) -> None:
+    raw = io.BytesIO()
+    buffered = io.BufferedWriter(raw, buffer_size=1 << 20)  # type: ignore[arg-type]
+    ppc.write_table(numbers, buffered)
+    # write_table flushes what it wrote: the raw stream has the whole file
+    assert ppc.read_table(io.BytesIO(raw.getvalue())).equals(numbers)
+    raw2 = io.BytesIO()
+    buffered2 = io.BufferedWriter(raw2, buffer_size=1 << 20)  # type: ignore[arg-type]
+    std = io.BytesIO()
+    ppc.write_table(numbers, std, policy="base")
+    ppc.transcode(io.BytesIO(std.getvalue()), buffered2)
+    assert ppc.read_table(io.BytesIO(raw2.getvalue())).equals(numbers)
+
+
 def test_short_writes_are_retried(numbers: pa.Table) -> None:
     out = io.BytesIO()
 

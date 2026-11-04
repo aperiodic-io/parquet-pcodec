@@ -4,14 +4,28 @@ PARQUET_PCODEC_TESTDATA pointing at testdata/ (mutmut runs the tests from a copy
 
 from __future__ import annotations
 
+import pathlib
 import re
+import shutil
 import subprocess
 import sys
 
 CAUGHT = {"killed", "timeout"}
 
 
+def refresh_extension() -> None:
+    """mutmut copies the package into mutants/ once and keeps files that are already there:
+    copy the freshly built extension (and the other non-Python files) again."""
+    package = pathlib.Path("src/parquet_pcodec")
+    target = pathlib.Path("mutants") / package
+    if target.is_dir():
+        for f in package.iterdir():
+            if f.is_file() and f.suffix != ".py":
+                shutil.copy2(f, target / f.name)
+
+
 def main() -> int:
+    refresh_extension()
     subprocess.run([sys.executable, "-m", "mutmut", "run", "--max-children", "2"], check=False)
     out = subprocess.run(
         [sys.executable, "-m", "mutmut", "results", "--all", "true"], capture_output=True, text=True, check=True
