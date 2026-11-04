@@ -417,6 +417,8 @@ mod tests {
             w.write(batch(&o.schema, from, 2048)).unwrap();
             from += 2048;
             assert_eq!(w.sampled, from as usize >= SAMPLE_ROWS);
+            // 64 vectors of 2048 rows make the sample
+            assert_eq!(w.sampled, from >= 64 * 2048, "{from}");
         }
         w.write(batch(&o.schema, from, 0)).unwrap();
         assert_eq!(w.rows, from as u64);

@@ -27,6 +27,21 @@ fork in [`rust/parquet`](../rust/parquet) through [`rust/parquet-pcodec`](../rus
 The `duckdb` crate's arrow (`^60`) unifies with the fork's arrow 60.1.0; `make check-arrow`
 fails if a second arrow or parquet ever enters the build.
 
+### What comes from the `duckdb` crate
+
+- `duckdb::ffi` (libduckdb-sys' loadable-extension bindings): every C API call goes through
+  the function-pointer table DuckDB hands over at `LOAD` (`duckdb_rs_extension_api_init`).
+- `duckdb::vtab::arrow::write_arrow_array_to_vector` writes the scan's Arrow arrays into DuckDB
+  vectors. `types::normalize` first reshapes the arrays it would not copy exactly: it rounds
+  nanosecond times and time-zoned nanosecond timestamps to microseconds, and it does not take
+  dictionaries, half floats or 256-bit decimals.
+- Not used: the `VTab` trait and `register_table_function` (no local init state per thread, no
+  raw registration, and no COPY functions at all), the `#[duckdb_entrypoint_c_api]` macro (it
+  hands over a `Connection` without its raw handle, which raw registration needs; `src/lib.rs`
+  has the same few lines), `LogicalTypeHandle` (it has no `TIMESTAMPTZ_NS`), and
+  `data_chunk_to_arrow` for COPY (no decimals, enums, `TIME_NS` or `TIMESTAMPTZ_NS`):
+  `src/chunk.rs` reads DuckDB's vector layout itself.
+
 ## Loading
 
 ```sh
