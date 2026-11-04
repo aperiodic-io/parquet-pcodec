@@ -1,6 +1,7 @@
 package pcodec_test
 
 import (
+	"bytes"
 	"math/rand/v2"
 	"strings"
 	"testing"
@@ -267,5 +268,108 @@ func TestPlanArrowWriterProperties(t *testing.T) {
 		pqarrow.NewArrowWriterProperties(pqarrow.WithCoerceTimestamps(arrow.Millisecond))))
 	if err == nil {
 		t.Fatal("the trial should use the arrow writer properties and fail on lossy coercion")
+	}
+}
+
+// v2Penalty has a column where PCODEC wins (t), and order-book price lists that V2 pages
+// make larger: V2 pages store repetition and definition levels uncompressed.
+func v2Penalty(n int) arrow.RecordBatch {
+	sc := arrow.NewSchema([]arrow.Field{
+		{Name: "t", Type: arrow.PrimitiveTypes.Int64},
+		{Name: "bids", Type: arrow.ListOf(arrow.PrimitiveTypes.Float64)},
+		{Name: "asks", Type: arrow.ListOf(arrow.PrimitiveTypes.Float64)},
+	}, nil)
+	b := array.NewRecordBuilder(memory.DefaultAllocator, sc)
+	defer b.Release()
+	r := rand.New(rand.NewPCG(12, 0))
+	mid := int64(6_500_000)
+	for i := 0; i < n; i++ {
+		mid += int64(r.IntN(5)) - 2
+		b.Field(0).(*array.Int64Builder).Append(int64(i))
+		for f, side := range []int64{-1, 1} {
+			lb := b.Field(1 + f).(*array.ListBuilder)
+			lb.Append(true)
+			vb := lb.ValueBuilder().(*array.Float64Builder)
+			for k := int64(0); k < 20; k++ {
+				p := mid - k
+				if side > 0 {
+					p = mid + 1 + k
+				}
+				vb.Append(float64(p) / 100)
+			}
+		}
+	}
+	return b.NewRecordBatch()
+}
+
+func writeFile(t *testing.T, rec arrow.RecordBatch, opts ...pcodec.Option) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	w, err := pcodec.NewFileWriter(rec.Schema(), &buf, opts...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Write(rec); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func chunkSize(t *testing.T, data []byte, path string) int64 {
+	t.Helper()
+	md := fileMetadata(t, data)
+	var n int64
+	for i := 0; i < md.NumRowGroups(); i++ {
+		for j := 0; j < md.RowGroup(i).NumColumns(); j++ {
+			cc, err := md.RowGroup(i).ColumnChunk(j)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cc.PathInSchema().String() == path {
+				n += cc.TotalCompressedSize()
+			}
+		}
+	}
+	return n
+}
+
+func TestPlanAutoCountsTheCostOfV2Pages(t *testing.T) {
+	rec := v2Penalty(4000)
+	defer rec.Release()
+	auto := writeFile(t, rec)
+	base := writeFile(t, rec, pcodec.WithDefaultPolicy(pcodec.Base))
+	pcoT := writeFile(t, rec, pcodec.WithDefaultPolicy(pcodec.Base), pcodec.WithPolicy("t", pcodec.Pcodec))
+	// the premise: PCODEC alone is smaller on t, but makes the whole file larger (V2 pages)
+	if chunkSize(t, pcoT, "t") >= chunkSize(t, base, "t") {
+		t.Fatalf("t: PCODEC %d bytes, base %d", chunkSize(t, pcoT, "t"), chunkSize(t, base, "t"))
+	}
+	if len(pcoT) <= len(base) {
+		t.Fatalf("PCODEC on t: %d bytes, base: %d; V2 pages should cost more than it saves", len(pcoT), len(base))
+	}
+	for path, c := range columnCodecs(t, fileMetadata(t, auto)) {
+		if c != "ZSTD" {
+			t.Errorf("Auto: %s is %s, want ZSTD", path, c)
+		}
+	}
+	if len(auto) != len(base) {
+		t.Errorf("Auto: %d bytes, base: %d", len(auto), len(base))
+	}
+	assertSameData(t, auto, rec)
+}
+
+func TestPlanAutoKeepsPcodecWhenTheWholeFileIsSmaller(t *testing.T) {
+	// the same comparison, where V2 pages cost nothing: no lists, so PCODEC stays on ts
+	rec := autoRecord(20000)
+	defer rec.Release()
+	auto := writeFile(t, rec)
+	base := writeFile(t, rec, pcodec.WithDefaultPolicy(pcodec.Base))
+	if got := columnCodecs(t, fileMetadata(t, auto))["ts"]; got != "PCODEC" {
+		t.Fatalf("ts: %s, want PCODEC", got)
+	}
+	if len(auto) >= len(base) {
+		t.Fatalf("Auto: %d bytes, base: %d", len(auto), len(base))
 	}
 }

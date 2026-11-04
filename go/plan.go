@@ -180,7 +180,13 @@ func checkPolicy(p Policy) error {
 
 // trial writes sample twice, with the auto columns in the base codec and in PCODEC, and
 // switches each auto column whose PCODEC chunks are smaller.
+//
+// A file with PCODEC is written with V2 pages, which store levels uncompressed and can make
+// the other columns larger (spec section 6). So when only auto columns would use PCODEC,
+// the sample is also written with the chosen plan, and every column keeps the base codec if
+// the file with no PCODEC (V1 pages) is smaller in total.
 func (p *Plan) trial(sample arrow.RecordBatch, auto []string) error {
+	forced := p.UsesPcodec()
 	base, err := p.scratch(sample)
 	if err != nil {
 		return err
@@ -195,7 +201,27 @@ func (p *Plan) trial(sample arrow.RecordBatch, auto []string) error {
 	for _, path := range auto {
 		p.pcodec[path] = smaller(pco[path], base[path])
 	}
+	if forced || !p.UsesPcodec() {
+		return nil
+	}
+	chosen, err := p.scratch(sample)
+	if err != nil {
+		return err
+	}
+	if !smaller(total(chosen), total(base)) {
+		for _, path := range auto {
+			p.pcodec[path] = false
+		}
+	}
 	return nil
+}
+
+func total(sizes map[string]int64) int64 {
+	var n int64
+	for _, s := range sizes {
+		n += s
+	}
+	return n
 }
 
 // smaller reports whether the PCODEC size wins; a tie keeps the base codec.
