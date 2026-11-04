@@ -2352,6 +2352,7 @@ dependencies = [
  "arrow-cast",
  "arrow-data",
  "arrow-schema",
+ "arrow-select",
  "duckdb",
  "glob",
  "half",
