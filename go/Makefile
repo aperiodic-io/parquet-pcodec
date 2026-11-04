@@ -47,8 +47,9 @@ fuzz: $(DEPS)
 	$(GO) test $(TAGS) -run '^$$' -fuzz '^FuzzRoundTrip$$' -fuzztime $(FUZZTIME) .
 
 # gremlins tests a copy of the module, where ../target does not exist: always link by path.
+# -count=1: gremlins sets the mutant timeouts from its coverage run, which must not be cached.
 mutation: $(DEPS)
-	CGO_LDFLAGS=$(LIBA) $(GO) run $(GREMLINS) unleash .
+	CGO_LDFLAGS=$(LIBA) GOFLAGS="$(GOFLAGS) -count=1" $(GO) run $(GREMLINS) unleash .
 
 # Go-produced conformance vectors, for the other implementations to read.
 vectors: $(DEPS)
