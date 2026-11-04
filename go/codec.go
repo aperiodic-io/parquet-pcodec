@@ -75,7 +75,9 @@ func (c codec) Encode(dst, src []byte) []byte {
 }
 
 // EncodeLevel writes the payload of src, with the type hint and pcodec level that Level
-// packed into level. It writes into dst when cap(dst) is at least CompressBound.
+// packed into level; for FLOAT and DOUBLE hints the encoder also tries DECIMAL mode. It
+// writes into dst when cap(dst) is at least CompressBound, as arrow-go's page writer
+// arranges.
 //
 // The interface has no error return. The library fails only on bad arguments, which this
 // binding never passes, or on an internal error; in either case EncodeLevel writes a RAW
