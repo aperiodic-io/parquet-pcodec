@@ -420,6 +420,16 @@ def test_not_understood(node: object) -> None:
     assert ppl._test(node, SCHEMA) is None
 
 
+def test_get() -> None:
+    tree = {"a": {"b": {"c": 1}}, "x": 2}
+    assert ppl._get(tree, "a", "b", "c") == 1
+    assert ppl._get(tree, "a", "b") == {"c": 1}
+    assert ppl._get(tree) == tree
+    assert ppl._get(tree, "a", "z") is None
+    assert ppl._get(tree, "x", "y") is None
+    assert ppl._get("x", "y") is None
+
+
 def test_and_with_one_side_understood() -> None:
     known = binary(col("i"), "Gt", dyn(30))
     unknown = binary(col("f"), "Gt", dyn(30))

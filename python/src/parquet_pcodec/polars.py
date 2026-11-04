@@ -8,7 +8,6 @@ statistics rule it out.
 from __future__ import annotations
 
 import json
-import warnings
 from typing import TYPE_CHECKING, Any
 
 import polars as pl
@@ -52,10 +51,19 @@ def write_parquet(
     return write_table(df, sink, policy=policy, columns=columns, level=level, base=base, row_group_size=row_group_size)
 
 
+def _get(node: Any, *keys: str) -> Any:
+    """`node[k0][k1]...`, or `None` where a level is not a dict or lacks the key."""
+    for key in keys:
+        if not isinstance(node, dict):
+            return None
+        node = node.get(key)
+    return node
+
+
 def _literal(node: Any, dtype: pl.DataType) -> int | None:
     """The stored integer of a literal compared with a column of `dtype`, or `None` when the
     literal is not one this pruner understands exactly."""
-    lit = node.get("Literal") if isinstance(node, dict) else None
+    lit = _get(node, "Literal")
     if not isinstance(lit, dict):
         return None
     dyn = lit.get("Dyn")
@@ -111,7 +119,7 @@ def _either(a: Callable[[Bounds], bool], b: Callable[[Bounds], bool]) -> Callabl
 
 def _column(node: Any, schema: pl.Schema) -> str | None:
     """The name of a column node of a prunable dtype."""
-    name = node.get("Column") if isinstance(node, dict) else None
+    name = _get(node, "Column")
     if isinstance(name, str) and isinstance(schema.get(name), _SIGNED):
         return name
     return None
@@ -150,9 +158,7 @@ def _test(node: Any, schema: pl.Schema) -> Callable[[dict[str, tuple[int, int]]]
         return None
     function = node.get("Function")
     if isinstance(function, dict):
-        between = function.get("function", {})
-        between = between.get("Boolean", {}) if isinstance(between, dict) else {}
-        between = between.get("IsBetween") if isinstance(between, dict) else None
+        between = _get(function, "function", "Boolean", "IsBetween")
         inputs = function.get("input")
         if not isinstance(between, dict) or not isinstance(inputs, list) or len(inputs) != 3:
             return None
@@ -171,14 +177,12 @@ def _test(node: Any, schema: pl.Schema) -> Callable[[dict[str, tuple[int, int]]]
 
 def _row_groups(f: ParquetFile, predicate: pl.Expr, schema: pl.Schema) -> list[int]:
     """The row groups whose statistics do not rule `predicate` out."""
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            tree = json.loads(predicate.meta.serialize(format="json"))
-    except Exception:  # the serialized form is not a stable Polars API: then prune nothing
-        tree = None
-    test = _test(tree, schema)
     bounds = f.integer_bounds()
+    try:
+        tree = json.loads(predicate.meta.serialize(format="json"))
+    except Exception:  # the serialized form is not a stable Polars API: then prune nothing
+        return list(range(len(bounds)))
+    test = _test(tree, schema)
     return [i for i, b in enumerate(bounds) if test is None or test(b)]
 
 
