@@ -64,6 +64,9 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "PT", "C4", "PIE", "RET",
 ignore = [
     # `Union[...]` aliases are kept: `X | Y` of string forward references fails at runtime on 3.10
     "UP007",
+    # zip(strict=True) where the lengths are equal by construction only adds mutants no test can
+    # kill (strict=False, None or left out behave the same)
+    "B905",
 ]
 
 [tool.ruff.lint.per-file-ignores]

@@ -73,8 +73,31 @@ def test_write_lazy_frames(tmp_path: pathlib.Path) -> None:
     assert_frame_equal(ppl.read_parquet(p), frame().head(10))
 
 
+def test_write_passes_every_option(tmp_path: pathlib.Path) -> None:
+    import random
+
+    r = random.Random(3)
+    df = pl.DataFrame({"x": [int(r.gauss(0, 1e6)) for _ in range(3000)], "y": [r.random() for _ in range(3000)]})
+    options: dict[str, Any] = {
+        "policy": "base",
+        "columns": {"x": "pcodec"},
+        "level": 0,
+        "base": "snappy",
+        "row_group_size": 1000,
+    }
+    ours = io.BytesIO()
+    want = io.BytesIO()
+    assert ppl.write_parquet(df, ours, **options) == {"x": "PCODEC", "y": "SNAPPY"}
+    ppc.write_table(df, want, **options)
+    assert ours.getvalue() == want.getvalue()
+    # the level reaches the file
+    other = io.BytesIO()
+    ppc.write_table(df, other, **{**options, "level": 8})
+    assert other.getvalue() != want.getvalue()
+
+
 def test_write_rejects_other_data(tmp_path: pathlib.Path) -> None:
-    with pytest.raises(TypeError, match="DataFrame"):
+    with pytest.raises(TypeError, match="DataFrame or LazyFrame, got dict"):
         ppl.write_parquet({"a": [1]}, tmp_path / "x.parquet")  # type: ignore[arg-type]
 
 
@@ -106,6 +129,8 @@ def test_projection_is_pushed_down(path: pathlib.Path, monkeypatch: pytest.Monke
     assert_frame_equal(out, frame().select("price", "seq"))
     assert len(spy.calls) == 1
     assert sorted(spy.calls[0]["columns"]) == ["price", "seq"]
+    # without a predicate every row group is read
+    assert spy.calls[0]["row_groups"] is None
 
 
 def test_n_rows_is_pushed_down(path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -158,6 +183,25 @@ def test_batch_size_hint_and_default(path: pathlib.Path) -> None:
     assert ppl.DEFAULT_BATCH_SIZE == 65536
     capped = ppl._source(f, 250, schema)
     assert [b.height for b in capped(None, None, None, 300)][:2] == [250, 250]
+
+
+def test_limit_with_predicate_is_counted_on_matching_rows(path: pathlib.Path) -> None:
+    # Polars does not pass n_rows with a predicate today; the generator handles it anyway
+    f = ppc.ParquetFile(path)
+    source = ppl._source(f, None, pl.DataFrame(f.empty()).schema)
+    even = pl.col("seq") % 2 == 0
+    for n in [0, 1, 7, 500, 2000]:
+        out = pl.concat(list(source(["seq"], even, n, 3)), how="vertical")
+        assert out["seq"].to_list() == list(range(0, 1000, 2))[:n]
+    # it stops reading once it has them
+    batches = list(source(["seq"], even, 4, 3))
+    assert len(batches) == 3
+    plain = pl.concat(list(source(["seq"], None, 5, 2)))
+    assert plain["seq"].to_list() == [0, 1, 2, 3, 4]
+
+
+def test_batch_size_one(path: pathlib.Path) -> None:
+    assert ppl.scan_parquet(path, batch_size=1).head(3).collect().height == 3
 
 
 def test_bad_batch_size(path: pathlib.Path) -> None:

@@ -191,6 +191,28 @@ def test_pandas_metadata_is_what_pyarrow_writes(tmp_path: pathlib.Path) -> None:
     assert ours["columns"] == theirs["columns"]
 
 
+def test_to_parquet_passes_every_option() -> None:
+    import random
+
+    r = random.Random(3)
+    df = pd.DataFrame({"x": [int(r.gauss(0, 1e6)) for _ in range(3000)], "y": [r.random() for _ in range(3000)]})
+    options: dict[str, object] = {
+        "policy": "base",
+        "columns": {"x": "pcodec"},
+        "level": 0,
+        "base": "snappy",
+        "row_group_size": 1000,
+    }
+    ours = io.BytesIO()
+    want = io.BytesIO()
+    assert ppd.to_parquet(df, ours, **options) == {"x": "PCODEC", "y": "SNAPPY"}  # type: ignore[arg-type]
+    ppc.write_table(pa.Table.from_pandas(df), want, **options)  # type: ignore[arg-type]
+    assert ours.getvalue() == want.getvalue()
+    other = io.BytesIO()
+    ppc.write_table(pa.Table.from_pandas(df), other, **{**options, "level": 8})  # type: ignore[arg-type]
+    assert other.getvalue() != want.getvalue()
+
+
 def test_rejects_non_frames(tmp_path: pathlib.Path) -> None:
-    with pytest.raises(TypeError, match="DataFrame"):
+    with pytest.raises(TypeError, match="expected a pandas DataFrame, got dict"):
         ppd.to_parquet({"a": [1]}, tmp_path / "x.parquet")  # type: ignore[arg-type]

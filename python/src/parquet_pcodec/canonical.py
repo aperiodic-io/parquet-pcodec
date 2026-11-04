@@ -19,7 +19,8 @@ if TYPE_CHECKING:
 
 
 def _string(s: str) -> str:
-    return json.dumps(s, ensure_ascii=False)
+    # mutmut's `ensure_ascii=None` is equivalent (falsy like False): no test can tell
+    return json.dumps(s, ensure_ascii=False)  # pragma: no mutate
 
 
 def _is_float(t: Any, pa: Any) -> int:
@@ -53,7 +54,7 @@ def _decimals(arr: Any) -> list[str]:
 
 
 def _join(children: list[str], starts: list[int], ends: list[int]) -> list[str]:
-    return ["[" + ",".join(children[s:e]) + "]" for s, e in zip(starts, ends, strict=True)]
+    return ["[" + ",".join(children[s:e]) + "]" for s, e in zip(starts, ends)]
 
 
 def _values(arr: Any, pa: Any) -> list[str]:
@@ -67,7 +68,7 @@ def _values(arr: Any, pa: Any) -> list[str]:
         return ["null"] * len(arr)
     out = _non_null_values(arr, t, pa)
     if arr.null_count:
-        out = [v if valid else "null" for v, valid in zip(out, arr.is_valid().to_pylist(), strict=True)]
+        out = [v if valid else "null" for v, valid in zip(out, arr.is_valid().to_pylist())]
     return out
 
 
@@ -106,7 +107,7 @@ def _non_null_values(arr: Any, t: Any, pa: Any) -> list[str]:
     if pa.types.is_struct(t):
         names = [_string(t.field(i).name) + ":" for i in range(t.num_fields)]
         fields = [_values(child, pa) for child in arr.flatten()]
-        return ["{" + ",".join(n + f[i] for n, f in zip(names, fields, strict=True)) + "}" for i in range(len(arr))]
+        return ["{" + ",".join(n + f[i] for n, f in zip(names, fields)) + "}" for i in range(len(arr))]
     raise TypeError(f"canonical JSON does not cover {t}")
 
 
@@ -132,7 +133,7 @@ def lines(data: object) -> Iterator[str]:
         keys = [_string(name) + ":" for name in batch.schema.names]
         columns = [_values(c, pa) for c in batch.columns]
         for row in range(batch.num_rows):
-            yield "{" + ",".join(k + c[row] for k, c in zip(keys, columns, strict=True)) + "}"
+            yield "{" + ",".join(k + c[row] for k, c in zip(keys, columns)) + "}"
 
 
 def dumps(data: object) -> str:

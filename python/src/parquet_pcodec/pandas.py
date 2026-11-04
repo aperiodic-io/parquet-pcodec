@@ -39,17 +39,18 @@ def _ipc(categories: pa.Array[Any]) -> str:
 
 
 def _from_ipc(data: str) -> pa.Array[Any]:
-    categories: pa.Array[Any] = pa.ipc.open_stream(base64.b64decode(data)).read_all().column(0).combine_chunks()
+    stream = pa.ipc.open_stream(base64.b64decode(data)).read_all()
+    categories: pa.Array[Any] = stream.column("categories").combine_chunks()
     return categories
 
 
 def _encode_categories(table: pa.Table) -> pa.Table:
     """`table` with the categories of its dictionary columns in the schema metadata."""
-    chunks: list[Any] = [c.chunks[0] if c.num_chunks else None for c in table.columns]
+    # Table.from_pandas gives every column one chunk, holding the categories
     stored = {
-        f.name: _ipc(chunk.dictionary)
-        for f, chunk in zip(table.schema, chunks, strict=True)
-        if pa.types.is_dictionary(f.type) and chunk is not None
+        f.name: _ipc(table.column(i).chunk(0).dictionary)  # type: ignore[attr-defined]
+        for i, f in enumerate(table.schema)
+        if pa.types.is_dictionary(f.type)
     }
     if not stored:
         return table

@@ -88,20 +88,24 @@ def _literal(node: Any, dtype: pl.DataType) -> int | None:
 _FLIP = {"Lt": "Gt", "LtEq": "GtEq", "Gt": "Lt", "GtEq": "LtEq", "Eq": "Eq"}
 
 
+#: For each comparison `column <op> v`: whether a value in `lo..=hi` may satisfy it.
+_MAY: dict[str, Callable[[int, int, int], bool]] = {
+    "Eq": lambda lo, hi, v: lo <= v <= hi,
+    "Lt": lambda lo, hi, v: lo < v,
+    "LtEq": lambda lo, hi, v: lo <= v,
+    "Gt": lambda lo, hi, v: hi > v,
+    "GtEq": lambda lo, hi, v: hi >= v,
+}
+
+
 def _compare(name: str, op: str, v: int) -> Callable[[dict[str, tuple[int, int]]], bool]:
+    test = _MAY[op]
+
     def may(bounds: dict[str, tuple[int, int]]) -> bool:
         if name not in bounds:
             return True
         lo, hi = bounds[name]
-        if op == "Eq":
-            return lo <= v <= hi
-        if op == "Lt":
-            return lo < v
-        if op == "LtEq":
-            return lo <= v
-        if op == "Gt":
-            return hi > v
-        return hi >= v  # GtEq
+        return test(lo, hi, v)
 
     return may
 
