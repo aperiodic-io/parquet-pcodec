@@ -1,4 +1,4 @@
-parquet-pcodec
+pparquet
 
 rust/parquet is a modified copy of the Apache Arrow `parquet` crate 60.1.0
 (https://github.com/apache/arrow-rs), licensed under the Apache License 2.0. Its own

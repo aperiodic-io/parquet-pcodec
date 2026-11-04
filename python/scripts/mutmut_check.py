@@ -1,6 +1,6 @@
 """Runs mutmut and fails unless every mutant was killed (a timeout counts as killed: the
 mutant made the tests hang). Run from python/ after `maturin develop`, with
-PARQUET_PCODEC_TESTDATA pointing at testdata/ (mutmut runs the tests from a copy)."""
+PPARQUET_TESTDATA pointing at testdata/ (mutmut runs the tests from a copy)."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ CAUGHT = {"killed", "timeout"}
 def refresh_extension() -> None:
     """mutmut copies the package into mutants/ once and keeps files that are already there:
     copy the freshly built extension (and the other non-Python files) again."""
-    package = pathlib.Path("src/parquet_pcodec")
+    package = pathlib.Path("src/pparquet")
     target = pathlib.Path("mutants") / package
     if target.is_dir():
         for f in package.iterdir():

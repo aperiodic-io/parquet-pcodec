@@ -1,4 +1,4 @@
-package pcodec_test
+package pparquet_test
 
 import (
 	"bytes"
@@ -14,14 +14,14 @@ import (
 	"github.com/apache/arrow-go/v18/parquet/compress"
 	"github.com/apache/arrow-go/v18/parquet/pqarrow"
 
-	pcodec "github.com/aperiodic-io/parquet-pcodec/go"
+	pparquet "github.com/aperiodic-io/pparquet/go"
 )
 
 // TestQuickRoundTripAnyBytes: any bytes, any hint, any level decode to themselves.
 func TestQuickRoundTripAnyBytes(t *testing.T) {
 	c := codec(t)
 	f := func(data []byte, typ uint8, lvl uint8) bool {
-		level := pcodec.Level(parquet.Type(typ%8), int(lvl%14)-1)
+		level := pparquet.Level(parquet.Type(typ%8), int(lvl%14)-1)
 		enc := c.EncodeLevel(nil, data, level)
 		return bytes.Equal(c.Decode(make([]byte, len(data)), enc), data)
 	}
@@ -73,7 +73,7 @@ func TestSeededRoundTripTypedColumns(t *testing.T) {
 	for i := 0; i < 300; i++ {
 		col := genNumbers(r, r.IntN(5000))
 		for _, lvl := range []int{0, -1} {
-			enc := c.EncodeLevel(nil, col.data, pcodec.Level(col.typ, lvl))
+			enc := c.EncodeLevel(nil, col.data, pparquet.Level(col.typ, lvl))
 			if !bytes.Equal(c.Decode(make([]byte, len(col.data)), enc), col.data) {
 				t.Fatalf("case %d (%v, %d values) does not round-trip", i, col.typ, len(col.data))
 			}
@@ -88,11 +88,11 @@ func TestSeededFiles(t *testing.T) {
 	for seed := uint64(1); seed <= 16; seed++ {
 		t.Run(fmt.Sprint(seed), func(t *testing.T) {
 			r := rand.New(rand.NewPCG(seed, 3))
-			opts := []pcodec.Option{
-				pcodec.WithDefaultPolicy(pcodec.Policy(r.IntN(3))),
-				pcodec.WithPcodecLevel(r.IntN(14) - 1),
-				pcodec.WithArrowWriterProperties(pqarrow.NewArrowWriterProperties(pqarrow.WithStoreSchema())),
-				pcodec.WithWriterProperties(
+			opts := []pparquet.Option{
+				pparquet.WithDefaultPolicy(pparquet.Policy(r.IntN(3))),
+				pparquet.WithPcodecLevel(r.IntN(14) - 1),
+				pparquet.WithArrowWriterProperties(pqarrow.NewArrowWriterProperties(pqarrow.WithStoreSchema())),
+				pparquet.WithWriterProperties(
 					parquet.WithStoreDecimalAsInteger(true),
 					parquet.WithMaxRowGroupLength(int64(100+r.IntN(2000))),
 					parquet.WithDataPageSize(int64(512+r.IntN(8192))),
@@ -103,11 +103,11 @@ func TestSeededFiles(t *testing.T) {
 					parquet.WithDictionaryFor("st.c.list.element", false)),
 			}
 			if r.IntN(2) == 0 {
-				opts = append(opts, pcodec.WithBaseCodec(compress.Codecs.Snappy, compress.DefaultCompressionLevel))
+				opts = append(opts, pparquet.WithBaseCodec(compress.Codecs.Snappy, compress.DefaultCompressionLevel))
 			}
 			for path := range paths {
 				if r.IntN(3) == 0 {
-					opts = append(opts, pcodec.WithPolicy(path, pcodec.Policy(r.IntN(3))))
+					opts = append(opts, pparquet.WithPolicy(path, pparquet.Policy(r.IntN(3))))
 				}
 			}
 			var recs []arrow.RecordBatch
@@ -120,7 +120,7 @@ func TestSeededFiles(t *testing.T) {
 				}
 			}()
 			var buf bytes.Buffer
-			w, err := pcodec.NewFileWriter(allTypes, &buf, opts...)
+			w, err := pparquet.NewFileWriter(allTypes, &buf, opts...)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -133,13 +133,13 @@ func TestSeededFiles(t *testing.T) {
 				t.Fatal(err)
 			}
 			md := fileMetadata(t, buf.Bytes())
-			_, marked := footerValue(md, pcodec.FooterKey)
+			_, marked := footerValue(md, pparquet.FooterKey)
 			if marked != w.Plan().UsesPcodec() {
 				t.Fatalf("footer key %v, plan uses PCODEC %v", marked, w.Plan().UsesPcodec())
 			}
 			for path, c := range columnCodecs(t, md) {
 				want, _ := w.Plan().Codec(path)
-				if (c == "PCODEC") != (want == pcodec.Compression) {
+				if (c == "PCODEC") != (want == pparquet.Compression) {
 					t.Fatalf("%s written as %s, planned %v", path, c, want)
 				}
 			}

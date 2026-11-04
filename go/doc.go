@@ -1,5 +1,5 @@
 // Package pcodec adds PCODEC, pcodec as a Parquet compression codec (spec/FORMAT.md of
-// github.com/aperiodic-io/parquet-pcodec), to Apache arrow-go.
+// github.com/aperiodic-io/pparquet), to Apache arrow-go.
 //
 // # Reading
 //
@@ -7,7 +7,7 @@
 // compress.RegisterCodec, so file.Reader and pqarrow read PCODEC column chunks with no other
 // change. The payload is self-describing: decoding needs no column type.
 //
-//	import _ "github.com/aperiodic-io/parquet-pcodec/go"
+//	import _ "github.com/aperiodic-io/pparquet/go"
 //
 // A corrupt payload is a read error (the codec implements compress.ErrorCodec), never a
 // panic.
@@ -39,19 +39,19 @@
 //
 // # Building
 //
-// The package is a cgo binding of the Rust C ABI (rust/capi, include/parquet_pcodec.h is
+// The package is a cgo binding of the Rust C ABI (rust/capi, include/pparquet.h is
 // vendored here). By default it links
-// ${SRCDIR}/../target/release/libparquet_pcodec.a, which exists in a checkout of the
+// ${SRCDIR}/../target/release/libpparquet_capi.a, which exists in a checkout of the
 // repository after
 //
-//	cargo build --release -p parquet-pcodec-capi
+//	cargo build --release -p pparquet-capi
 //
 // (make lib in the go directory). A consumer that uses the module from the module cache has
-// no such path; it builds the static library once and links it with the pcodec_external tag:
+// no such path; it builds the static library once and links it with the pparquet_external tag:
 //
-//	CGO_LDFLAGS=/path/to/libparquet_pcodec.a go build -tags pcodec_external ./...
+//	CGO_LDFLAGS=/path/to/libpparquet_capi.a go build -tags pparquet_external ./...
 //
-// or, with the Makefile, make test PCODEC_LIB_DIR=/path/to. On Linux the library also needs
+// or, with the Makefile, make test PPARQUET_LIB_DIR=/path/to. On Linux the library also needs
 // -lgcc_s -lutil -lrt -lpthread -lm -ldl, which the package adds itself. Only linux/amd64 is
 // tested.
-package pcodec
+package pparquet

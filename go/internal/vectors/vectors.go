@@ -18,8 +18,8 @@ import (
 	"github.com/apache/arrow-go/v18/parquet/file"
 	"github.com/apache/arrow-go/v18/parquet/pqarrow"
 
-	pcodec "github.com/aperiodic-io/parquet-pcodec/go"
-	"github.com/aperiodic-io/parquet-pcodec/go/internal/canonical"
+	pparquet "github.com/aperiodic-io/pparquet/go"
+	"github.com/aperiodic-io/pparquet/go/internal/canonical"
 )
 
 // ErrNoVectors means the directory has no files/*.parquet.
@@ -86,7 +86,7 @@ type vector struct {
 	name  string
 	recs  func() []arrow.RecordBatch
 	props []parquet.WriterProperty
-	auto  bool // write with pcodec.FileWriter (Auto) instead of props
+	auto  bool // write with pparquet.FileWriter (Auto) instead of props
 }
 
 // Generate writes every Go-produced vector into dir/files and dir/expected and returns
@@ -135,12 +135,12 @@ func (v vector) write(dir string) error {
 	}
 	var w writer
 	if v.auto {
-		w, err = pcodec.NewFileWriter(sc, f, pcodec.WithWriterProperties(v.props...))
+		w, err = pparquet.NewFileWriter(sc, f, pparquet.WithWriterProperties(v.props...))
 	} else {
 		var fw *pqarrow.FileWriter
 		fw, err = pqarrow.NewFileWriter(sc, f, parquet.NewWriterProperties(v.props...), pqarrow.DefaultWriterProps())
 		if err == nil {
-			err = fw.AppendKeyValueMetadata(pcodec.FooterKey, pcodec.FooterValue)
+			err = fw.AppendKeyValueMetadata(pparquet.FooterKey, pparquet.FooterValue)
 		}
 		w = fw
 	}
@@ -168,7 +168,7 @@ func pcodecAll(cols map[string]parquet.Type, base ...parquet.WriterProperty) []p
 	}
 	sort.Strings(paths)
 	for _, p := range paths {
-		props = append(props, pcodec.ColumnProperties(p, cols[p], -1)...)
+		props = append(props, pparquet.ColumnProperties(p, cols[p], -1)...)
 	}
 	return props
 }

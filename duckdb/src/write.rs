@@ -1,4 +1,4 @@
-//! The C API callbacks of the COPY function `pcodec_parquet` (`duckdb_register_copy_function`,
+//! The C API callbacks of the COPY function `pparquet` (`duckdb_register_copy_function`,
 //! stable since C API v1.5.6):
 //!
 //! - bind: the column types (`duckdb_copy_function_bind_get_column_type`) and the options
@@ -9,7 +9,7 @@
 //!   parallel execution mode), so the batches keep the query's order;
 //! - finalize: writes the rest and the footer.
 //!
-//! The same COPY function reads with `read_pcodec_parquet` for `COPY t FROM`.
+//! The same COPY function reads with `read_pparquet` for `COPY t FROM`.
 
 use crate::chunk::{VectorView, convert};
 use crate::copy::{CopyOptions, CopyWriter, FORMAT};
@@ -113,7 +113,7 @@ unsafe extern "C" fn finalize(info: ffi::duckdb_copy_function_finalize_info) {
     }
 }
 
-/// Registers the COPY function `pcodec_parquet` on `connection`.
+/// Registers the COPY function `pparquet` on `connection`.
 ///
 /// # Safety
 /// `connection` is an open connection.

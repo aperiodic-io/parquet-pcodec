@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-//! parquet-pcodec fork: round trips of Arrow data written with [`Compression::PCODEC`].
+//! pparquet fork: round trips of Arrow data written with [`Compression::PCODEC`].
 
 use std::sync::Arc;
 

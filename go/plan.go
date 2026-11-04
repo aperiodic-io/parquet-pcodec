@@ -1,4 +1,4 @@
-package pcodec
+package pparquet
 
 import (
 	"bytes"

@@ -7,8 +7,8 @@ use crate::options::{Options, base_codec, codec_map, codec_name};
 use crate::sink::Sink;
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
-use parquet_pcodec::Target;
-use parquet_pcodec::parquet::file::metadata::ParquetMetaData;
+use pparquet::Target;
+use pparquet::parquet::file::metadata::ParquetMetaData;
 use pyo3::prelude::*;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -16,13 +16,13 @@ use std::sync::{Arc, Mutex};
 type Codecs = BTreeMap<String, String>;
 
 enum State {
-    Open(Box<parquet_pcodec::Writer<Sink>>),
+    Open(Box<pparquet::Writer<Sink>>),
     /// Closed (with the codecs, if they were chosen) or aborted.
     Closed(Option<Codecs>),
 }
 
 /// Writes record batches to one Parquet file.
-#[pyclass(frozen, module = "parquet_pcodec._lib")]
+#[pyclass(frozen, module = "pparquet._lib")]
 pub struct Writer {
     schema: SchemaRef,
     state: Mutex<State>,
@@ -35,7 +35,7 @@ impl Writer {
         let pending = Pending::default();
         let sink = Sink::new(sink, &pending)?;
         let s = schema.clone();
-        let w = detached(py, move || parquet_pcodec::Writer::try_new(sink, s, options).map_err(from_pcodec))
+        let w = detached(py, move || pparquet::Writer::try_new(sink, s, options).map_err(from_pcodec))
             .map_err(|e| pending.or(e))?;
         Ok(Self { schema, state: Mutex::new(State::Open(Box::new(w))), pending })
     }
@@ -45,7 +45,7 @@ impl Writer {
     fn with_open<T: Send>(
         &self,
         py: Python<'_>,
-        f: impl FnOnce(&mut parquet_pcodec::Writer<Sink>) -> PyResult<T> + Send,
+        f: impl FnOnce(&mut pparquet::Writer<Sink>) -> PyResult<T> + Send,
     ) -> PyResult<T> {
         locked(py, &self.state, |state| match state {
             State::Open(w) => f(w),
@@ -179,7 +179,7 @@ pub fn transcode(
     let mut sink = Sink::new(sink, &pending)?;
     let reader = input.reader()?;
     detached(py, move || {
-        let metadata = parquet_pcodec::transcode(reader, &mut sink, &target).map_err(from_pcodec)?;
+        let metadata = pparquet::transcode(reader, &mut sink, &target).map_err(from_pcodec)?;
         std::io::Write::flush(&mut sink).map_err(|e| invalid(e.to_string()))?;
         Ok(first_row_group_codecs(&metadata))
     })

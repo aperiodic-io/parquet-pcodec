@@ -1,6 +1,6 @@
 //! The C ABI, called the way C and Go call it.
 
-use parquet_pcodec::*;
+use pparquet_capi::*;
 use std::ptr;
 
 fn compress(src: &[u8], t: i32, level: i32, decimal: i32) -> (i32, Vec<u8>) {

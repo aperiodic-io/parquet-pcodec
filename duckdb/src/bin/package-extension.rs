@@ -1,9 +1,9 @@
 //! `package-extension LIBRARY OUTPUT [PLATFORM]`: appends DuckDB's extension metadata to the
-//! built shared library, giving the loadable `parquet_pcodec.duckdb_extension`.
+//! built shared library, giving the loadable `pparquet.duckdb_extension`.
 //!
 //! PLATFORM defaults to the DuckDB name of the platform this tool runs on (`linux_amd64`...).
 
-use parquet_pcodec_duckdb::metadata::{Metadata, current_platform, package};
+use pparquet_duckdb::metadata::{Metadata, current_platform, package};
 use std::process::ExitCode;
 
 fn run(args: &[String]) -> Result<(), String> {

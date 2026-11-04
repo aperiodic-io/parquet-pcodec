@@ -1,4 +1,4 @@
-package pcodec_test
+package pparquet_test
 
 import (
 	"bytes"
@@ -13,7 +13,7 @@ import (
 	"github.com/apache/arrow-go/v18/parquet/file"
 	"github.com/apache/arrow-go/v18/parquet/pqarrow"
 
-	pcodec "github.com/aperiodic-io/parquet-pcodec/go"
+	pparquet "github.com/aperiodic-io/pparquet/go"
 )
 
 // Write trades with Auto codec selection, then read them back with plain pqarrow: importing
@@ -38,7 +38,7 @@ func Example() {
 	defer rec.Release()
 
 	var buf bytes.Buffer
-	w, err := pcodec.NewFileWriter(sc, &buf) // Auto, base codec ZSTD(3)
+	w, err := pparquet.NewFileWriter(sc, &buf) // Auto, base codec ZSTD(3)
 	if err != nil {
 		panic(err)
 	}
@@ -55,7 +55,7 @@ func Example() {
 		panic(err)
 	}
 	defer rdr.Close()
-	fmt.Println("footer:", *rdr.MetaData().KeyValueMetadata().FindValue(pcodec.FooterKey))
+	fmt.Println("footer:", *rdr.MetaData().KeyValueMetadata().FindValue(pparquet.FooterKey))
 	fr, err := pqarrow.NewFileReader(rdr, pqarrow.ArrowReadProperties{}, memory.DefaultAllocator)
 	if err != nil {
 		panic(err)
@@ -75,14 +75,14 @@ func Example() {
 // Write one column with PCODEC using plain arrow-go writer properties.
 func ExampleColumnProperties() {
 	props := parquet.NewWriterProperties(append(
-		pcodec.ColumnProperties("price", parquet.Types.Double, 8),
+		pparquet.ColumnProperties("price", parquet.Types.Double, 8),
 		parquet.WithDataPageVersion(parquet.DataPageV2))...)
-	fmt.Println(props.CompressionFor("price") == pcodec.Compression, props.DictionaryEnabledFor("price"))
+	fmt.Println(props.CompressionFor("price") == pparquet.Compression, props.DictionaryEnabledFor("price"))
 	// Output: true false
 }
 
 // The packed level of an INT64 column at pcodec level 8.
 func ExampleLevel() {
-	fmt.Printf("%#x\n", pcodec.Level(parquet.Types.Int64, 8))
+	fmt.Printf("%#x\n", pparquet.Level(parquet.Types.Int64, 8))
 	// Output: 0x50430209
 }

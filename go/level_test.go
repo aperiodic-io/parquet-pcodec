@@ -1,4 +1,4 @@
-package pcodec_test
+package pparquet_test
 
 import (
 	"fmt"
@@ -7,7 +7,7 @@ import (
 	"github.com/apache/arrow-go/v18/parquet"
 	"github.com/apache/arrow-go/v18/parquet/compress"
 
-	pcodec "github.com/aperiodic-io/parquet-pcodec/go"
+	pparquet "github.com/aperiodic-io/pparquet/go"
 )
 
 func TestLevelPacking(t *testing.T) {
@@ -23,7 +23,7 @@ func TestLevelPacking(t *testing.T) {
 		{parquet.Types.FixedLenByteArray, 8, 0x5043_0709},
 	}
 	for _, tc := range cases {
-		if got := pcodec.Level(tc.typ, tc.lvl); got != tc.want {
+		if got := pparquet.Level(tc.typ, tc.lvl); got != tc.want {
 			t.Errorf("Level(%v, %d) = %#x, want %#x", tc.typ, tc.lvl, got, tc.want)
 		}
 	}
@@ -47,13 +47,13 @@ func TestLevelRejectsBadArguments(t *testing.T) {
 					t.Fatalf("panic %v, want %q", r, tc.msg)
 				}
 			}()
-			pcodec.Level(tc.typ, tc.lvl)
+			pparquet.Level(tc.typ, tc.lvl)
 		})
 	}
 }
 
 func TestLinkedABIVersion(t *testing.T) {
-	if v := pcodec.LinkedABIVersion(); v != 1 {
+	if v := pparquet.LinkedABIVersion(); v != 1 {
 		t.Fatalf("linked ABI version %d, this binding speaks 1", v)
 	}
 }

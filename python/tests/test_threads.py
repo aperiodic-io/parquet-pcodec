@@ -14,8 +14,8 @@ from concurrent.futures import ThreadPoolExecutor
 import pyarrow as pa
 import pytest
 
-import parquet_pcodec as ppc
-from parquet_pcodec import canonical, codec
+import pparquet as ppc
+from pparquet import canonical, codec
 
 
 @pytest.fixture(scope="module")
@@ -122,8 +122,8 @@ def test_core_without_pyarrow(tmp_path: pathlib.Path) -> None:
         import sys
         sys.modules["pyarrow"] = None
         import polars as pl
-        import parquet_pcodec as ppc
-        import parquet_pcodec.polars as ppl
+        import pparquet as ppc
+        import pparquet.polars as ppl
         df = pl.DataFrame({{"a": [1, 2, 3], "b": [0.5, None, 1.5], "s": ["x", "y", None]}})
         path = {str(tmp_path / "np.parquet")!r}
         print(sorted(ppc.write_table(df, path).items()))

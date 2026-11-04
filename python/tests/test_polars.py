@@ -1,4 +1,4 @@
-"""parquet_pcodec.polars: scan_parquet (an IO plugin with projection, n_rows, batch_size,
+"""pparquet.polars: scan_parquet (an IO plugin with projection, n_rows, batch_size,
 predicate and row-group pruning), read_parquet and write_parquet."""
 
 from __future__ import annotations
@@ -12,8 +12,8 @@ import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
 
-import parquet_pcodec as ppc
-import parquet_pcodec.polars as ppl
+import pparquet as ppc
+import pparquet.polars as ppl
 
 N = 1000
 

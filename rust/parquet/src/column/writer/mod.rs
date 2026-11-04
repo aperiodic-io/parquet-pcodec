@@ -3037,9 +3037,9 @@ mod tests {
 
     #[test]
     fn test_column_writer_pcodec_physical_type() {
-        // parquet-pcodec fork: data and dictionary pages get the column's physical type as
+        // pparquet fork: data and dictionary pages get the column's physical type as
         // the PCODEC type hint, so they are pcodec payloads rather than the ZSTD fallback
-        use parquet_pcodec_core::{Mode, mode_of};
+        use pparquet_core::{Mode, mode_of};
 
         struct CapturingPageWriter<'a>(&'a mut Vec<(PageType, Bytes)>);
         impl PageWriter for CapturingPageWriter<'_> {

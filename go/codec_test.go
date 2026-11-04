@@ -1,4 +1,4 @@
-package pcodec_test
+package pparquet_test
 
 import (
 	"bytes"
@@ -10,7 +10,7 @@ import (
 	"github.com/apache/arrow-go/v18/parquet"
 	"github.com/apache/arrow-go/v18/parquet/compress"
 
-	pcodec "github.com/aperiodic-io/parquet-pcodec/go"
+	pparquet "github.com/aperiodic-io/pparquet/go"
 )
 
 func int64Bytes(vs ...int64) []byte {
@@ -39,7 +39,7 @@ func ramp(n int) []byte {
 
 func codec(t *testing.T) compress.Codec {
 	t.Helper()
-	c, err := compress.GetCodec(pcodec.Compression)
+	c, err := compress.GetCodec(pparquet.Compression)
 	if err != nil {
 		t.Fatalf("PCODEC is not registered: %v", err)
 	}
@@ -47,17 +47,17 @@ func codec(t *testing.T) compress.Codec {
 }
 
 func TestCompressionValue(t *testing.T) {
-	if pcodec.Compression != compress.Compression(20547) || pcodec.CodecID != 20547 {
-		t.Fatalf("Compression = %d, CodecID = %d, want 20547", pcodec.Compression, pcodec.CodecID)
+	if pparquet.Compression != compress.Compression(20547) || pparquet.CodecID != 20547 {
+		t.Fatalf("Compression = %d, CodecID = %d, want 20547", pparquet.Compression, pparquet.CodecID)
 	}
-	if pcodec.CodecID != pcodec.LinkedCodecID() {
-		t.Fatalf("the linked library says the codec id is %d", pcodec.LinkedCodecID())
+	if pparquet.CodecID != pparquet.LinkedCodecID() {
+		t.Fatalf("the linked library says the codec id is %d", pparquet.LinkedCodecID())
 	}
 }
 
 func TestFooterKeyValue(t *testing.T) {
-	if pcodec.FooterKey != "parquet.pcodec.version" || pcodec.FooterValue != "1" {
-		t.Fatalf("footer pair %q=%q", pcodec.FooterKey, pcodec.FooterValue)
+	if pparquet.FooterKey != "parquet.pcodec.version" || pparquet.FooterValue != "1" {
+		t.Fatalf("footer pair %q=%q", pparquet.FooterKey, pparquet.FooterValue)
 	}
 }
 
@@ -92,7 +92,7 @@ func TestRoundTripEveryHint(t *testing.T) {
 		parquet.Types.Int96, parquet.Types.Float, parquet.Types.Double, parquet.Types.ByteArray,
 		parquet.Types.FixedLenByteArray} {
 		for _, lvl := range []int{compress.DefaultCompressionLevel, 0, 4, 12} {
-			roundTrip(t, src, pcodec.Level(typ, lvl))
+			roundTrip(t, src, pparquet.Level(typ, lvl))
 		}
 	}
 	for _, lvl := range []int{compress.DefaultCompressionLevel, 0, 3, 9, 22, -7, math.MaxInt32} {
@@ -108,13 +108,13 @@ func TestPayloadModes(t *testing.T) {
 		level int
 		mode  byte
 	}{
-		{"int64 hint uses PCO", src, pcodec.Level(parquet.Types.Int64, 8), 1},
-		{"decimal doubles use DECIMAL", float64Bytes(1.25, 3.5, 100.75, 2.0, 7.125, 9.5, 1.5, 3.25), pcodec.Level(parquet.Types.Double, 8), 2},
+		{"int64 hint uses PCO", src, pparquet.Level(parquet.Types.Int64, 8), 1},
+		{"decimal doubles use DECIMAL", float64Bytes(1.25, 3.5, 100.75, 2.0, 7.125, 9.5, 1.5, 3.25), pparquet.Level(parquet.Types.Double, 8), 2},
 		{"no hint falls back to ZSTD", src, compress.DefaultCompressionLevel, 3},
 		{"a plain level is no hint", src, 8, 3},
-		{"a byte-array hint is no hint", src, pcodec.Level(parquet.Types.ByteArray, 8), 3},
-		{"empty input is RAW", nil, pcodec.Level(parquet.Types.Int64, 8), 0},
-		{"a width that does not divide falls back", src[:len(src)-3], pcodec.Level(parquet.Types.Int64, 8), 3},
+		{"a byte-array hint is no hint", src, pparquet.Level(parquet.Types.ByteArray, 8), 3},
+		{"empty input is RAW", nil, pparquet.Level(parquet.Types.Int64, 8), 0},
+		{"a width that does not divide falls back", src[:len(src)-3], pparquet.Level(parquet.Types.Int64, 8), 3},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -146,10 +146,10 @@ func TestPcodecLevelReachesTheEncoder(t *testing.T) {
 		vs[i] = x >> 40
 	}
 	src := int64Bytes(vs...)
-	l0 := c.EncodeLevel(nil, src, pcodec.Level(parquet.Types.Int64, 0))
-	l12 := c.EncodeLevel(nil, src, pcodec.Level(parquet.Types.Int64, 12))
-	def := c.EncodeLevel(nil, src, pcodec.Level(parquet.Types.Int64, compress.DefaultCompressionLevel))
-	l8 := c.EncodeLevel(nil, src, pcodec.Level(parquet.Types.Int64, 8))
+	l0 := c.EncodeLevel(nil, src, pparquet.Level(parquet.Types.Int64, 0))
+	l12 := c.EncodeLevel(nil, src, pparquet.Level(parquet.Types.Int64, 12))
+	def := c.EncodeLevel(nil, src, pparquet.Level(parquet.Types.Int64, compress.DefaultCompressionLevel))
+	l8 := c.EncodeLevel(nil, src, pparquet.Level(parquet.Types.Int64, 8))
 	if bytes.Equal(l0, l12) {
 		t.Fatal("levels 0 and 12 gave the same payload: the level is not passed on")
 	}
@@ -162,12 +162,12 @@ func TestEncodeUsesDstWhenItFits(t *testing.T) {
 	c := codec(t)
 	src := ramp(100)
 	dst := make([]byte, 0, c.CompressBound(int64(len(src))))
-	enc := c.EncodeLevel(dst, src, pcodec.Level(parquet.Types.Int64, 8))
+	enc := c.EncodeLevel(dst, src, pparquet.Level(parquet.Types.Int64, 8))
 	if &enc[0] != &dst[:1][0] {
 		t.Fatal("the payload should be written into dst when its capacity is the bound")
 	}
 	small := make([]byte, 0, 4)
-	enc2 := c.EncodeLevel(small, src, pcodec.Level(parquet.Types.Int64, 8))
+	enc2 := c.EncodeLevel(small, src, pparquet.Level(parquet.Types.Int64, 8))
 	if !bytes.Equal(enc, enc2) {
 		t.Fatal("a small dst changes the payload")
 	}
@@ -179,7 +179,7 @@ func TestEncodeUsesDstWhenItFits(t *testing.T) {
 func TestCompressBound(t *testing.T) {
 	c := codec(t)
 	for _, n := range []int64{0, 1, 7, 1 << 20} {
-		if got, want := c.CompressBound(n), pcodec.LinkedCompressBound(n); got != want {
+		if got, want := c.CompressBound(n), pparquet.LinkedCompressBound(n); got != want {
 			t.Fatalf("CompressBound(%d) = %d, the library says %d", n, got, want)
 		}
 	}
@@ -187,7 +187,7 @@ func TestCompressBound(t *testing.T) {
 
 func TestDecodeErrors(t *testing.T) {
 	c := codec(t).(compress.ErrorCodec)
-	good := c.EncodeLevel(nil, ramp(100), pcodec.Level(parquet.Types.Int64, 8))
+	good := c.EncodeLevel(nil, ramp(100), pparquet.Level(parquet.Types.Int64, 8))
 	cases := []struct {
 		name    string
 		payload []byte
@@ -223,14 +223,14 @@ func TestDecodeErrors(t *testing.T) {
 func TestDecodeFillsExactlyDst(t *testing.T) {
 	c := codec(t).(compress.ErrorCodec)
 	src := ramp(64)
-	enc := c.EncodeLevel(nil, src, pcodec.Level(parquet.Types.Int64, 8))
+	enc := c.EncodeLevel(nil, src, pparquet.Level(parquet.Types.Int64, 8))
 	dst := make([]byte, len(src), len(src)+100)
 	got, err := c.DecodeWithError(dst, enc)
 	if err != nil || !bytes.Equal(got, src) || &got[0] != &dst[0] {
 		t.Fatalf("err %v; the result should be dst itself", err)
 	}
 	// An empty payload decodes into a nil dst.
-	empty := c.EncodeLevel(nil, nil, pcodec.Level(parquet.Types.Int64, 8))
+	empty := c.EncodeLevel(nil, nil, pparquet.Level(parquet.Types.Int64, 8))
 	got, err = c.DecodeWithError(nil, empty)
 	if err != nil || len(got) != 0 {
 		t.Fatalf("empty: %v %v", got, err)

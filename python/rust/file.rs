@@ -6,13 +6,13 @@ use crate::options::codec_name;
 use arrow_array::{RecordBatch, RecordBatchIterator, RecordBatchReader};
 use arrow_schema::{ArrowError, SchemaRef};
 use bytes::Bytes;
-use parquet_pcodec::parquet::arrow::ProjectionMask;
-use parquet_pcodec::parquet::arrow::arrow_reader::{
+use pparquet::parquet::arrow::ProjectionMask;
+use pparquet::parquet::arrow::arrow_reader::{
     ArrowReaderMetadata, ArrowReaderOptions, ParquetRecordBatchReader, ParquetRecordBatchReaderBuilder,
 };
-use parquet_pcodec::parquet::errors::Result as ParquetResult;
-use parquet_pcodec::parquet::file::reader::{ChunkReader, Length};
-use parquet_pcodec::parquet::file::statistics::Statistics;
+use pparquet::parquet::errors::Result as ParquetResult;
+use pparquet::parquet::file::reader::{ChunkReader, Length};
+use pparquet::parquet::file::statistics::Statistics;
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
 use pyo3::types::PyDict;
@@ -72,7 +72,7 @@ impl Source {
 }
 
 /// A Parquet file whose footer has been read.
-#[pyclass(frozen, module = "parquet_pcodec._lib")]
+#[pyclass(frozen, module = "pparquet._lib")]
 pub struct File {
     source: Source,
     metadata: ArrowReaderMetadata,
@@ -265,10 +265,10 @@ impl File {
             .collect()
     }
 
-    /// The `parquet-pcodec inspect --json` report.
+    /// The `pparquet inspect --json` report.
     fn inspect(&self, py: Python<'_>) -> PyResult<String> {
         detached(py, || {
-            let report = parquet_pcodec::inspect::inspect(&self.reader()?).map_err(from_pcodec)?;
+            let report = pparquet::inspect::inspect(&self.reader()?).map_err(from_pcodec)?;
             Ok(report.to_json().to_string())
         })
     }
@@ -278,7 +278,7 @@ impl File {
 #[pyfunction]
 pub fn verify(py: Python<'_>, a: &File, b: &File) -> PyResult<Option<String>> {
     detached(py, || {
-        let d = parquet_pcodec::verify::verify(a.reader()?, b.reader()?).map_err(from_pcodec)?;
+        let d = pparquet::verify::verify(a.reader()?, b.reader()?).map_err(from_pcodec)?;
         Ok(d.map(|d| d.to_string()))
     })
 }

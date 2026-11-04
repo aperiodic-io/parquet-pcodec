@@ -1,4 +1,4 @@
-package pcodec_test
+package pparquet_test
 
 import (
 	"bytes"
@@ -12,7 +12,7 @@ import (
 	"github.com/apache/arrow-go/v18/parquet/file"
 	"github.com/apache/arrow-go/v18/parquet/pqarrow"
 
-	pcodec "github.com/aperiodic-io/parquet-pcodec/go"
+	pparquet "github.com/aperiodic-io/pparquet/go"
 )
 
 // allTypes has a leaf of every Parquet physical type but INT96 (TestInt96), most logical
@@ -73,10 +73,10 @@ func allPcodec(t testing.TB, sc *arrow.Schema, dict bool, base ...parquet.Writer
 	props := append([]parquet.WriterProperty{}, base...)
 	for path, typ := range leaves(t, sc, base...) {
 		if dict {
-			props = append(props, parquet.WithCompressionFor(path, pcodec.Compression),
-				parquet.WithCompressionLevelFor(path, pcodec.Level(typ, 2)))
+			props = append(props, parquet.WithCompressionFor(path, pparquet.Compression),
+				parquet.WithCompressionLevelFor(path, pparquet.Level(typ, 2)))
 		} else {
-			props = append(props, pcodec.ColumnProperties(path, typ, 2)...)
+			props = append(props, pparquet.ColumnProperties(path, typ, 2)...)
 		}
 	}
 	return props
@@ -129,8 +129,8 @@ func TestInt96(t *testing.T) {
 	rec := seededRecord(sc, 3000, 5)
 	defer rec.Release()
 	var buf bytes.Buffer
-	props := parquet.NewWriterProperties(parquet.WithCompressionFor("t", pcodec.Compression),
-		parquet.WithCompressionLevelFor("t", pcodec.Level(parquet.Types.Int96, 8)),
+	props := parquet.NewWriterProperties(parquet.WithCompressionFor("t", pparquet.Compression),
+		parquet.WithCompressionLevelFor("t", pparquet.Level(parquet.Types.Int96, 8)),
 		parquet.WithDataPageVersion(parquet.DataPageV2))
 	w, err := pqarrow.NewFileWriter(sc, &buf, props, pqarrow.NewArrowWriterProperties(
 		pqarrow.WithDeprecatedInt96Timestamps(true), pqarrow.WithStoreSchema()))
@@ -156,9 +156,9 @@ func TestPlanWritesMixedFiles(t *testing.T) {
 	defer recs[0].Release()
 	defer recs[1].Release()
 	var buf bytes.Buffer
-	w, err := pcodec.NewFileWriter(allTypes, &buf,
-		pcodec.WithWriterProperties(parquet.WithStoreDecimalAsInteger(true), parquet.WithMaxRowGroupLength(1500)),
-		pcodec.WithArrowWriterProperties(pqarrow.NewArrowWriterProperties(pqarrow.WithStoreSchema())))
+	w, err := pparquet.NewFileWriter(allTypes, &buf,
+		pparquet.WithWriterProperties(parquet.WithStoreDecimalAsInteger(true), parquet.WithMaxRowGroupLength(1500)),
+		pparquet.WithArrowWriterProperties(pqarrow.NewArrowWriterProperties(pqarrow.WithStoreSchema())))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +189,7 @@ func TestPlanWritesMixedFiles(t *testing.T) {
 			cc, _ := md.RowGroup(i).ColumnChunk(j)
 			if cc.HasDictionaryPage() {
 				dictPages++
-				if cc.Compression() == pcodec.Compression {
+				if cc.Compression() == pparquet.Compression {
 					t.Fatalf("%s: a planned PCODEC column has a dictionary", cc.PathInSchema())
 				}
 			}
@@ -216,10 +216,10 @@ func (s *spyCodec) DecodeWithError(dst, src []byte) ([]byte, error) {
 // codec a dst of exactly the decoded size: uncompressed_page_size for V1 data and dictionary
 // pages, minus the level bytes for V2 pages.
 func TestArrowGoGivesTheExactPageSize(t *testing.T) {
-	real, _ := compress.GetCodec(pcodec.Compression)
+	real, _ := compress.GetCodec(pparquet.Compression)
 	spy := &spyCodec{ErrorCodec: real.(compress.ErrorCodec)}
-	compress.RegisterCodec(pcodec.Compression, spy)
-	t.Cleanup(func() { compress.RegisterCodec(pcodec.Compression, real) })
+	compress.RegisterCodec(pparquet.Compression, spy)
+	t.Cleanup(func() { compress.RegisterCodec(pparquet.Compression, real) })
 
 	rec := seededRecord(allTypes, 3000, 7)
 	defer rec.Release()
@@ -302,7 +302,7 @@ func corruptFile(t *testing.T) ([]byte, arrow.RecordBatch) {
 	t.Helper()
 	sc := arrow.NewSchema([]arrow.Field{{Name: "x", Type: arrow.PrimitiveTypes.Int64}}, nil)
 	rec := seededRecord(sc, 5000, 11)
-	data := writeWithProps(t, []arrow.RecordBatch{rec}, pcodec.ColumnProperties("x", parquet.Types.Int64, 8)...)
+	data := writeWithProps(t, []arrow.RecordBatch{rec}, pparquet.ColumnProperties("x", parquet.Types.Int64, 8)...)
 	return data, rec
 }
 

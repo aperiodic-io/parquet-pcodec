@@ -1,6 +1,6 @@
 # Local equivalents of .github/workflows/rust.yml. `make check` runs them all but the slow
 # ones (fuzz-smoke, mutants, fork-mutants, fork-upstream-tests).
-OWN := -p parquet-pcodec-core -p parquet-pcodec-capi -p parquet-pcodec
+OWN := -p pparquet-core -p pparquet-capi -p pparquet
 JOBS ?= 2
 CARGO := cargo
 UPSTREAM := acceptance/rust-upstream/Cargo.toml
@@ -37,7 +37,7 @@ check-fork:
 	scripts/check-fork.sh
 
 testdata:
-	$(CARGO) run -j $(JOBS) -p parquet-pcodec --bin gen-testdata
+	$(CARGO) run -j $(JOBS) -p pparquet --bin gen-testdata
 
 # regenerates the vectors and fails if any byte (or file) changed
 testdata-check: testdata
@@ -69,10 +69,10 @@ python-test:
 
 # mutmut on the Python modules; cargo mutants on the pyo3 crate, with pytest as its test
 python-mutants:
-	cd python && HYPOTHESIS_PROFILE=mutation PARQUET_PCODEC_TESTDATA=$(CURDIR)/testdata \
+	cd python && HYPOTHESIS_PROFILE=mutation PPARQUET_TESTDATA=$(CURDIR)/testdata \
 	  uv run --no-sync python scripts/mutmut_check.py
-	HYPOTHESIS_PROFILE=mutation PARQUET_PCODEC_PYTHON=$(PYTHON_VENV) PYO3_PYTHON=$(PYTHON_VENV) \
-	  $(CARGO) mutants -p parquet-pcodec-python -j $(JOBS) $(MUTANTS_OK)
+	HYPOTHESIS_PROFILE=mutation PPARQUET_PYTHON=$(PYTHON_VENV) PYO3_PYTHON=$(PYTHON_VENV) \
+	  $(CARGO) mutants -p pparquet-python -j $(JOBS) $(MUTANTS_OK)
 
 # the fork's changed functions only (rust/parquet/FORK.md); the fork is rebuilt for every
 # mutant, so it is built without optimization here

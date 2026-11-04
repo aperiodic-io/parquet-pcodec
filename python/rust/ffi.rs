@@ -95,7 +95,7 @@ fn consumed() -> PyErr {
 }
 
 /// A stream of record batches, exported once through `__arrow_c_stream__`.
-#[pyclass(frozen, module = "parquet_pcodec._lib")]
+#[pyclass(frozen, module = "pparquet._lib")]
 pub struct RecordBatchStream {
     schema: SchemaRef,
     reader: Mutex<Option<Box<dyn RecordBatchReader + Send>>>,
@@ -149,7 +149,7 @@ impl RecordBatchStream {
 }
 
 /// One record batch, exported through `__arrow_c_array__`.
-#[pyclass(frozen, module = "parquet_pcodec._lib")]
+#[pyclass(frozen, module = "pparquet._lib")]
 pub struct Batch {
     batch: RecordBatch,
     /// The stream's schema, with its metadata.
@@ -177,7 +177,7 @@ impl Batch {
 }
 
 /// An Arrow schema, exported through `__arrow_c_schema__`.
-#[pyclass(frozen, module = "parquet_pcodec._lib")]
+#[pyclass(frozen, module = "pparquet._lib")]
 pub struct ArrowSchema(pub SchemaRef);
 
 #[pymethods]

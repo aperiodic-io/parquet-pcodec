@@ -1,7 +1,7 @@
 [project]
-name = "parquet-pcodec-duckdb-tests"
+name = "pparquet-duckdb-tests"
 version = "0.1.0"
-description = "SQL and end-to-end tests of the parquet_pcodec DuckDB extension"
+description = "SQL and end-to-end tests of the pparquet DuckDB extension"
 requires-python = ">=3.14"
 dependencies = [
     "duckdb==2.0.0",

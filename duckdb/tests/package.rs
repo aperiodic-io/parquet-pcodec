@@ -1,6 +1,6 @@
 //! The `package-extension` binary.
 
-use parquet_pcodec_duckdb::metadata::{Metadata, current_platform};
+use pparquet_duckdb::metadata::{Metadata, current_platform};
 use std::process::Command;
 
 fn run(args: &[&std::ffi::OsStr]) -> std::process::Output {
@@ -12,7 +12,7 @@ fn appends_the_footer_for_this_or_a_named_platform() {
     let dir = tempfile::tempdir().unwrap();
     let lib = dir.path().join("lib.so");
     std::fs::write(&lib, b"\x7fELF not really").unwrap();
-    let out = dir.path().join("parquet_pcodec.duckdb_extension");
+    let out = dir.path().join("pparquet.duckdb_extension");
     let r = run(&[lib.as_os_str(), out.as_os_str()]);
     assert!(r.status.success(), "{}", String::from_utf8_lossy(&r.stderr));
     let file = std::fs::read(&out).unwrap();

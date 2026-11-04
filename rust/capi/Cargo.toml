@@ -1,7 +1,7 @@
 [package]
-name = "parquet-pcodec-capi"
+name = "pparquet-capi"
 version = "0.1.0"
-description = "C ABI of the PCODEC Parquet codec payload (include/parquet_pcodec.h)"
+description = "C ABI of the PCODEC Parquet codec payload (include/pparquet.h)"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -9,8 +9,8 @@ repository.workspace = true
 publish = false
 
 [lib]
-name = "parquet_pcodec"
+name = "pparquet_capi"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [dependencies]
-parquet-pcodec-core = { path = "../core" }
+pparquet-core = { path = "../core" }

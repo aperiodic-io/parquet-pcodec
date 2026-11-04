@@ -1,8 +1,8 @@
-package pcodec
+package pparquet
 
 /*
 #cgo CFLAGS: -I${SRCDIR}/include
-#include "parquet_pcodec.h"
+#include "pparquet.h"
 
 // The library keeps its last error per OS thread, and a goroutine may move to another
 // thread between two cgo calls, so each wrapper reads the error in the same C call.

@@ -1,4 +1,4 @@
-"""read_pcodec_parquet: types, projection, options, many files, parallelism and errors."""
+"""read_pparquet: types, projection, options, many files, parallelism and errors."""
 
 import datetime
 import decimal
@@ -152,7 +152,7 @@ def test_the_pcodec_file_really_uses_pcodec(typed):
 
 @pytest.mark.parametrize("which", [0, 1], ids=["standard", "pcodec"])
 def test_every_type_maps_to_the_exact_duckdb_type(con, typed, which):
-    got = types_of(con, f"SELECT * FROM read_pcodec_parquet('{typed[which]}')")
+    got = types_of(con, f"SELECT * FROM read_pparquet('{typed[which]}')")
     assert got == list(DUCKDB_TYPES.items())
 
 
@@ -161,7 +161,7 @@ def test_every_value_survives_bit_for_bit(con, typed, which):
     schema = pq.read_schema(typed[0])
     want = lines(pq.read_table(typed[0]), schema)
     table = con.sql(
-        f"SELECT * EXCLUDE (file_row_number) FROM read_pcodec_parquet('{typed[which]}', file_row_number := true) "
+        f"SELECT * EXCLUDE (file_row_number) FROM read_pparquet('{typed[which]}', file_row_number := true) "
         "ORDER BY file_row_number"
     ).to_arrow_table()
     assert lines(table, schema) == want
@@ -171,7 +171,7 @@ def test_values_read_as_duckdb_values(con, typed):
     r = rows(
         con,
         f"SELECT u64, i8, dec38::VARCHAR, ts_ns_tz::VARCHAR, t64ns::VARCHAR, ts_ms_tz, s, m, fsl "
-        f"FROM read_pcodec_parquet('{typed[1]}') LIMIT 2",
+        f"FROM read_pparquet('{typed[1]}') LIMIT 2",
     )
     assert r[0][0] == 0 and r[1][0] == 2**64 - 1
     assert r[0][1] == -128
@@ -187,8 +187,8 @@ def test_values_read_as_duckdb_values(con, typed):
 def test_half_floats_widen_to_float(con, tmp_path):
     t = pa.table({"h": pa.array([1.5, None, -0.0, 65504.0], pa.float16())})
     pq.write_table(t, tmp_path / "h.parquet")
-    assert types_of(con, f"SELECT * FROM read_pcodec_parquet('{tmp_path}/h.parquet')") == [("h", "FLOAT")]
-    vals = [r[0] for r in rows(con, f"SELECT h FROM read_pcodec_parquet('{tmp_path}/h.parquet')")]
+    assert types_of(con, f"SELECT * FROM read_pparquet('{tmp_path}/h.parquet')") == [("h", "FLOAT")]
+    vals = [r[0] for r in rows(con, f"SELECT h FROM read_pparquet('{tmp_path}/h.parquet')")]
     assert vals[0] == 1.5 and vals[1] is None and vals[3] == 65504.0
     assert str(vals[2]) == "-0.0"
 
@@ -197,7 +197,7 @@ def test_unrepresentable_types_are_refused_clearly(con, tmp_path):
     t = pa.table({"wide": pa.array([decimal.Decimal(1)], pa.decimal256(40, 0))})
     pq.write_table(t, tmp_path / "w.parquet")
     with pytest.raises(duckdb.BinderException, match='column "wide": DuckDB decimals have 1 to 38 digits, not 40'):
-        con.execute(f"SELECT * FROM read_pcodec_parquet('{tmp_path}/w.parquet')")
+        con.execute(f"SELECT * FROM read_pparquet('{tmp_path}/w.parquet')")
 
 
 # ---------------------------------------------------------------------------------------------
@@ -206,13 +206,13 @@ def test_unrepresentable_types_are_refused_clearly(con, tmp_path):
 
 def test_projection_reads_and_returns_only_the_selected_columns(con):
     f = FILES / "mixed.parquet"
-    plan = rows(con, f"EXPLAIN SELECT qty, ts FROM read_pcodec_parquet('{f}')")[0][1]
+    plan = rows(con, f"EXPLAIN SELECT qty, ts FROM read_pparquet('{f}')")[0][1]
     assert "Projections:" in plan and "qty" in plan and "ts" in plan and "symbol" not in plan
-    got = rows(con, f"SELECT qty, symbol FROM read_pcodec_parquet('{f}') LIMIT 1")
-    full = rows(con, f"SELECT * FROM read_pcodec_parquet('{f}') LIMIT 1")
+    got = rows(con, f"SELECT qty, symbol FROM read_pparquet('{f}') LIMIT 1")
+    full = rows(con, f"SELECT * FROM read_pparquet('{f}') LIMIT 1")
     assert got == [(full[0][2], full[0][3])]
-    assert rows(con, f"SELECT count(*) FROM read_pcodec_parquet('{f}')") == [(1500,)]
-    assert rows(con, f"SELECT count(*) FROM read_pcodec_parquet('{FILES}/empty.parquet')") == [(0,)]
+    assert rows(con, f"SELECT count(*) FROM read_pparquet('{f}')") == [(1500,)]
+    assert rows(con, f"SELECT count(*) FROM read_pparquet('{FILES}/empty.parquet')") == [(0,)]
 
 
 def test_filters_aggregates_and_joins_with_native_tables(con):
@@ -221,10 +221,10 @@ def test_filters_aggregates_and_joins_with_native_tables(con):
     con.execute("INSERT INTO venues VALUES ('XNAS', 'New York'), ('XNYS', 'New York'), ('ARCX', 'Chicago')")
     by_city = rows(
         con,
-        f"SELECT city, count(*), sum(qty)::DECIMAL(18,3) FROM read_pcodec_parquet('{f}') t "
+        f"SELECT city, count(*), sum(qty)::DECIMAL(18,3) FROM read_pparquet('{f}') t "
         "JOIN venues USING (venue) WHERE is_buy AND symbol = 'BTC-USD' GROUP BY city ORDER BY city",
     )
-    t = con.sql(f"SELECT * FROM read_pcodec_parquet('{f}')").to_arrow_table().to_pylist()
+    t = con.sql(f"SELECT * FROM read_pparquet('{f}')").to_arrow_table().to_pylist()
     city = {"XNAS": "New York", "XNYS": "New York", "ARCX": "Chicago"}
     expect = {}
     for r in t:
@@ -236,11 +236,11 @@ def test_filters_aggregates_and_joins_with_native_tables(con):
     for c, _, s in by_city:
         assert float(s) == pytest.approx(expect[c][1], abs=1e-3)
     # a native table created from the file holds the same rows
-    con.execute(f"CREATE TABLE trades AS SELECT * FROM read_pcodec_parquet('{f}')")
+    con.execute(f"CREATE TABLE trades AS SELECT * FROM read_pparquet('{f}')")
     assert rows(con, "SELECT count(*), count(note) FROM trades") == [(1500, 1000)]
     assert rows(
         con,
-        f"SELECT count(*) FROM trades a JOIN read_pcodec_parquet('{f}') b ON a.ts = b.ts AND a.price = b.price "
+        f"SELECT count(*) FROM trades a JOIN read_pparquet('{f}') b ON a.ts = b.ts AND a.price = b.price "
         "AND a.qty = b.qty AND a.symbol = b.symbol AND a.venue = b.venue",
     )[0][0] >= 1500
 
@@ -251,22 +251,22 @@ def test_filters_aggregates_and_joins_with_native_tables(con):
 
 def test_filename_and_file_row_number_columns(con):
     f = FILES / "multiple_row_groups.parquet"
-    names = [r[0] for r in con.execute(f"DESCRIBE SELECT * FROM read_pcodec_parquet('{f}', filename := true, file_row_number := true)").fetchall()]
+    names = [r[0] for r in con.execute(f"DESCRIBE SELECT * FROM read_pparquet('{f}', filename := true, file_row_number := true)").fetchall()]
     assert names[-2:] == ["filename", "file_row_number"]
-    r = rows(con, f"SELECT DISTINCT filename FROM read_pcodec_parquet('{f}', filename := true)")
+    r = rows(con, f"SELECT DISTINCT filename FROM read_pparquet('{f}', filename := true)")
     assert r == [(str(f),)]
-    total = rows(con, f"SELECT count(*) FROM read_pcodec_parquet('{f}')")[0][0]
+    total = rows(con, f"SELECT count(*) FROM read_pparquet('{f}')")[0][0]
     r = rows(
         con,
         f"SELECT min(file_row_number), max(file_row_number), count(DISTINCT file_row_number) "
-        f"FROM read_pcodec_parquet('{f}', file_row_number := true)",
+        f"FROM read_pparquet('{f}', file_row_number := true)",
     )
     assert r == [(0, total - 1, total)]
     # only the extra columns, no file column
-    assert rows(con, f"SELECT max(file_row_number) FROM read_pcodec_parquet('{f}', file_row_number := true)") == [
+    assert rows(con, f"SELECT max(file_row_number) FROM read_pparquet('{f}', file_row_number := true)") == [
         (total - 1,)
     ]
-    assert rows(con, f"SELECT count(*) FROM read_pcodec_parquet('{f}', filename := false)") == [(total,)]
+    assert rows(con, f"SELECT count(*) FROM read_pparquet('{f}', filename := false)") == [(total,)]
 
 
 def copies(tmp_path, n, name="mixed"):
@@ -281,28 +281,28 @@ def copies(tmp_path, n, name="mixed"):
 
 def test_a_glob_over_many_files(con, tmp_path):
     paths = copies(tmp_path, 40)
-    r = rows(con, f"SELECT count(*), count(DISTINCT filename) FROM read_pcodec_parquet('{tmp_path}/part-*.parquet', filename := true)")
+    r = rows(con, f"SELECT count(*), count(DISTINCT filename) FROM read_pparquet('{tmp_path}/part-*.parquet', filename := true)")
     assert r == [(40 * 1500, 40)]
-    r = rows(con, f"SELECT filename, count(*) FROM read_pcodec_parquet('{tmp_path}/part-00?.parquet', filename := true) GROUP BY ALL ORDER BY 1")
+    r = rows(con, f"SELECT filename, count(*) FROM read_pparquet('{tmp_path}/part-00?.parquet', filename := true) GROUP BY ALL ORDER BY 1")
     assert r == [(str(p), 1500) for p in paths[:10]]
-    one = rows(con, f"SELECT sum(price) FROM read_pcodec_parquet('{paths[0]}')")[0][0]
-    many = rows(con, f"SELECT sum(price) FROM read_pcodec_parquet('{tmp_path}/*.parquet')")[0][0]
+    one = rows(con, f"SELECT sum(price) FROM read_pparquet('{paths[0]}')")[0][0]
+    many = rows(con, f"SELECT sum(price) FROM read_pparquet('{tmp_path}/*.parquet')")[0][0]
     assert many == pytest.approx(40 * one)
 
 
 def test_a_list_of_files(con, tmp_path):
     a, b = copies(tmp_path, 2)
-    r = rows(con, f"SELECT count(*) FROM read_pcodec_parquet(['{a}', '{b}', '{FILES}/mixed.parquet'])")
+    r = rows(con, f"SELECT count(*) FROM read_pparquet(['{a}', '{b}', '{FILES}/mixed.parquet'])")
     assert r == [(4500,)]
-    r = rows(con, f"SELECT count(*) FROM read_pcodec_parquet(['{tmp_path}/*.parquet'])")
+    r = rows(con, f"SELECT count(*) FROM read_pparquet(['{tmp_path}/*.parquet'])")
     assert r == [(3000,)]
 
 
 def test_union_by_name(con):
     a, b = FILES / "primitives_optional.parquet", FILES / "pages_v1.parquet"
     with pytest.raises(duckdb.Error, match="the files must have the same schema, or pass union_by_name := true"):
-        con.execute(f"SELECT * FROM read_pcodec_parquet(['{a}', '{b}'])").fetchall()
-    sql = f"SELECT * FROM read_pcodec_parquet(['{a}', '{b}'], union_by_name := true, filename := true)"
+        con.execute(f"SELECT * FROM read_pparquet(['{a}', '{b}'])").fetchall()
+    sql = f"SELECT * FROM read_pparquet(['{a}', '{b}'], union_by_name := true, filename := true)"
     cols = [c for c, _ in types_of(con, sql)]
     assert cols == ["i32", "i64", "f32", "f64", "i64_opt", "random", "tag", "filename"]
     r = rows(con, f"SELECT filename, count(i64), count(tag), count(i32) FROM ({sql}) GROUP BY 1 ORDER BY 1")
@@ -313,7 +313,7 @@ def test_union_by_name_type_conflicts(con, tmp_path):
     pq.write_table(pa.table({"x": pa.array([1], pa.int64())}), tmp_path / "a.parquet")
     pq.write_table(pa.table({"x": pa.array([1], pa.int32())}), tmp_path / "b.parquet")
     with pytest.raises(duckdb.BinderException, match='column "x" is BIGINT in .*a.parquet but INTEGER in .*b.parquet'):
-        con.execute(f"SELECT * FROM read_pcodec_parquet('{tmp_path}/*.parquet', union_by_name := true)")
+        con.execute(f"SELECT * FROM read_pparquet('{tmp_path}/*.parquet', union_by_name := true)")
 
 
 # ---------------------------------------------------------------------------------------------
@@ -328,12 +328,12 @@ def test_threads_read_row_groups_in_parallel_with_the_same_result(tmp_path):
         c = connect()
         c.execute(f"SET threads = {threads}")
         results[threads] = c.sql(
-            f"SELECT * FROM read_pcodec_parquet('{tmp_path}/*.parquet', filename := true, file_row_number := true) "
+            f"SELECT * FROM read_pparquet('{tmp_path}/*.parquet', filename := true, file_row_number := true) "
             "ORDER BY filename, file_row_number"
         ).to_arrow_table()
         c.close()
     assert results[1].equals(results[4])
-    one = connect().execute(f"SELECT count(*) FROM read_pcodec_parquet('{f}')").fetchall()[0][0]
+    one = connect().execute(f"SELECT count(*) FROM read_pparquet('{f}')").fetchall()[0][0]
     assert results[1].num_rows == 8 * one
 
 
@@ -353,24 +353,24 @@ def test_threads_read_row_groups_in_parallel_with_the_same_result(tmp_path):
     ],
 )
 def test_bad_paths_are_explained(con, arg, message):
-    with pytest.raises(duckdb.BinderException, match=f"read_pcodec_parquet: {message}"):
-        con.execute(f"SELECT * FROM read_pcodec_parquet({arg})")
+    with pytest.raises(duckdb.BinderException, match=f"read_pparquet: {message}"):
+        con.execute(f"SELECT * FROM read_pparquet({arg})")
 
 
 def test_a_file_that_is_not_parquet(con, tmp_path):
     p = tmp_path / "x.parquet"
     p.write_text("hello")
-    with pytest.raises(duckdb.BinderException, match=f"read_pcodec_parquet: cannot read {p} as Parquet: "):
-        con.execute(f"SELECT * FROM read_pcodec_parquet('{p}')")
+    with pytest.raises(duckdb.BinderException, match=f"read_pparquet: cannot read {p} as Parquet: "):
+        con.execute(f"SELECT * FROM read_pparquet('{p}')")
 
 
 def test_a_file_that_breaks_during_the_scan(con, tmp_path):
     a, b = copies(tmp_path, 2)
-    stmt = con.execute(f"SELECT count(*) FROM read_pcodec_parquet(['{a}', '{b}'])")
+    stmt = con.execute(f"SELECT count(*) FROM read_pparquet(['{a}', '{b}'])")
     assert stmt.fetchall() == [(3000,)]
     b.write_bytes(b"PAR1 truncated")
-    with pytest.raises(duckdb.Error, match=f"read_pcodec_parquet: cannot read {b} as Parquet"):
-        con.execute(f"SELECT count(*) FROM read_pcodec_parquet(['{a}', '{b}'])").fetchall()
+    with pytest.raises(duckdb.Error, match=f"read_pparquet: cannot read {b} as Parquet"):
+        con.execute(f"SELECT count(*) FROM read_pparquet(['{a}', '{b}'])").fetchall()
 
 
 def test_a_damaged_pcodec_page(con, tmp_path):
@@ -380,14 +380,14 @@ def test_a_damaged_pcodec_page(con, tmp_path):
         data[i] ^= 0x5A
     p = tmp_path / "damaged.parquet"
     p.write_bytes(bytes(data))
-    with pytest.raises(duckdb.Error, match="read_pcodec_parquet: cannot read .*damaged.parquet"):
-        con.execute(f"SELECT sum(i32), sum(i64), sum(f32), sum(f64) FROM read_pcodec_parquet('{p}')").fetchall()
+    with pytest.raises(duckdb.Error, match="read_pparquet: cannot read .*damaged.parquet"):
+        con.execute(f"SELECT sum(i32), sum(i64), sum(f32), sum(f64) FROM read_pparquet('{p}')").fetchall()
     # the connection still works
     assert rows(con, "SELECT 1") == [(1,)]
 
 
 def test_bad_option_values(con):
     with pytest.raises(duckdb.Error):
-        con.execute(f"SELECT * FROM read_pcodec_parquet('{FILES}/mixed.parquet', filename := 'yes please')")
+        con.execute(f"SELECT * FROM read_pparquet('{FILES}/mixed.parquet', filename := 'yes please')")
     with pytest.raises(duckdb.BinderException):
-        con.execute(f"SELECT * FROM read_pcodec_parquet('{FILES}/mixed.parquet', no_such_option := true)")
+        con.execute(f"SELECT * FROM read_pparquet('{FILES}/mixed.parquet', no_such_option := true)")

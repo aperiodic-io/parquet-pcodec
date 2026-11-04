@@ -1,5 +1,5 @@
 diff --git upstream/Cargo.toml fork/Cargo.toml
-index b38b46b7501c4e399f44deed6fd7c35b86cf6819..91e808dc47454e68383903f05702edc5364593fa 100644
+index b38b46b7501c4e399f44deed6fd7c35b86cf6819..11d5fc8ae3c54569824e18bacf7790e0959161f9 100644
 --- upstream/Cargo.toml
 +++ fork/Cargo.toml
 @@ -66,6 +66,7 @@ default = [
@@ -14,7 +14,7 @@ index b38b46b7501c4e399f44deed6fd7c35b86cf6819..91e808dc47454e68383903f05702edc5
      "dep:object_store",
      "async",
  ]
-+pcodec = ["dep:parquet-pcodec-core"]
++pcodec = ["dep:pparquet-core"]
  simdutf8 = ["dep:simdutf8"]
  test_common = ["arrow/test_utils"]
  variant_experimental = [
@@ -22,7 +22,7 @@ index b38b46b7501c4e399f44deed6fd7c35b86cf6819..91e808dc47454e68383903f05702edc5
  version = "60.1.0"
  optional = true
  
-+[dependencies.parquet-pcodec-core]
++[dependencies.pparquet-core]
 +path = "../core"
 +optional = true
 +
@@ -33,14 +33,14 @@ index b38b46b7501c4e399f44deed6fd7c35b86cf6819..91e808dc47454e68383903f05702edc5
  features = ["services-memory"]
  default-features = false
  
-+[dev-dependencies.parquet-pcodec-core]
++[dev-dependencies.pparquet-core]
 +path = "../core"
 +
  [dev-dependencies.proptest]
  version = "1.0"
  features = ["std"]
 diff --git upstream/src/basic.rs fork/src/basic.rs
-index 95babaf018b8a1cfdff3649380715404b6209735..515a663ea1a2b384c5a7dbf190ff1ec94cd7a664 100644
+index 95babaf018b8a1cfdff3649380715404b6209735..a081417d6bdea4931ce1206710838e37a8f5f74c 100644
 --- upstream/src/basic.rs
 +++ fork/src/basic.rs
 @@ -24,7 +24,7 @@ use std::io::Write;
@@ -56,7 +56,7 @@ index 95babaf018b8a1cfdff3649380715404b6209735..515a663ea1a2b384c5a7dbf190ff1ec9
    LZ4 = 5;     // DEPRECATED (Added in 2.4)
    ZSTD = 6;    // Added in 2.4
    LZ4_RAW = 7; // Added in 2.9
-+  PCODEC = 20547; // parquet-pcodec fork, spec/FORMAT.md
++  PCODEC = 20547; // pparquet fork, spec/FORMAT.md
  }
  );
  
@@ -64,7 +64,7 @@ index 95babaf018b8a1cfdff3649380715404b6209735..515a663ea1a2b384c5a7dbf190ff1ec9
      ZSTD(ZstdLevel),
      /// [LZ4 compression](https://lz4.org/).
      LZ4_RAW,
-+    /// [pcodec](https://github.com/pcodec/pcodec) for numeric columns (parquet-pcodec fork,
++    /// [pcodec](https://github.com/pcodec/pcodec) for numeric columns (pparquet fork,
 +    /// spec/FORMAT.md)
 +    PCODEC(PcodecLevel),
  }
@@ -103,7 +103,7 @@ index 95babaf018b8a1cfdff3649380715404b6209735..515a663ea1a2b384c5a7dbf190ff1ec9
  
 +    #[test]
 +    fn test_pcodec_compression() {
-+        // parquet-pcodec fork: the PCODEC codec (spec/FORMAT.md section 2)
++        // pparquet fork: the PCODEC codec (spec/FORMAT.md section 2)
 +        assert_eq!(CompressionCodec::PCODEC as i32, 20547);
 +        test_roundtrip(CompressionCodec::PCODEC);
 +        let level = PcodecLevel::try_new(3).unwrap();
@@ -143,7 +143,7 @@ index 95babaf018b8a1cfdff3649380715404b6209735..515a663ea1a2b384c5a7dbf190ff1ec9
      fn test_display_boundary_order() {
          assert_eq!(BoundaryOrder::ASCENDING.to_string(), "ASCENDING");
 diff --git upstream/src/column/writer/mod.rs fork/src/column/writer/mod.rs
-index 923f0a4599f78c709576de1e0bc27b8d0bb05ea6..709a3a3785cb281fbd0575a7077cfce5493fb8b9 100644
+index 923f0a4599f78c709576de1e0bc27b8d0bb05ea6..22b3042bcfa83af740d5726aeba269818bf5a232 100644
 --- upstream/src/column/writer/mod.rs
 +++ fork/src/column/writer/mod.rs
 @@ -506,7 +506,9 @@ impl<'a, E: ColumnValueEncoder> GenericColumnWriter<'a, E> {
@@ -163,9 +163,9 @@ index 923f0a4599f78c709576de1e0bc27b8d0bb05ea6..709a3a3785cb281fbd0575a7077cfce5
  
 +    #[test]
 +    fn test_column_writer_pcodec_physical_type() {
-+        // parquet-pcodec fork: data and dictionary pages get the column's physical type as
++        // pparquet fork: data and dictionary pages get the column's physical type as
 +        // the PCODEC type hint, so they are pcodec payloads rather than the ZSTD fallback
-+        use parquet_pcodec_core::{Mode, mode_of};
++        use pparquet_core::{Mode, mode_of};
 +
 +        struct CapturingPageWriter<'a>(&'a mut Vec<(PageType, Bytes)>);
 +        impl PageWriter for CapturingPageWriter<'_> {
@@ -221,7 +221,7 @@ index 923f0a4599f78c709576de1e0bc27b8d0bb05ea6..709a3a3785cb281fbd0575a7077cfce5
      fn test_column_writer_v2_compression_ratio_threshold() {
          fn write_v2_page(threshold: f64) -> bool {
 diff --git upstream/src/compression.rs fork/src/compression.rs
-index d5d8d7cb3b93fbf046a7f266c84be38eca25b925..2ca111c9080f6cea336dddd10ad3ce468b5461ef 100644
+index d5d8d7cb3b93fbf046a7f266c84be38eca25b925..a97bc039fb5787d6731c5b194944ed5331023cd9 100644
 --- upstream/src/compression.rs
 +++ fork/src/compression.rs
 @@ -50,6 +50,7 @@ assert_eq!(output, data);
@@ -236,7 +236,7 @@ index d5d8d7cb3b93fbf046a7f266c84be38eca25b925..2ca111c9080f6cea336dddd10ad3ce46
  pub struct CodecOptions {
      /// Whether or not to fallback to other LZ4 older implementations on error in LZ4_HADOOP.
      backward_compatible_lz4: bool,
-+    /// Physical type of the column, the PCODEC type hint (parquet-pcodec fork).
++    /// Physical type of the column, the PCODEC type hint (pparquet fork).
 +    physical_type: Option<Type>,
  }
  
@@ -245,7 +245,7 @@ index d5d8d7cb3b93fbf046a7f266c84be38eca25b925..2ca111c9080f6cea336dddd10ad3ce46
  pub struct CodecOptionsBuilder {
      /// Whether or not to fallback to other LZ4 older implementations on error in LZ4_HADOOP.
      backward_compatible_lz4: bool,
-+    /// Physical type of the column, the PCODEC type hint (parquet-pcodec fork).
++    /// Physical type of the column, the PCODEC type hint (pparquet fork).
 +    physical_type: Option<Type>,
  }
  
@@ -261,7 +261,7 @@ index d5d8d7cb3b93fbf046a7f266c84be38eca25b925..2ca111c9080f6cea336dddd10ad3ce46
          self
      }
  
-+    /// Sets the physical type of the column (parquet-pcodec fork).
++    /// Sets the physical type of the column (pparquet fork).
 +    ///
 +    /// PCODEC uses it as the type hint: it only affects the compression ratio, never
 +    /// decompression.
@@ -326,9 +326,9 @@ index d5d8d7cb3b93fbf046a7f266c84be38eca25b925..2ca111c9080f6cea336dddd10ad3ce46
 +    use crate::basic::Type;
 +    use crate::compression::{Codec, PcodecLevel};
 +    use crate::errors::{ParquetError, Result};
-+    use parquet_pcodec_core::{Options, PhysicalType};
++    use pparquet_core::{Options, PhysicalType};
 +
-+    /// Codec for PCODEC (parquet-pcodec fork, spec/FORMAT.md).
++    /// Codec for PCODEC (pparquet fork, spec/FORMAT.md).
 +    pub struct PcodecCodec {
 +        options: Options,
 +    }
@@ -360,13 +360,13 @@ index d5d8d7cb3b93fbf046a7f266c84be38eca25b925..2ca111c9080f6cea336dddd10ad3ce46
 +            };
 +            let offset = output_buf.len();
 +            output_buf.resize(offset + required_len, 0);
-+            parquet_pcodec_core::decompress_into(input_buf, &mut output_buf[offset..])
++            pparquet_core::decompress_into(input_buf, &mut output_buf[offset..])
 +                .map_err(|e| ParquetError::External(Box::new(e)))?;
 +            Ok(required_len)
 +        }
 +
 +        fn compress(&mut self, input_buf: &[u8], output_buf: &mut Vec<u8>) -> Result<()> {
-+            let payload = parquet_pcodec_core::compress(input_buf, &self.options)
++            let payload = pparquet_core::compress(input_buf, &self.options)
 +                .map_err(|e| ParquetError::External(Box::new(e)))?;
 +            output_buf.extend_from_slice(&payload);
 +            Ok(())
@@ -376,7 +376,7 @@ index d5d8d7cb3b93fbf046a7f266c84be38eca25b925..2ca111c9080f6cea336dddd10ad3ce46
 +#[cfg(any(feature = "pcodec", test))]
 +pub use pcodec_codec::*;
 +
-+/// Represents a valid pcodec compression level (parquet-pcodec fork).
++/// Represents a valid pcodec compression level (pparquet fork).
 +#[derive(Debug, Eq, PartialEq, Hash, Clone, Copy)]
 +pub struct PcodecLevel(u32);
 +
@@ -426,7 +426,7 @@ index d5d8d7cb3b93fbf046a7f266c84be38eca25b925..2ca111c9080f6cea336dddd10ad3ce46
 +    #[cfg_attr(miri, ignore)] // pcodec and zstd are too slow under Miri
 +    fn test_codec_pcodec_physical_type() {
 +        use crate::basic::Type;
-+        use parquet_pcodec_core::{Mode, mode_of};
++        use pparquet_core::{Mode, mode_of};
 +
 +        let ints: Vec<u8> = (0..1000i64).flat_map(|v| (v * 7).to_le_bytes()).collect();
 +        let prices: Vec<u8> = (0..1000)
@@ -494,7 +494,7 @@ index d5d8d7cb3b93fbf046a7f266c84be38eca25b925..2ca111c9080f6cea336dddd10ad3ce46
 +    }
  }
 diff --git upstream/src/file/writer.rs fork/src/file/writer.rs
-index 7030cb28c6715f80b0e29f9f5961b718edce7cb1..efd64a38f35f7da8a500a6283d1e47432023c15c 100644
+index 7030cb28c6715f80b0e29f9f5961b718edce7cb1..9e8882ede2b6f8f02e1b16aea6dd86c528b45918 100644
 --- upstream/src/file/writer.rs
 +++ fork/src/file/writer.rs
 @@ -353,6 +353,8 @@ impl<W: Write + Send> SerializedFileWriter<W> {
@@ -510,7 +510,7 @@ index 7030cb28c6715f80b0e29f9f5961b718edce7cb1..efd64a38f35f7da8a500a6283d1e4743
      }
  }
  
-+/// parquet-pcodec fork: adds `parquet.pcodec.version = "1"` to the key-value metadata of a
++/// pparquet fork: adds `parquet.pcodec.version = "1"` to the key-value metadata of a
 +/// file with PCODEC column chunks, unless it is already there (spec/FORMAT.md section 2)
 +#[cfg(any(feature = "pcodec", test))]
 +fn with_pcodec_version(
@@ -524,13 +524,13 @@ index 7030cb28c6715f80b0e29f9f5961b718edce7cb1..efd64a38f35f7da8a500a6283d1e4743
 +    let has_version = key_value_metadata
 +        .iter()
 +        .flatten()
-+        .any(|kv| kv.key == parquet_pcodec_core::KV_KEY);
++        .any(|kv| kv.key == pparquet_core::KV_KEY);
 +    if has_pcodec && !has_version {
 +        key_value_metadata
 +            .get_or_insert_default()
 +            .push(KeyValue::new(
-+                parquet_pcodec_core::KV_KEY.to_string(),
-+                parquet_pcodec_core::KV_VALUE.to_string(),
++                pparquet_core::KV_KEY.to_string(),
++                pparquet_core::KV_VALUE.to_string(),
 +            ));
 +    }
 +    key_value_metadata
@@ -543,7 +543,7 @@ index 7030cb28c6715f80b0e29f9f5961b718edce7cb1..efd64a38f35f7da8a500a6283d1e4743
          test_kv_metadata(None, Some(vec![]));
      }
  
-+    /// parquet-pcodec fork: the key-value metadata of a one-column file written with
++    /// pparquet fork: the key-value metadata of a one-column file written with
 +    /// `compression`, `initial_kv` in the properties and `appended_kv` appended
 +    fn pcodec_kv_metadata(
 +        compression: Compression,
@@ -593,7 +593,7 @@ index 7030cb28c6715f80b0e29f9f5961b718edce7cb1..efd64a38f35f7da8a500a6283d1e4743
 +
 +    #[test]
 +    fn test_write_metadata_page_indexes() {
-+        // parquet-pcodec fork: pins the page index decisions of `write_metadata`, a function
++        // pparquet fork: pins the page index decisions of `write_metadata`, a function
 +        // the fork changes (its mutants must be caught by these modules' tests)
 +        let page_indexes = |props: WriterProperties| {
 +            let schema = Arc::new(
@@ -693,7 +693,7 @@ index caf89d364174e314af9e2e72c147bf2f3ac07fab..e08d21359ba2c9f8784649eb7934814c
  
 diff --git fork/tests/arrow_writer/pcodec.rs fork/tests/arrow_writer/pcodec.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..5d259b7cd755f76d2344b1cd51210b5609dbd8c2
+index 0000000000000000000000000000000000000000..eb919771c990d287e7dc4d7c2ca989e095b8673e
 --- /dev/null
 +++ fork/tests/arrow_writer/pcodec.rs
 @@ -0,0 +1,242 @@
@@ -714,7 +714,7 @@ index 0000000000000000000000000000000000000000..5d259b7cd755f76d2344b1cd51210b56
 +// specific language governing permissions and limitations
 +// under the License.
 +
-+//! parquet-pcodec fork: round trips of Arrow data written with [`Compression::PCODEC`].
++//! pparquet fork: round trips of Arrow data written with [`Compression::PCODEC`].
 +
 +use std::sync::Arc;
 +

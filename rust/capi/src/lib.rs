@@ -1,7 +1,7 @@
-//! C ABI over `parquet-pcodec-core`; the contract is `include/parquet_pcodec.h`.
+//! C ABI over `pparquet-core`; the contract is `include/pparquet.h`.
 #![allow(clippy::missing_safety_doc)] // the header documents the contract
 
-use parquet_pcodec_core::{self as core, Error, Options, PhysicalType};
+use pparquet_core::{self as core, Error, Options, PhysicalType};
 use std::cell::RefCell;
 use std::ffi::c_char;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -32,7 +32,7 @@ fn guarded(f: impl FnOnce() -> Result<(), (i32, String)>) -> i32 {
             code
         }
         Err(_) => {
-            set_error("internal panic in parquet-pcodec".into());
+            set_error("internal panic in pparquet".into());
             PCP_ERR_PANIC
         }
     }

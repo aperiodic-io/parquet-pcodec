@@ -2276,9 +2276,9 @@ dependencies = [
  "object_store",
  "opendal",
  "parquet-geospatial",
- "parquet-pcodec-core",
  "parquet-variant",
  "parquet-variant-compute",
+ "pparquet-core",
  "proptest",
  "rand",
  "ring",
@@ -2305,73 +2305,6 @@ dependencies = [
  "serde",
  "serde_json",
  "wkb",
-]
-
-[[package]]
-name = "parquet-pcodec"
-version = "0.1.0"
-dependencies = [
- "arrow-array",
- "arrow-buffer",
- "arrow-schema",
- "arrow-select",
- "assert_cmd",
- "base64",
- "bytes",
- "clap",
- "parquet",
- "parquet-pcodec-core",
- "predicates",
- "proptest",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
-name = "parquet-pcodec-capi"
-version = "0.1.0"
-dependencies = [
- "parquet-pcodec-core",
-]
-
-[[package]]
-name = "parquet-pcodec-core"
-version = "0.1.0"
-dependencies = [
- "pco",
- "proptest",
- "zstd",
-]
-
-[[package]]
-name = "parquet-pcodec-duckdb"
-version = "0.1.0"
-dependencies = [
- "arrow-array",
- "arrow-buffer",
- "arrow-cast",
- "arrow-data",
- "arrow-schema",
- "arrow-select",
- "duckdb",
- "glob",
- "half",
- "parquet",
- "parquet-pcodec",
- "tempfile",
-]
-
-[[package]]
-name = "parquet-pcodec-python"
-version = "0.1.0"
-dependencies = [
- "arrow-array",
- "arrow-schema",
- "bytes",
- "parquet",
- "parquet-pcodec",
- "parquet-pcodec-core",
- "pyo3",
 ]
 
 [[package]]
@@ -2472,6 +2405,73 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d83eb9bc6d8e5cf568e7a1101d60ee05e81ed50ea106026f3d18deeb046d7661"
 dependencies = [
  "zerovec",
+]
+
+[[package]]
+name = "pparquet"
+version = "0.1.0"
+dependencies = [
+ "arrow-array",
+ "arrow-buffer",
+ "arrow-schema",
+ "arrow-select",
+ "assert_cmd",
+ "base64",
+ "bytes",
+ "clap",
+ "parquet",
+ "pparquet-core",
+ "predicates",
+ "proptest",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "pparquet-capi"
+version = "0.1.0"
+dependencies = [
+ "pparquet-core",
+]
+
+[[package]]
+name = "pparquet-core"
+version = "0.1.0"
+dependencies = [
+ "pco",
+ "proptest",
+ "zstd",
+]
+
+[[package]]
+name = "pparquet-duckdb"
+version = "0.1.0"
+dependencies = [
+ "arrow-array",
+ "arrow-buffer",
+ "arrow-cast",
+ "arrow-data",
+ "arrow-schema",
+ "arrow-select",
+ "duckdb",
+ "glob",
+ "half",
+ "parquet",
+ "pparquet",
+ "tempfile",
+]
+
+[[package]]
+name = "pparquet-python"
+version = "0.1.0"
+dependencies = [
+ "arrow-array",
+ "arrow-schema",
+ "bytes",
+ "parquet",
+ "pparquet",
+ "pparquet-core",
+ "pyo3",
 ]
 
 [[package]]

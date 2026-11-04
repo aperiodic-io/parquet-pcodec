@@ -6,7 +6,7 @@
     `pq.write_table(..., compression="zstd", compression_level=9)`, and round-trips bit for bit;
 (c) files written from Python are verified by the Rust CLI against a pyarrow-written copy.
 
-Set PARQUET_PCODEC_ACCEPTANCE_LOG to a path to record the foreign readers' errors and the
+Set PPARQUET_ACCEPTANCE_LOG to a path to record the foreign readers' errors and the
 ratios there (JSON).
 """
 
@@ -29,9 +29,9 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-import parquet_pcodec as ppc
-from conftest import PCODEC_FILES, REPO, TESTDATA, manifest, vector
-from parquet_pcodec import canonical
+import pparquet as ppc
+from conftest import PPARQUET_FILES, REPO, TESTDATA, manifest, vector
+from pparquet import canonical
 
 LOG: dict[str, Any] = {"errors": {}, "ratios": {}}
 PYARROW_MAJOR = int(pa.__version__.split(".")[0])
@@ -40,7 +40,7 @@ PYARROW_MAJOR = int(pa.__version__.split(".")[0])
 @pytest.fixture(scope="module", autouse=True)
 def record() -> Iterator[None]:
     yield
-    target = os.environ.get("PARQUET_PCODEC_ACCEPTANCE_LOG")
+    target = os.environ.get("PPARQUET_ACCEPTANCE_LOG")
     if target:
         pathlib.Path(target).write_text(json.dumps(LOG, indent=2, sort_keys=True) + "\n")
 
@@ -63,7 +63,7 @@ READERS: dict[str, Callable[[pathlib.Path], object]] = {
 
 
 @pytest.mark.parametrize("reader", READERS)
-@pytest.mark.parametrize("name", PCODEC_FILES)
+@pytest.mark.parametrize("name", PPARQUET_FILES)
 def test_a_foreign_readers_fail_loudly(reader: str, name: str) -> None:
     rows = next(f["rows"] for f in manifest() if f["name"] == name)
     if rows == 0 and reader in {"pyarrow", "pandas"} and PYARROW_MAJOR < 26:
@@ -137,13 +137,13 @@ def test_b_small_market_sample_round_trips(tmp_path: pathlib.Path) -> None:
 
 
 def cli() -> list[str]:
-    exe = os.environ.get("PARQUET_PCODEC_CLI")
+    exe = os.environ.get("PPARQUET_CLI")
     if exe:
         return [exe]
     cargo = shutil.which("cargo")
     if cargo is None:
-        pytest.skip("cargo is not installed and PARQUET_PCODEC_CLI is not set")
-    return [cargo, "run", "-q", "-j", "2", "--manifest-path", str(REPO / "Cargo.toml"), "-p", "parquet-pcodec", "--"]
+        pytest.skip("cargo is not installed and PPARQUET_CLI is not set")
+    return [cargo, "run", "-q", "-j", "2", "--manifest-path", str(REPO / "Cargo.toml"), "-p", "pparquet", "--"]
 
 
 @pytest.mark.slow

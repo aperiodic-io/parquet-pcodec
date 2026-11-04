@@ -1,6 +1,6 @@
 //! Round trips and the encoder's mode choice, through the public API only.
 
-use parquet_pcodec_core::{Error, Mode, Options, PhysicalType, compress, decompress, decompress_into, mode_of};
+use pparquet_core::{Error, Mode, Options, PhysicalType, compress, decompress, decompress_into, mode_of};
 
 fn le<T: Copy, const W: usize>(vals: &[T], f: fn(T) -> [u8; W]) -> Vec<u8> {
     vals.iter().flat_map(|v| f(*v)).collect()

@@ -1,5 +1,5 @@
 [package]
-name = "parquet-pcodec-core-fuzz"
+name = "pparquet-core-fuzz"
 version = "0.0.0"
 publish = false
 edition = "2024"
@@ -9,7 +9,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-parquet-pcodec-core = { path = ".." }
+pparquet-core = { path = ".." }
 
 # not part of the root workspace: built only with `cargo +nightly fuzz`
 [workspace]

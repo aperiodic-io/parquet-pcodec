@@ -11,11 +11,11 @@ from conftest import FILES, extension_path, connect
 
 def test_loads_with_allow_unsigned_extensions(con):
     loaded = con.execute(
-        "SELECT loaded, install_mode FROM duckdb_extensions() WHERE extension_name = 'parquet_pcodec'"
+        "SELECT loaded, install_mode FROM duckdb_extensions() WHERE extension_name = 'pparquet'"
     ).fetchall()
     assert loaded == [(True, "NOT_INSTALLED")] or loaded[0][0] is True
     functions = con.execute(
-        "SELECT function_type FROM duckdb_functions() WHERE function_name = 'read_pcodec_parquet'"
+        "SELECT function_type FROM duckdb_functions() WHERE function_name = 'read_pparquet'"
     ).fetchall()
     assert functions == [("table",)]
 
@@ -27,7 +27,7 @@ def test_unsigned_extension_is_refused_without_the_setting():
 
 
 def test_reads_a_standard_parquet_file(con):
-    rows = con.execute(f"SELECT count(*) FROM read_pcodec_parquet('{FILES}/standard_control.parquet')").fetchone()
+    rows = con.execute(f"SELECT count(*) FROM read_pparquet('{FILES}/standard_control.parquet')").fetchone()
     assert rows == (1500,)
 
 
@@ -36,7 +36,7 @@ def test_loads_in_a_separate_python_process():
         "import duckdb\n"
         "c = duckdb.connect(config={'allow_unsigned_extensions': 'true'})\n"
         f"c.execute(\"LOAD '{extension_path()}'\")\n"
-        f"print(c.execute(\"SELECT count(*) FROM read_pcodec_parquet('{FILES}/mixed.parquet')\").fetchone()[0])\n"
+        f"print(c.execute(\"SELECT count(*) FROM read_pparquet('{FILES}/mixed.parquet')\").fetchone()[0])\n"
     )
     out = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True, check=True)
     assert out.stdout.strip().isdigit()

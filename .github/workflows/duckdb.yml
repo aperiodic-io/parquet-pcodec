@@ -40,8 +40,8 @@ jobs:
         run: make -C duckdb sql
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: parquet_pcodec-linux_amd64
-          path: duckdb/build/parquet_pcodec.duckdb_extension
+          name: pparquet-linux_amd64
+          path: duckdb/build/pparquet.duckdb_extension
           if-no-files-found: error
 
   test:

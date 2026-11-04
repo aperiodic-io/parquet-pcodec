@@ -1,9 +1,9 @@
 //! Writer options from Python arguments.
 
 use crate::errors::{from_pcodec, invalid};
-use parquet_pcodec::parquet::basic::Compression;
-use parquet_pcodec::parquet::file::properties::WriterProperties;
-use parquet_pcodec::{ColumnCodec, Policy, WriterOptions};
+use pparquet::parquet::basic::Compression;
+use pparquet::parquet::file::properties::WriterProperties;
+use pparquet::{ColumnCodec, Policy, WriterOptions};
 use pyo3::prelude::*;
 use std::collections::BTreeMap;
 

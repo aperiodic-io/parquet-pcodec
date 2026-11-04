@@ -1,4 +1,4 @@
-package pcodec_test
+package pparquet_test
 
 import (
 	"bytes"
@@ -12,7 +12,7 @@ import (
 	"github.com/apache/arrow-go/v18/parquet/compress"
 	"github.com/apache/arrow-go/v18/parquet/pqarrow"
 
-	pcodec "github.com/aperiodic-io/parquet-pcodec/go"
+	pparquet "github.com/aperiodic-io/pparquet/go"
 )
 
 // marketTrades is deterministic synthetic trade data: millisecond timestamps arriving in
@@ -72,7 +72,7 @@ func TestAcceptanceAutoBeatsZstd9OnMarketData(t *testing.T) {
 	}
 
 	var auto bytes.Buffer
-	pw, err := pcodec.NewFileWriter(rec.Schema(), &auto)
+	pw, err := pparquet.NewFileWriter(rec.Schema(), &auto)
 	if err != nil {
 		t.Fatal(err)
 	}

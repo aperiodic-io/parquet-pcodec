@@ -83,7 +83,7 @@ object_store = [
     "dep:object_store",
     "async",
 ]
-pcodec = ["dep:parquet-pcodec-core"]
+pcodec = ["dep:pparquet-core"]
 simdutf8 = ["dep:simdutf8"]
 test_common = ["arrow/test_utils"]
 variant_experimental = [
@@ -545,7 +545,7 @@ default-features = false
 version = "60.1.0"
 optional = true
 
-[dependencies.parquet-pcodec-core]
+[dependencies.pparquet-core]
 path = "../core"
 optional = true
 
@@ -671,7 +671,7 @@ version = "0.59.1"
 features = ["services-memory"]
 default-features = false
 
-[dev-dependencies.parquet-pcodec-core]
+[dev-dependencies.pparquet-core]
 path = "../core"
 
 [dev-dependencies.proptest]

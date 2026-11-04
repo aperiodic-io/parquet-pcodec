@@ -12,8 +12,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-import parquet_pcodec as ppc
-from parquet_pcodec import canonical
+import pparquet as ppc
+from pparquet import canonical
 
 POLICIES: list[ppc.Policy] = ["auto", "pcodec", "base"]
 N = 300

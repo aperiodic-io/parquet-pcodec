@@ -14,7 +14,7 @@ import (
 	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/apache/arrow-go/v18/parquet"
 
-	pcodec "github.com/aperiodic-io/parquet-pcodec/go"
+	pparquet "github.com/aperiodic-io/pparquet/go"
 )
 
 var (
@@ -54,8 +54,8 @@ func all() []vector {
 		{name: "go_v1_pages", recs: v1Pages,
 			props: pcodecAll(map[string]parquet.Type{"id": i64, "x": f64}, parquet.WithDataPageSize(4096))},
 		{name: "go_dictionary_pages", recs: lowCardinality, props: []parquet.WriterProperty{v2,
-			parquet.WithCompressionFor("k", pcodec.Compression), parquet.WithCompressionLevelFor("k", pcodec.Level(i64, -1)),
-			parquet.WithCompressionFor("v", pcodec.Compression), parquet.WithCompressionLevelFor("v", pcodec.Level(f64, -1))}},
+			parquet.WithCompressionFor("k", pparquet.Compression), parquet.WithCompressionLevelFor("k", pparquet.Level(i64, -1)),
+			parquet.WithCompressionFor("v", pparquet.Compression), parquet.WithCompressionLevelFor("v", pparquet.Level(f64, -1))}},
 		{name: "go_fallback", recs: nonNumeric, props: pcodecAll(map[string]parquet.Type{"s": parquet.Types.ByteArray,
 			"b": parquet.Types.ByteArray, "flag": parquet.Types.Boolean, "fsb": parquet.Types.FixedLenByteArray})},
 		{name: "go_auto_mixed", recs: trades, auto: true, props: []parquet.WriterProperty{parquet.WithMaxRowGroupLength(4000)}},

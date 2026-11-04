@@ -82,7 +82,7 @@ pub trait Codec: Send {
 pub struct CodecOptions {
     /// Whether or not to fallback to other LZ4 older implementations on error in LZ4_HADOOP.
     backward_compatible_lz4: bool,
-    /// Physical type of the column, the PCODEC type hint (parquet-pcodec fork).
+    /// Physical type of the column, the PCODEC type hint (pparquet fork).
     physical_type: Option<Type>,
 }
 
@@ -95,7 +95,7 @@ impl Default for CodecOptions {
 pub struct CodecOptionsBuilder {
     /// Whether or not to fallback to other LZ4 older implementations on error in LZ4_HADOOP.
     backward_compatible_lz4: bool,
-    /// Physical type of the column, the PCODEC type hint (parquet-pcodec fork).
+    /// Physical type of the column, the PCODEC type hint (pparquet fork).
     physical_type: Option<Type>,
 }
 
@@ -122,7 +122,7 @@ impl CodecOptionsBuilder {
         self
     }
 
-    /// Sets the physical type of the column (parquet-pcodec fork).
+    /// Sets the physical type of the column (pparquet fork).
     ///
     /// PCODEC uses it as the type hint: it only affects the compression ratio, never
     /// decompression.
@@ -664,9 +664,9 @@ mod pcodec_codec {
     use crate::basic::Type;
     use crate::compression::{Codec, PcodecLevel};
     use crate::errors::{ParquetError, Result};
-    use parquet_pcodec_core::{Options, PhysicalType};
+    use pparquet_core::{Options, PhysicalType};
 
-    /// Codec for PCODEC (parquet-pcodec fork, spec/FORMAT.md).
+    /// Codec for PCODEC (pparquet fork, spec/FORMAT.md).
     pub struct PcodecCodec {
         options: Options,
     }
@@ -698,13 +698,13 @@ mod pcodec_codec {
             };
             let offset = output_buf.len();
             output_buf.resize(offset + required_len, 0);
-            parquet_pcodec_core::decompress_into(input_buf, &mut output_buf[offset..])
+            pparquet_core::decompress_into(input_buf, &mut output_buf[offset..])
                 .map_err(|e| ParquetError::External(Box::new(e)))?;
             Ok(required_len)
         }
 
         fn compress(&mut self, input_buf: &[u8], output_buf: &mut Vec<u8>) -> Result<()> {
-            let payload = parquet_pcodec_core::compress(input_buf, &self.options)
+            let payload = pparquet_core::compress(input_buf, &self.options)
                 .map_err(|e| ParquetError::External(Box::new(e)))?;
             output_buf.extend_from_slice(&payload);
             Ok(())
@@ -714,7 +714,7 @@ mod pcodec_codec {
 #[cfg(any(feature = "pcodec", test))]
 pub use pcodec_codec::*;
 
-/// Represents a valid pcodec compression level (parquet-pcodec fork).
+/// Represents a valid pcodec compression level (pparquet fork).
 #[derive(Debug, Eq, PartialEq, Hash, Clone, Copy)]
 pub struct PcodecLevel(u32);
 
@@ -1103,7 +1103,7 @@ mod tests {
     #[cfg_attr(miri, ignore)] // pcodec and zstd are too slow under Miri
     fn test_codec_pcodec_physical_type() {
         use crate::basic::Type;
-        use parquet_pcodec_core::{Mode, mode_of};
+        use pparquet_core::{Mode, mode_of};
 
         let ints: Vec<u8> = (0..1000i64).flat_map(|v| (v * 7).to_le_bytes()).collect();
         let prices: Vec<u8> = (0..1000)

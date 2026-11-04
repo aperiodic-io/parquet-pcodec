@@ -1,4 +1,4 @@
-package pcodec_test
+package pparquet_test
 
 import (
 	"bytes"
@@ -9,7 +9,7 @@ import (
 	"github.com/apache/arrow-go/v18/parquet"
 	"github.com/apache/arrow-go/v18/parquet/pqarrow"
 
-	pcodec "github.com/aperiodic-io/parquet-pcodec/go"
+	pparquet "github.com/aperiodic-io/pparquet/go"
 )
 
 func TestFileWriterAuto(t *testing.T) {
@@ -17,7 +17,7 @@ func TestFileWriterAuto(t *testing.T) {
 	defer first.Release()
 	defer second.Release()
 	var buf bytes.Buffer
-	w, err := pcodec.NewFileWriter(first.Schema(), &buf)
+	w, err := pparquet.NewFileWriter(first.Schema(), &buf)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestFileWriterAuto(t *testing.T) {
 	if codecs["ts"] != "PCODEC" || codecs["cycle"] != "ZSTD" || codecs["name"] != "ZSTD" {
 		t.Fatalf("codecs %v", codecs)
 	}
-	if v, ok := footerValue(md, pcodec.FooterKey); !ok || v != "1" {
+	if v, ok := footerValue(md, pparquet.FooterKey); !ok || v != "1" {
 		t.Fatalf("footer %q %v", v, ok)
 	}
 	assertSameData(t, buf.Bytes(), first, second)
@@ -54,7 +54,7 @@ func TestFileWriterWithoutPcodecHasNoFooterKey(t *testing.T) {
 	rec := autoRecord(100)
 	defer rec.Release()
 	var buf bytes.Buffer
-	w, err := pcodec.NewFileWriter(rec.Schema(), &buf, pcodec.WithDefaultPolicy(pcodec.Base))
+	w, err := pparquet.NewFileWriter(rec.Schema(), &buf, pparquet.WithDefaultPolicy(pparquet.Base))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestFileWriterWithoutPcodecHasNoFooterKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	md := fileMetadata(t, buf.Bytes())
-	if _, ok := footerValue(md, pcodec.FooterKey); ok {
+	if _, ok := footerValue(md, pparquet.FooterKey); ok {
 		t.Fatal("a file without PCODEC columns should not carry the footer key")
 	}
 	assertSameData(t, buf.Bytes(), rec)
@@ -73,7 +73,7 @@ func TestFileWriterWithoutPcodecHasNoFooterKey(t *testing.T) {
 
 func TestFileWriterCloseWithoutWrite(t *testing.T) {
 	var buf bytes.Buffer
-	w, err := pcodec.NewFileWriter(mixedSchema, &buf, pcodec.WithDefaultPolicy(pcodec.Pcodec))
+	w, err := pparquet.NewFileWriter(mixedSchema, &buf, pparquet.WithDefaultPolicy(pparquet.Pcodec))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestFileWriterCloseWithoutWrite(t *testing.T) {
 	if tbl.NumRows() != 0 || tbl.NumCols() != 6 {
 		t.Fatalf("%d rows, %d columns", tbl.NumRows(), tbl.NumCols())
 	}
-	if v, ok := footerValue(fileMetadata(t, buf.Bytes()), pcodec.FooterKey); !ok || v != "1" {
+	if v, ok := footerValue(fileMetadata(t, buf.Bytes()), pparquet.FooterKey); !ok || v != "1" {
 		t.Fatal("forced PCODEC columns get the footer key even without rows")
 	}
 	rec := randomRecord(mixedSchema, 2)
@@ -102,10 +102,10 @@ func TestFileWriterCloseWithoutWrite(t *testing.T) {
 }
 
 func TestFileWriterErrors(t *testing.T) {
-	if _, err := pcodec.NewFileWriter(mixedSchema, &bytes.Buffer{}, pcodec.WithPcodecLevel(99)); err == nil {
+	if _, err := pparquet.NewFileWriter(mixedSchema, &bytes.Buffer{}, pparquet.WithPcodecLevel(99)); err == nil {
 		t.Fatal("bad options are reported by NewFileWriter")
 	}
-	w, err := pcodec.NewFileWriter(mixedSchema, &bytes.Buffer{})
+	w, err := pparquet.NewFileWriter(mixedSchema, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,14 +126,14 @@ func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("disk ful
 func TestFileWriterSinkErrors(t *testing.T) {
 	rec := autoRecord(10)
 	defer rec.Release()
-	w, err := pcodec.NewFileWriter(rec.Schema(), failingWriter{})
+	w, err := pparquet.NewFileWriter(rec.Schema(), failingWriter{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := w.Write(rec); err == nil {
 		t.Fatal("a failing sink should fail the first Write")
 	}
-	w, err = pcodec.NewFileWriter(rec.Schema(), failingWriter{})
+	w, err = pparquet.NewFileWriter(rec.Schema(), failingWriter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,9 +146,9 @@ func TestFileWriterPassesOptions(t *testing.T) {
 	rec := autoRecord(10000)
 	defer rec.Release()
 	var buf bytes.Buffer
-	w, err := pcodec.NewFileWriter(rec.Schema(), &buf,
-		pcodec.WithWriterProperties(parquet.WithMaxRowGroupLength(4000)),
-		pcodec.WithArrowWriterProperties(pqarrow.NewArrowWriterProperties(pqarrow.WithStoreSchema())))
+	w, err := pparquet.NewFileWriter(rec.Schema(), &buf,
+		pparquet.WithWriterProperties(parquet.WithMaxRowGroupLength(4000)),
+		pparquet.WithArrowWriterProperties(pqarrow.NewArrowWriterProperties(pqarrow.WithStoreSchema())))
 	if err != nil {
 		t.Fatal(err)
 	}

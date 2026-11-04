@@ -1,8 +1,8 @@
-# The DuckDB extension `parquet_pcodec`. Run from duckdb/ (or `make -C duckdb ...`).
+# The DuckDB extension `pparquet`. Run from duckdb/ (or `make -C duckdb ...`).
 #
-#   make build     release build: build/parquet_pcodec.duckdb_extension (and the parquet-pcodec CLI)
+#   make build     release build: build/pparquet.duckdb_extension (and the pparquet CLI)
 #   make test      unit tests, then the SQL tests on the extension cargo builds for them
-#   make sql       the SQL tests on build/parquet_pcodec.duckdb_extension
+#   make sql       the SQL tests on build/pparquet.duckdb_extension
 #   make mutation  cargo mutants on the extension crate (SQL tests without the `slow` ones)
 #   make check     fmt, clippy, one arrow version, test
 CARGO ?= cargo
@@ -11,9 +11,9 @@ JOBS ?= 2
 PYTHON := .venv/bin/python
 ROOT := ..
 TARGET := $(ROOT)/target
-CRATE := -p parquet-pcodec-duckdb
-DYLIB := $(if $(filter Darwin,$(shell uname)),libparquet_pcodec_duckdb.dylib,libparquet_pcodec_duckdb.so)
-EXTENSION := build/parquet_pcodec.duckdb_extension
+CRATE := -p pparquet-duckdb
+DYLIB := $(if $(filter Darwin,$(shell uname)),libpparquet_duckdb.dylib,libpparquet_duckdb.so)
+EXTENSION := build/pparquet.duckdb_extension
 MUTANTS_OUT ?= $(TARGET)/mutants-duckdb
 MEMORY_LIMIT_MB ?= 2048
 TEST_TIMEOUT ?= 60
@@ -27,7 +27,7 @@ $(PYTHON): pyproject.toml uv.lock
 	@touch $@
 
 build:
-	$(CARGO) build --release -j $(JOBS) $(CRATE) -p parquet-pcodec --lib --bin parquet-pcodec --bin package-extension
+	$(CARGO) build --release -j $(JOBS) $(CRATE) -p pparquet --lib --bin pparquet --bin package-extension
 	@mkdir -p build
 	rm -f $(EXTENSION)
 	$(TARGET)/release/package-extension $(TARGET)/release/$(DYLIB) $(EXTENSION)
@@ -37,7 +37,7 @@ test: venv
 	$(CARGO) test -j $(JOBS) $(CRATE)
 
 sql: venv build
-	PCODEC_DUCKDB_EXTENSION=$(abspath $(EXTENSION)) PCODEC_CLI=$(abspath $(TARGET)/release/parquet-pcodec) \
+	PPARQUET_DUCKDB_EXTENSION=$(abspath $(EXTENSION)) PPARQUET_CLI=$(abspath $(TARGET)/release/pparquet) \
 		$(PYTHON) -m pytest -q tests
 
 # Every viable mutant must be caught. The slow memory test is left out of the mutation run:
@@ -51,8 +51,8 @@ mutation: venv
 	@# runner before cargo mutants' timeout; tests/conftest.py ends a test process past it
 	@# (the suite needs under 1 GB; JOBS processes run at once). TEST_TIMEOUT ends a test process
 	@# when one test takes longer (the slowest takes a few seconds), before cargo mutants' timeout
-	PCODEC_DUCKDB_MEMORY_LIMIT_MB=$(MEMORY_LIMIT_MB) PCODEC_DUCKDB_TEST_TIMEOUT=$(TEST_TIMEOUT) \
-	PCODEC_DUCKDB_PYTEST_MARK="not slow" PCODEC_DUCKDB_PYTHON=$(abspath $(PYTHON)) \
+	PPARQUET_DUCKDB_MEMORY_LIMIT_MB=$(MEMORY_LIMIT_MB) PPARQUET_DUCKDB_TEST_TIMEOUT=$(TEST_TIMEOUT) \
+	PPARQUET_DUCKDB_PYTEST_MARK="not slow" PPARQUET_DUCKDB_PYTHON=$(abspath $(PYTHON)) \
 		$(CARGO) mutants --dir $(ROOT) $(CRATE) -j $(JOBS) --output $(MUTANTS_OUT) $(MUTANTS_ARGS) \
 		|| { [ $$? -eq 3 ] && [ ! -s $(MUTANTS_OUT)/mutants.out/missed.txt ]; }
 

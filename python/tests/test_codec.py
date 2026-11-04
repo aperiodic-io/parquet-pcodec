@@ -1,4 +1,4 @@
-"""parquet_pcodec.codec: the PCODEC page payload on its own."""
+"""pparquet.codec: the PCODEC page payload on its own."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ import struct
 
 import pytest
 
-import parquet_pcodec as ppc
-from parquet_pcodec import codec
+import pparquet as ppc
+from pparquet import codec
 
 
 def test_round_trip_each_hint() -> None:

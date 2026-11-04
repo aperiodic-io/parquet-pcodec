@@ -1,4 +1,4 @@
-package pcodec_test
+package pparquet_test
 
 import (
 	"fmt"

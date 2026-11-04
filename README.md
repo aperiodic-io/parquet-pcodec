@@ -1,4 +1,4 @@
-# parquet-pcodec
+# pparquet
 
 [pcodec](https://github.com/pcodec/pcodec) as a Parquet compression codec (`CompressionCodec`
 20547), with readers and writers for Rust, Go, Python, pandas, Polars and DuckDB.
@@ -10,7 +10,7 @@ files are 0.27–0.31× the size of pyarrow's ZSTD level 9, bit for bit lossless
 
 **A PCODEC file is not standard Parquet.** Readers without this codec refuse it with an error
 instead of returning wrong data. The acceptance tests check this for pyarrow, pandas, Polars,
-DuckDB's `read_parquet` and the upstream arrow-rs `parquet` crate. `parquet-pcodec decode` (or `transcode(..., target="standard")`) writes a standard copy.
+DuckDB's `read_parquet` and the upstream arrow-rs `parquet` crate. `pparquet decode` (or `transcode(..., target="standard")`) writes a standard copy.
 
 The format is specified in [`spec/FORMAT.md`](spec/FORMAT.md).
 
@@ -18,39 +18,39 @@ The format is specified in [`spec/FORMAT.md`](spec/FORMAT.md).
 
 | Where | Package | Notes |
 |---|---|---|
-| Rust | [`rust/parquet-pcodec`](rust/parquet-pcodec) | writer with automatic codec choice, `transcode`, `inspect`, `verify`, and the `parquet-pcodec` CLI |
+| Rust | [`rust/pparquet`](rust/pparquet) | writer with automatic codec choice, `transcode`, `inspect`, `verify`, and the `pparquet` CLI |
 | Rust, DataFusion, anything on arrow-rs | [`rust/parquet`](rust/parquet) | a small fork of the arrow-rs `parquet` crate 60.1.0 that adds the codec; changes listed in [`FORK.md`](rust/parquet/FORK.md). Use it with `[patch.crates-io] parquet = { path = ... }` |
 | Rust, no Parquet | [`rust/core`](rust/core) | the page payload codec alone |
-| C | [`rust/capi`](rust/capi) | C ABI over the core ([`parquet_pcodec.h`](rust/capi/include/parquet_pcodec.h)) |
+| C | [`rust/capi`](rust/capi) | C ABI over the core ([`pparquet.h`](rust/capi/include/pparquet.h)) |
 | Go | [`go/`](go) | arrow-go codec plugin (no fork: `compress.RegisterCodec`) and writer helpers |
-| Python, pandas, Polars | [`python/`](python) | pyo3 package: `read_table`, `write_table`, `Writer`; `parquet_pcodec.pandas`, `parquet_pcodec.polars` (`scan_parquet` with pushdown), `parquet_pcodec.duckdb` |
-| DuckDB | [`duckdb/`](duckdb) | loadable extension: `read_pcodec_parquet(...)`, `COPY ... (FORMAT pcodec_parquet)` |
+| Python, pandas, Polars | [`python/`](python) | pyo3 package: `read_table`, `write_table`, `Writer`; `pparquet.pandas`, `pparquet.polars` (`scan_parquet` with pushdown), `pparquet.duckdb` |
+| DuckDB | [`duckdb/`](duckdb) | loadable extension: `read_pparquet(...)`, `COPY ... (FORMAT pparquet)` |
 
 ## Quick start
 
 ```sh
-parquet-pcodec encode trades.parquet trades.pcodec.parquet       # standard -> PCODEC (Auto)
-parquet-pcodec inspect trades.pcodec.parquet                     # codecs, sizes, payload modes
-parquet-pcodec verify trades.parquet trades.pcodec.parquet       # same data, floats bit for bit
-parquet-pcodec decode trades.pcodec.parquet trades.standard.parquet
+pparquet encode trades.parquet trades.pcodec.parquet       # standard -> PCODEC (Auto)
+pparquet inspect trades.pcodec.parquet                     # codecs, sizes, payload modes
+pparquet verify trades.parquet trades.pcodec.parquet       # same data, floats bit for bit
+pparquet decode trades.pcodec.parquet trades.standard.parquet
 ```
 
 ```python
-import parquet_pcodec as ppc
+import pparquet as ppc
 
 ppc.write_table(table, "trades.parquet")          # {"price": "PCODEC", "sym": "ZSTD", ...}
 table = ppc.read_table("trades.parquet", columns=["ts", "price"])
 ```
 
 ```go
-import pcodec "github.com/aperiodic-io/parquet-pcodec/go" // reading: the import is enough
+import pparquet "github.com/aperiodic-io/pparquet/go" // reading: the import is enough
 
-w, err := pcodec.NewFileWriter(schema, out) // Auto, base codec ZSTD(3)
+w, err := pparquet.NewFileWriter(schema, out) // Auto, base codec ZSTD(3)
 ```
 
 ```sql
-LOAD 'parquet_pcodec.duckdb_extension';
-SELECT * FROM read_pcodec_parquet('trades/*.parquet');
+LOAD 'pparquet.duckdb_extension';
+SELECT * FROM read_pparquet('trades/*.parquet');
 ```
 
 Each package's README has the details: [Python](python/README.md), [Go](go/README.md),

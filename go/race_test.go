@@ -1,4 +1,4 @@
-package pcodec_test
+package pparquet_test
 
 import (
 	"bytes"
@@ -11,14 +11,14 @@ import (
 	"github.com/apache/arrow-go/v18/parquet"
 	"github.com/apache/arrow-go/v18/parquet/compress"
 
-	pcodec "github.com/aperiodic-io/parquet-pcodec/go"
+	pparquet "github.com/aperiodic-io/pparquet/go"
 )
 
 // TestConcurrentUse runs the codec and the writer from many goroutines at once; run it with
 // -race. Decode errors are per call even though the library keeps its last error per OS
 // thread: each goroutine checks it gets its own message.
 func TestConcurrentUse(t *testing.T) {
-	c, _ := compress.GetCodec(pcodec.Compression)
+	c, _ := compress.GetCodec(pparquet.Compression)
 	ec := c.(compress.ErrorCodec)
 	var wg sync.WaitGroup
 	for g := 0; g < 8; g++ {
@@ -28,7 +28,7 @@ func TestConcurrentUse(t *testing.T) {
 			r := rand.New(rand.NewPCG(uint64(g), 1))
 			for i := 0; i < 200; i++ {
 				col := genNumbers(r, r.IntN(2000))
-				enc := c.EncodeLevel(nil, col.data, pcodec.Level(col.typ, r.IntN(13)))
+				enc := c.EncodeLevel(nil, col.data, pparquet.Level(col.typ, r.IntN(13)))
 				if !bytes.Equal(c.Decode(make([]byte, len(col.data)), enc), col.data) {
 					t.Error("round trip failed")
 					return
@@ -44,7 +44,7 @@ func TestConcurrentUse(t *testing.T) {
 			rec := autoRecord(3000)
 			defer rec.Release()
 			var buf bytes.Buffer
-			w, err := pcodec.NewFileWriter(rec.Schema(), &buf, pcodec.WithWriterProperties(parquet.WithMaxRowGroupLength(1000)))
+			w, err := pparquet.NewFileWriter(rec.Schema(), &buf, pparquet.WithWriterProperties(parquet.WithMaxRowGroupLength(1000)))
 			if err == nil {
 				err = w.Write(rec)
 			}

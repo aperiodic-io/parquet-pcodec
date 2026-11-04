@@ -1,7 +1,7 @@
 """Runs the sqllogictest-style files in tests/sql/*.test (the subset of DuckDB's format below).
 
     # comment
-    require parquet_pcodec      (the extension is always loaded; the line is documentation)
+    require pparquet      (the extension is always loaded; the line is documentation)
     statement ok | statement error
     <sql, up to a blank line>
     ----                        (statement error only: a substring of the message follows)

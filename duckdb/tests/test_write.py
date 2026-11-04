@@ -1,4 +1,4 @@
-"""COPY ... TO ... (FORMAT pcodec_parquet) and COPY ... FROM, read back and checked by the Rust CLI."""
+"""COPY ... TO ... (FORMAT pparquet) and COPY ... FROM, read back and checked by the Rust CLI."""
 
 import json
 
@@ -22,7 +22,7 @@ def copy(con, query, path, **options):
     names = names_of(con, query)
     opts = ", ".join(f"{k} {v}" for k, v in options.items())
     cols = ", ".join(f"'{n}'" for n in names)
-    con.execute(f"COPY ({query}) TO '{path}' (FORMAT pcodec_parquet, COLUMN_NAMES [{cols}]{', ' + opts if opts else ''})")
+    con.execute(f"COPY ({query}) TO '{path}' (FORMAT pparquet, COLUMN_NAMES [{cols}]{', ' + opts if opts else ''})")
     return path
 
 
@@ -33,7 +33,7 @@ def inspect(path):
 
 
 def codecs(path):
-    """Leaf path -> set of codecs, from `parquet-pcodec inspect --json`."""
+    """Leaf path -> set of codecs, from `pparquet inspect --json`."""
     info = inspect(path)
     return {c["path"]: set(c["codecs"]) for c in info["columns"]}
 
@@ -75,7 +75,7 @@ def with_nulls(query):
 def test_every_writable_type_round_trips(con, tmp_path):
     con.execute(f"CREATE TABLE src AS {with_nulls(ALL_TYPES)}")
     path = copy(con, "SELECT * FROM src", tmp_path / "all.parquet")
-    back = f"read_pcodec_parquet('{path}')"
+    back = f"read_pparquet('{path}')"
     # seconds come back as milliseconds and enums as strings; every other type is unchanged
     src_types = {r[0]: r[1] for r in con.execute("DESCRIBE src").fetchall()}
     back_types = {r[0]: r[1] for r in con.execute(f"DESCRIBE SELECT * FROM {back}").fetchall()}
@@ -89,10 +89,10 @@ def test_every_writable_type_round_trips(con, tmp_path):
 
 def test_floats_are_written_bit_for_bit(con, tmp_path):
     src = FILES / "float_specials.parquet"
-    path = copy(con, f"SELECT * FROM read_pcodec_parquet('{src}')", tmp_path / "f.parquet")
+    path = copy(con, f"SELECT * FROM read_pparquet('{src}')", tmp_path / "f.parquet")
     schema = pq.read_schema(src)
-    a = lines(con.sql(f"SELECT * FROM read_pcodec_parquet('{src}')").to_arrow_table(), schema)
-    b = lines(con.sql(f"SELECT * FROM read_pcodec_parquet('{path}')").to_arrow_table(), schema)
+    a = lines(con.sql(f"SELECT * FROM read_pparquet('{src}')").to_arrow_table(), schema)
+    b = lines(con.sql(f"SELECT * FROM read_pparquet('{path}')").to_arrow_table(), schema)
     assert a == b
     assert a == (FILES.parent / "expected" / "float_specials.jsonl").read_text()
 
@@ -106,7 +106,7 @@ def test_auto_picks_pcodec_for_numeric_columns_and_keeps_strings_on_zstd(con, tm
     c = codecs(path)
     assert c == {"id": {"PCODEC"}, "ts": {"PCODEC"}, "price": {"PCODEC"}, "amount": {"PCODEC"}, "sym": {"ZSTD"}}
     assert inspect(path)["pcodec_version"] == "1"
-    assert rows(con, f"SELECT count(*), sum(id), max(price) FROM read_pcodec_parquet('{path}')") == rows(
+    assert rows(con, f"SELECT count(*), sum(id), max(price) FROM read_pparquet('{path}')") == rows(
         con, f"SELECT count(*), sum(id), max(price) FROM ({q})"
     )
 
@@ -117,7 +117,7 @@ def test_order_is_kept_across_vectors_and_row_groups(con, tmp_path):
     assert inspect(path)["row_groups"] == 10
     r = rows(
         con,
-        f"SELECT count(*) FILTER (WHERE id <> file_row_number) FROM read_pcodec_parquet('{path}', file_row_number := true)",
+        f"SELECT count(*) FILTER (WHERE id <> file_row_number) FROM read_pparquet('{path}', file_row_number := true)",
     )
     assert r == [(0,)]
 
@@ -135,32 +135,32 @@ def test_policies_levels_and_base_codecs(con, tmp_path):
     c = codecs(copy(con, q, tmp_path / "z9.parquet", POLICY="'pcodec'", COMPRESSION="'zstd'", COMPRESSION_LEVEL=9))
     assert c["c"] == {"ZSTD"}
     for name in ["base", "pc", "col", "snappy", "z9"]:
-        assert rows(con, f"SELECT sum(a), sum(b), count(c) FROM read_pcodec_parquet('{tmp_path}/{name}.parquet')") == [
+        assert rows(con, f"SELECT sum(a), sum(b), count(c) FROM read_pparquet('{tmp_path}/{name}.parquet')") == [
             (49995000, 99990000, 10000)
         ]
 
 
 def test_an_empty_result_writes_an_empty_file(con, tmp_path):
     path = copy(con, "SELECT 1::BIGINT AS a, 'x' AS b WHERE false", tmp_path / "empty.parquet")
-    assert rows(con, f"SELECT count(*) FROM read_pcodec_parquet('{path}')") == [(0,)]
-    assert names_of(con, f"SELECT * FROM read_pcodec_parquet('{path}')") == ["a", "b"]
+    assert rows(con, f"SELECT count(*) FROM read_pparquet('{path}')") == [(0,)]
+    assert names_of(con, f"SELECT * FROM read_pparquet('{path}')") == ["a", "b"]
 
 
 @pytest.mark.parametrize(
     "options, message",
     [
-        ("", "FORMAT pcodec_parquet needs COLUMN_NAMES"),
+        ("", "FORMAT pparquet needs COLUMN_NAMES"),
         (", COLUMN_NAMES ['a']", "COLUMN_NAMES has 1 names but the query has 2 columns"),
         (", COLUMN_NAMES ['a', 'a']", 'COLUMN_NAMES: "a" appears twice'),
         (", COLUMN_NAMES ['a', 'b'], POLICY 'fast'", 'unknown policy "fast"'),
         (", COLUMN_NAMES ['a', 'b'], LEVEL 13", "invalid LEVEL 13: expected 0 to 12"),
-        (", COLUMN_NAMES ['a', 'b'], COMPRESION 'zstd'", "unknown option COMPRESION for FORMAT pcodec_parquet"),
+        (", COLUMN_NAMES ['a', 'b'], COMPRESION 'zstd'", "unknown option COMPRESION for FORMAT pparquet"),
         (", COLUMN_NAMES ['a', 'b'], COMPRESSION 'lzo'", 'unknown COMPRESSION "lzo"'),
     ],
 )
 def test_bad_options_are_explained(con, tmp_path, options, message):
     with pytest.raises(duckdb.Error, match=message):
-        con.execute(f"COPY (SELECT 1 AS a, 2 AS b) TO '{tmp_path}/x.parquet' (FORMAT pcodec_parquet{options})")
+        con.execute(f"COPY (SELECT 1 AS a, 2 AS b) TO '{tmp_path}/x.parquet' (FORMAT pparquet{options})")
 
 
 @pytest.mark.parametrize(
@@ -182,24 +182,24 @@ def test_bad_options_are_explained(con, tmp_path, options, message):
 )
 def test_types_it_cannot_write_are_refused(con, tmp_path, expr, name):
     with pytest.raises(duckdb.Error, match=f'column "v": columns of type {name} cannot be written'):
-        con.execute(f"COPY (SELECT {expr} AS v) TO '{tmp_path}/x.parquet' (FORMAT pcodec_parquet, COLUMN_NAMES ['v'])")
+        con.execute(f"COPY (SELECT {expr} AS v) TO '{tmp_path}/x.parquet' (FORMAT pparquet, COLUMN_NAMES ['v'])")
 
 
 def test_an_unwritable_path(con):
     with pytest.raises(duckdb.Error, match="cannot create /no/such/dir/x.parquet"):
-        con.execute("COPY (SELECT 1 AS a) TO '/no/such/dir/x.parquet' (FORMAT pcodec_parquet, COLUMN_NAMES ['a'])")
+        con.execute("COPY (SELECT 1 AS a) TO '/no/such/dir/x.parquet' (FORMAT pparquet, COLUMN_NAMES ['a'])")
 
 
 def test_copy_from_into_a_table(con, tmp_path):
     src = FILES / "mixed.parquet"
-    con.execute(f"CREATE TABLE t AS SELECT * FROM read_pcodec_parquet('{src}') LIMIT 0")
-    con.execute(f"COPY t FROM '{src}' (FORMAT pcodec_parquet)")
+    con.execute(f"CREATE TABLE t AS SELECT * FROM read_pparquet('{src}') LIMIT 0")
+    con.execute(f"COPY t FROM '{src}' (FORMAT pparquet)")
     assert rows(con, "SELECT count(*) FROM t") == [(1500,)]
-    con.execute(f"COPY t FROM '{src}' (FORMAT pcodec_parquet)")
+    con.execute(f"COPY t FROM '{src}' (FORMAT pparquet)")
     assert rows(con, "SELECT count(*) FROM t") == [(3000,)]
     con.execute("CREATE TABLE narrow (ts TIMESTAMPTZ, price DOUBLE)")
     with pytest.raises(duckdb.Error, match="do not match the table columns"):
-        con.execute(f"COPY narrow FROM '{src}' (FORMAT pcodec_parquet)")
+        con.execute(f"COPY narrow FROM '{src}' (FORMAT pparquet)")
 
 
 def test_duckdb_write_then_rust_verify(con, tmp_path):
@@ -224,10 +224,10 @@ def test_duckdb_write_then_rust_verify(con, tmp_path):
 @pytest.mark.parametrize("name", sorted(p.stem for p in FILES.glob("*.parquet")))
 def test_vectors_rewritten_by_duckdb_verify_against_duckdbs_own_writer(con, tmp_path, name):
     """Every vector, read and written back by the extension, holds what DuckDB's built-in
-    Parquet writer writes for the same rows (`parquet-pcodec verify`), and reads back to the
+    Parquet writer writes for the same rows (`pparquet verify`), and reads back to the
     vector's canonical rows."""
     src = FILES / f"{name}.parquet"
-    q = f"SELECT * EXCLUDE (file_row_number) FROM read_pcodec_parquet('{src}', file_row_number := true) ORDER BY file_row_number"
+    q = f"SELECT * EXCLUDE (file_row_number) FROM read_pparquet('{src}', file_row_number := true) ORDER BY file_row_number"
     out = copy(con, q, tmp_path / f"{name}.parquet")
     standard = tmp_path / f"{name}.standard.parquet"
     con.execute(f"COPY ({q}) TO '{standard}' (FORMAT parquet)")
@@ -238,5 +238,5 @@ def test_vectors_rewritten_by_duckdb_verify_against_duckdbs_own_writer(con, tmp_
         assert r.returncode == 1 and '"f64_opt":"0x7ff0000000000001"' in r.stdout, r.stdout + r.stderr
     else:
         assert r.returncode == 0, r.stdout + r.stderr
-    back = con.sql(f"SELECT * FROM read_pcodec_parquet('{out}')").to_arrow_table()
+    back = con.sql(f"SELECT * FROM read_pparquet('{out}')").to_arrow_table()
     assert lines(back, pq.read_schema(src)) == (FILES.parent / "expected" / f"{name}.jsonl").read_text()

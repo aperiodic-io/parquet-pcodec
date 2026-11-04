@@ -1,4 +1,4 @@
-//! `COPY ... TO ... (FORMAT pcodec_parquet, ...)`: its options and the file it writes.
+//! `COPY ... TO ... (FORMAT pparquet, ...)`: its options and the file it writes.
 //!
 //! DuckDB's C API (v1.5.6) hands a COPY function the column *types* but not the column *names*,
 //! so the names come from the `COLUMN_NAMES` option (see `duckdb/README.md`).
@@ -9,13 +9,13 @@ use arrow_array::RecordBatch;
 use arrow_schema::{Field, Schema, SchemaRef};
 use parquet::basic::{BrotliLevel, Compression, GzipLevel, ZstdLevel};
 use parquet::file::properties::WriterProperties;
-use parquet_pcodec::policy::parse_column_policy;
-use parquet_pcodec::{Writer, WriterOptions};
+use pparquet::policy::parse_column_policy;
+use pparquet::{Writer, WriterOptions};
 use std::fs::File;
 use std::sync::Arc;
 
 /// The name of the COPY format.
-pub const FORMAT: &str = "pcodec_parquet";
+pub const FORMAT: &str = "pparquet";
 
 /// Rows the writer gathers before its first write, so that `POLICY 'auto'` compares the codecs
 /// on more than one DuckDB vector.
@@ -114,7 +114,7 @@ impl CopyOptions {
                         string(&name, value)?
                             .to_ascii_lowercase()
                             .parse()
-                            .map_err(|e: parquet_pcodec::Error| e.to_string())?,
+                            .map_err(|e: pparquet::Error| e.to_string())?,
                     )
                 }
                 "LEVEL" => {
@@ -270,7 +270,7 @@ mod tests {
     use arrow_array::{ArrayRef, Float64Array, Int64Array};
     use arrow_schema::DataType;
     use parquet::file::reader::{FileReader, SerializedFileReader};
-    use parquet_pcodec::Policy;
+    use pparquet::Policy;
 
     fn opts(pairs: &[(&str, Val)]) -> Vec<(String, Val)> {
         pairs.iter().map(|(n, v)| (n.to_string(), v.clone())).collect()
@@ -304,7 +304,7 @@ mod tests {
     #[test]
     fn column_names_are_required_and_checked() {
         let e = CopyOptions::parse(two(), &[]).unwrap_err();
-        assert!(e.starts_with("FORMAT pcodec_parquet needs COLUMN_NAMES"), "{e}");
+        assert!(e.starts_with("FORMAT pparquet needs COLUMN_NAMES"), "{e}");
         let e = CopyOptions::parse(two(), &opts(&[("COLUMN_NAMES", names(&["a"]))])).unwrap_err();
         assert_eq!(e, "COLUMN_NAMES has 1 names but the query has 2 columns");
         let e = CopyOptions::parse(two(), &opts(&[("COLUMN_NAMES", names(&["a", "a"]))])).unwrap_err();
@@ -347,7 +347,7 @@ mod tests {
 
     #[test]
     fn base_codec_and_row_groups() {
-        assert_eq!(with(&[]).unwrap().writer.base, parquet_pcodec::writer::default_base());
+        assert_eq!(with(&[]).unwrap().writer.base, pparquet::writer::default_base());
         let base = |c: &str, l: Option<i64>| {
             let mut o = vec![("COMPRESSION", s(c))];
             if let Some(l) = l {
@@ -385,11 +385,11 @@ mod tests {
 
     #[test]
     fn unknown_options_list_the_known_ones() {
-        assert!(with(&[("FORMAT", s("pcodec_parquet"))]).is_ok());
+        assert!(with(&[("FORMAT", s("pparquet"))]).is_ok());
         let e = with(&[("COMPRESION", s("zstd"))]).unwrap_err();
         assert_eq!(
             e,
-            "unknown option COMPRESION for FORMAT pcodec_parquet; the options are COLUMN_NAMES, POLICY, LEVEL, \
+            "unknown option COMPRESION for FORMAT pparquet; the options are COLUMN_NAMES, POLICY, LEVEL, \
              COLUMN_POLICY, COMPRESSION, COMPRESSION_LEVEL, ROW_GROUP_ROWS"
         );
     }
@@ -425,7 +425,7 @@ mod tests {
         w.finish().unwrap();
         assert_eq!(w.finish().unwrap_err(), "the file is already closed");
         assert_eq!(w.write(batch(&o.schema, 0, 1)).unwrap_err(), "the file is already closed");
-        let read = parquet_pcodec::read::open(&path).unwrap().build().unwrap();
+        let read = pparquet::read::open(&path).unwrap().build().unwrap();
         let mut next = 0i64;
         for b in read {
             let b = b.unwrap();
@@ -450,15 +450,14 @@ mod tests {
         w.write(batch(&o.schema, 10, 5)).unwrap();
         assert!(!w.sampled);
         w.finish().unwrap();
-        let rows: usize =
-            parquet_pcodec::read::open(&small).unwrap().build().unwrap().map(|b| b.unwrap().num_rows()).sum();
+        let rows: usize = pparquet::read::open(&small).unwrap().build().unwrap().map(|b| b.unwrap().num_rows()).sum();
         assert_eq!(rows, 15);
         assert!(codecs(&small).iter().all(|c| matches!(c, Compression::ZSTD(_))));
 
         let empty = dir.path().join("empty.parquet");
         let mut w = CopyWriter::create(empty.to_str().unwrap(), &o).unwrap();
         w.finish().unwrap();
-        let r = parquet_pcodec::read::open(&empty).unwrap();
+        let r = pparquet::read::open(&empty).unwrap();
         assert_eq!(r.schema().fields().len(), 2);
         assert_eq!(r.metadata().file_metadata().num_rows(), 0);
 

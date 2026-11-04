@@ -1,4 +1,4 @@
-package pcodec_test
+package pparquet_test
 
 import (
 	"bytes"
@@ -12,7 +12,7 @@ import (
 	"github.com/apache/arrow-go/v18/parquet/metadata"
 	"github.com/apache/arrow-go/v18/parquet/pqarrow"
 
-	"github.com/aperiodic-io/parquet-pcodec/go/internal/canonical"
+	"github.com/aperiodic-io/pparquet/go/internal/canonical"
 )
 
 // readTable reads a whole Parquet file with pqarrow.

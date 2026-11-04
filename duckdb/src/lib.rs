@@ -1,10 +1,10 @@
-//! `parquet_pcodec`: a DuckDB extension that reads and writes Parquet files whose column chunks
+//! `pparquet`: a DuckDB extension that reads and writes Parquet files whose column chunks
 //! use the PCODEC codec (`spec/FORMAT.md`), built on DuckDB's C extension API (v1).
 //!
-//! - `read_pcodec_parquet(path, filename := , file_row_number := , union_by_name := )`, a table
+//! - `read_pparquet(path, filename := , file_row_number := , union_by_name := )`, a table
 //!   function ([`read`], logic in [`scan`]);
-//! - `COPY ... TO 'f.parquet' (FORMAT pcodec_parquet, COLUMN_NAMES [...], POLICY 'auto', ...)`
-//!   and `COPY t FROM 'f.parquet' (FORMAT pcodec_parquet)`, a COPY function ([`write`], logic
+//! - `COPY ... TO 'f.parquet' (FORMAT pparquet, COLUMN_NAMES [...], POLICY 'auto', ...)`
+//!   and `COPY t FROM 'f.parquet' (FORMAT pparquet)`, a COPY function ([`write`], logic
 //!   in [`copy`] and [`chunk`]).
 
 pub mod chunk;
@@ -22,9 +22,9 @@ use std::ffi::c_char;
 /// The C API version the extension asks DuckDB for: the first that has COPY functions in its
 /// stable API. DuckDB 2.0.0 serves C API v1.5.6.
 pub const C_API_VERSION: &str = "v1.5.6";
-/// The extension name: the file is `parquet_pcodec.duckdb_extension` and the entrypoint
-/// `parquet_pcodec_init_c_api`.
-pub const EXTENSION_NAME: &str = "parquet_pcodec";
+/// The extension name: the file is `pparquet.duckdb_extension` and the entrypoint
+/// `pparquet_init_c_api`.
+pub const EXTENSION_NAME: &str = "pparquet";
 
 unsafe fn init(info: sys::duckdb_extension_info, access: *const sys::duckdb_extension_access) -> Result<bool, String> {
     if !unsafe { sys::duckdb_rs_extension_api_init(info, access, C_API_VERSION) }? {
@@ -50,7 +50,7 @@ unsafe fn init(info: sys::duckdb_extension_info, access: *const sys::duckdb_exte
 /// # Safety
 /// Called by DuckDB with its extension info and access table.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn parquet_pcodec_init_c_api(
+pub unsafe extern "C" fn pparquet_init_c_api(
     info: sys::duckdb_extension_info,
     access: *const sys::duckdb_extension_access,
 ) -> bool {

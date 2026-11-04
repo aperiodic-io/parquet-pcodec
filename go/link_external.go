@@ -1,12 +1,12 @@
-//go:build pcodec_external
+//go:build pparquet_external
 
-package pcodec
+package pparquet
 
-// With the pcodec_external build tag the library comes from the environment: set
-// CGO_LDFLAGS to the path of libparquet_pcodec.a (the Makefile does this from
-// PCODEC_LIB_DIR), for example
+// With the pparquet_external build tag the library comes from the environment: set
+// CGO_LDFLAGS to the path of libpparquet_capi.a (the Makefile does this from
+// PPARQUET_LIB_DIR), for example
 //
-//	CGO_LDFLAGS=/opt/pcodec/lib/libparquet_pcodec.a go build -tags pcodec_external ./...
+//	CGO_LDFLAGS=/opt/pcodec/lib/libpparquet_capi.a go build -tags pparquet_external ./...
 //
 // cgo directives cannot read environment variables, hence the tag. The system libraries
 // the Rust static library needs follow it on the link line.
