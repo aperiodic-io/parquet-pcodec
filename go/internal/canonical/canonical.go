@@ -64,7 +64,7 @@ func WriteRecord(w io.Writer, rec arrow.RecordBatch) error {
 func writeString(buf *bytes.Buffer, s string) {
 	enc := json.NewEncoder(buf)
 	enc.SetEscapeHTML(false)
-	_ = enc.Encode(s) // a string always encodes
+	_ = enc.Encode(s)           // a string always encodes
 	buf.Truncate(buf.Len() - 1) // the encoder's newline
 }
 
