@@ -521,6 +521,61 @@ def test_empty_stream(tmp_path: pathlib.Path, numbers: pa.Table) -> None:
         f.empty(["x"])
 
 
+@pytest.fixture(scope="module")
+def big_exp() -> pa.Table:
+    """70 000 rows on which pcodec levels 8 and 9 differ, more than one default batch."""
+    import random
+
+    r = random.Random(1)
+    return pa.table({"x": pa.array([int(r.expovariate(1e-3)) for _ in range(70_000)], pa.int64())})
+
+
+def test_default_level_and_batch_size_behave(big_exp: pa.Table, tmp_path: pathlib.Path) -> None:
+    import pandas as pd
+    import polars as pl
+
+    import parquet_pcodec.duckdb as pdd
+    import parquet_pcodec.pandas as ppd
+    import parquet_pcodec.polars as ppl
+
+    def written(f: object, data: object, **kw: object) -> bytes:
+        buf = io.BytesIO()
+        f(data, buf, policy="pcodec", **kw)  # type: ignore[operator]
+        return buf.getvalue()
+
+    level8 = written(ppc.write_table, big_exp, level=8)
+    assert level8 != written(ppc.write_table, big_exp, level=9)
+    assert written(ppc.write_table, big_exp) == level8
+    w = io.BytesIO()
+    with ppc.Writer(w, big_exp.schema, policy="pcodec") as writer:
+        writer.write(big_exp)
+    assert w.getvalue() == level8
+    assert written(ppl.write_parquet, pl.from_arrow(big_exp)) == level8
+    df = pd.DataFrame({"x": big_exp["x"].to_numpy()})
+    assert written(ppd.to_parquet, df) == written(ppd.to_parquet, df, level=8)
+    assert written(ppd.to_parquet, df) != written(ppd.to_parquet, df, level=9)
+    std = io.BytesIO()
+    ppc.write_table(big_exp, std, policy="base")
+    t = io.BytesIO()
+    ppc.transcode(io.BytesIO(std.getvalue()), t, policy="pcodec")
+    t8 = io.BytesIO()
+    ppc.transcode(io.BytesIO(std.getvalue()), t8, policy="pcodec", level=8)
+    assert t.getvalue() == t8.getvalue()
+    # batches of 65536 rows by default
+    path = tmp_path / "big.parquet"
+    path.write_bytes(level8)
+    f = ppc.ParquetFile(path)
+    first = [
+        ppc.read_table(path).to_batches()[0].num_rows,
+        f.read().to_batches()[0].num_rows,
+        next(f.iter_batches()).num_rows,
+        next(iter(ppc.read_batches(path))).num_rows,
+        next(iter(f.stream())).num_rows,
+        pa.RecordBatchReader.from_stream(pdd.ArrowSource(path)).read_next_batch().num_rows,
+    ]
+    assert first == [65536] * 6
+
+
 def test_public_defaults() -> None:
     import inspect
 

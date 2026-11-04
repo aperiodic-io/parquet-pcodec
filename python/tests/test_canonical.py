@@ -78,6 +78,7 @@ def test_string_escapes() -> None:
     want = '{"x":"\\"\\\\\\b\\t\\n\\f\\r\\u0000\\u001f\x7f/é😀"}'
     for t in [pa.string(), pa.large_string(), pa.string_view()]:
         assert line(pa.array([s], t)) == [want]
+    assert line(pa.array(["", None])) == ['{"x":""}', '{"x":null}']
     # keys are escaped the same way
     assert line(pa.array([1]), name='a"b') == ['{"a\\"b":1}']
 

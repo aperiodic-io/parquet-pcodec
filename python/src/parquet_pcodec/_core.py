@@ -295,7 +295,8 @@ class Writer:
         policy: Policy = "auto",
         columns: Mapping[str, Policy] | None = None,
         level: int = 8,
-        base: str = "zstd(3)",
+        # "ZSTD(3)" (a mutant) names the same codec as "zstd(3)": no test can tell them apart
+        base: str = "zstd(3)",  # pragma: no mutate
         row_group_size: int | None = None,
     ) -> None:
         target = _sink(sink)
@@ -365,7 +366,8 @@ def write_table(
     policy: Policy = "auto",
     columns: Mapping[str, Policy] | None = None,
     level: int = 8,
-    base: str = "zstd(3)",
+    # "ZSTD(3)" (a mutant) names the same codec as "zstd(3)": no test can tell them apart
+    base: str = "zstd(3)",  # pragma: no mutate
     row_group_size: int | None = None,
 ) -> dict[str, str]:
     """Writes Arrow data to a Parquet file with PCODEC where the policy selects it.
@@ -391,7 +393,8 @@ def transcode(
     policy: Policy = "auto",
     columns: Mapping[str, Policy] | None = None,
     level: int = 8,
-    base: str = "zstd(3)",
+    # "ZSTD(3)" (a mutant) names the same codec as "zstd(3)": no test can tell them apart
+    base: str = "zstd(3)",  # pragma: no mutate
 ) -> dict[str, str]:
     """Rewrites a Parquet file keeping its schema, metadata and row groups.
 

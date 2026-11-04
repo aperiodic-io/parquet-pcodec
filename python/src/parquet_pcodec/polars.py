@@ -38,7 +38,8 @@ def write_parquet(
     policy: Policy = "auto",
     columns: Mapping[str, Policy] | None = None,
     level: int = 8,
-    base: str = "zstd(3)",
+    # "ZSTD(3)" (a mutant) names the same codec as "zstd(3)": no test can tell them apart
+    base: str = "zstd(3)",  # pragma: no mutate
     row_group_size: int | None = None,
 ) -> dict[str, str]:
     """Writes a DataFrame (or the result of a LazyFrame) with PCODEC where the policy selects
