@@ -1,0 +1,292 @@
+{
+  "format_version": 1,
+  "vectors": [
+    {
+      "decoded": "raw_empty.out",
+      "expected_len": 0,
+      "hint": "INT64",
+      "level": 8,
+      "mode": "RAW",
+      "name": "raw_empty",
+      "payload": "raw_empty.bin",
+      "valid": true
+    },
+    {
+      "decoded": "raw_random.out",
+      "expected_len": 4096,
+      "hint": "INT64",
+      "level": 8,
+      "mode": "RAW",
+      "name": "raw_random",
+      "payload": "raw_random.bin",
+      "valid": true
+    },
+    {
+      "decoded": "raw_random_no_hint.out",
+      "expected_len": 100,
+      "hint": null,
+      "level": 8,
+      "mode": "RAW",
+      "name": "raw_random_no_hint",
+      "payload": "raw_random_no_hint.bin",
+      "valid": true
+    },
+    {
+      "decoded": "pco_int32.out",
+      "expected_len": 8000,
+      "hint": "INT32",
+      "level": 8,
+      "mode": "PCO",
+      "name": "pco_int32",
+      "payload": "pco_int32.bin",
+      "valid": true
+    },
+    {
+      "decoded": "pco_int64.out",
+      "expected_len": 16000,
+      "hint": "INT64",
+      "level": 8,
+      "mode": "PCO",
+      "name": "pco_int64",
+      "payload": "pco_int64.bin",
+      "valid": true
+    },
+    {
+      "decoded": "pco_int64_level0.out",
+      "expected_len": 16000,
+      "hint": "INT64",
+      "level": 0,
+      "mode": "PCO",
+      "name": "pco_int64_level0",
+      "payload": "pco_int64_level0.bin",
+      "valid": true
+    },
+    {
+      "decoded": "pco_int64_level12.out",
+      "expected_len": 16000,
+      "hint": "INT64",
+      "level": 12,
+      "mode": "PCO",
+      "name": "pco_int64_level12",
+      "payload": "pco_int64_level12.bin",
+      "valid": true
+    },
+    {
+      "decoded": "pco_float.out",
+      "expected_len": 8000,
+      "hint": "FLOAT",
+      "level": 8,
+      "mode": "PCO",
+      "name": "pco_float",
+      "payload": "pco_float.bin",
+      "valid": true
+    },
+    {
+      "decoded": "pco_double.out",
+      "expected_len": 16000,
+      "hint": "DOUBLE",
+      "level": 8,
+      "mode": "PCO",
+      "name": "pco_double",
+      "payload": "pco_double.bin",
+      "valid": true
+    },
+    {
+      "decoded": "decimal_double.out",
+      "expected_len": 16000,
+      "hint": "DOUBLE",
+      "level": 8,
+      "mode": "DECIMAL",
+      "name": "decimal_double",
+      "payload": "decimal_double.bin",
+      "valid": true
+    },
+    {
+      "decoded": "decimal_float.out",
+      "expected_len": 8000,
+      "hint": "FLOAT",
+      "level": 8,
+      "mode": "DECIMAL",
+      "name": "decimal_float",
+      "payload": "decimal_float.bin",
+      "valid": true
+    },
+    {
+      "decoded": "decimal_exceptions.out",
+      "expected_len": 16000,
+      "hint": "DOUBLE",
+      "level": 8,
+      "mode": "DECIMAL",
+      "name": "decimal_exceptions",
+      "payload": "decimal_exceptions.bin",
+      "valid": true
+    },
+    {
+      "decoded": "zstd_no_hint.out",
+      "expected_len": 6490,
+      "hint": null,
+      "level": 8,
+      "mode": "ZSTD",
+      "name": "zstd_no_hint",
+      "payload": "zstd_no_hint.bin",
+      "valid": true
+    },
+    {
+      "decoded": "zstd_width_mismatch.out",
+      "expected_len": 6483,
+      "hint": "INT64",
+      "level": 8,
+      "mode": "ZSTD",
+      "name": "zstd_width_mismatch",
+      "payload": "zstd_width_mismatch.bin",
+      "valid": true
+    },
+    {
+      "error": "pcodec payload: truncated",
+      "expected_len": 0,
+      "name": "empty_payload",
+      "payload": "empty_payload.bin",
+      "valid": false
+    },
+    {
+      "error": "pcodec payload: truncated",
+      "expected_len": 0,
+      "name": "truncated_header",
+      "payload": "truncated_header.bin",
+      "valid": false
+    },
+    {
+      "error": "pcodec payload: unsupported version 2",
+      "expected_len": 4,
+      "name": "bad_version",
+      "payload": "bad_version.bin",
+      "valid": false
+    },
+    {
+      "error": "pcodec payload: unknown mode 4",
+      "expected_len": 4,
+      "name": "bad_mode",
+      "payload": "bad_mode.bin",
+      "valid": false
+    },
+    {
+      "error": "pcodec payload: decodes to 3 bytes, expected 4",
+      "expected_len": 4,
+      "name": "raw_too_short",
+      "payload": "raw_too_short.bin",
+      "valid": false
+    },
+    {
+      "error": "pcodec payload: decodes to 5 bytes, expected 4",
+      "expected_len": 4,
+      "name": "raw_too_long",
+      "payload": "raw_too_long.bin",
+      "valid": false
+    },
+    {
+      "error": "pcodec payload: unknown dtype 3",
+      "expected_len": 16000,
+      "name": "pco_bad_dtype",
+      "payload": "pco_bad_dtype.bin",
+      "valid": false
+    },
+    {
+      "error": "pcodec payload: truncated",
+      "expected_len": 8,
+      "name": "pco_missing_dtype",
+      "payload": "pco_missing_dtype.bin",
+      "valid": false
+    },
+    {
+      "error": "pcodec payload: decodes to 16000 bytes, expected 16008",
+      "expected_len": 16008,
+      "name": "pco_fewer_values",
+      "payload": "pco_fewer_values.bin",
+      "valid": false
+    },
+    {
+      "error": "pcodec payload: decodes to 16000 bytes, expected 15992",
+      "expected_len": 15992,
+      "name": "pco_more_values",
+      "payload": "pco_more_values.bin",
+      "valid": false
+    },
+    {
+      "error": "pcodec payload: expected size 15997 is not a multiple of the value width 8",
+      "expected_len": 15997,
+      "name": "pco_not_whole_values",
+      "payload": "pco_not_whole_values.bin",
+      "valid": false
+    },
+    {
+      "error": "pcodec payload: pcodec: pco InsufficientData error: [BitReader] out of bounds at bit 1931 / 1456",
+      "expected_len": 16000,
+      "name": "pco_corrupt",
+      "payload": "pco_corrupt.bin",
+      "valid": false
+    },
+    {
+      "error": "pcodec payload: exponent 19 above 18",
+      "expected_len": 16000,
+      "name": "decimal_bad_exponent",
+      "payload": "decimal_bad_exponent.bin",
+      "valid": false
+    },
+    {
+      "error": "pcodec payload: unknown dtype 2",
+      "expected_len": 16000,
+      "name": "decimal_int_dtype",
+      "payload": "decimal_int_dtype.bin",
+      "valid": false
+    },
+    {
+      "error": "pcodec payload: exception count or position out of range",
+      "expected_len": 16000,
+      "name": "decimal_position_past_end",
+      "payload": "decimal_position_past_end.bin",
+      "valid": false
+    },
+    {
+      "error": "pcodec payload: exception count or position out of range",
+      "expected_len": 16,
+      "name": "decimal_too_many_exceptions",
+      "payload": "decimal_too_many_exceptions.bin",
+      "valid": false
+    },
+    {
+      "error": "pcodec payload: truncated",
+      "expected_len": 16,
+      "name": "decimal_truncated_exceptions",
+      "payload": "decimal_truncated_exceptions.bin",
+      "valid": false
+    },
+    {
+      "error": "pcodec payload: truncated",
+      "expected_len": 16,
+      "name": "decimal_truncated_header",
+      "payload": "decimal_truncated_header.bin",
+      "valid": false
+    },
+    {
+      "error": "pcodec payload: decodes to 6490 bytes, expected 6491",
+      "expected_len": 6491,
+      "name": "zstd_too_short",
+      "payload": "zstd_too_short.bin",
+      "valid": false
+    },
+    {
+      "error": "pcodec payload: decodes to 6490 bytes, expected 6489",
+      "expected_len": 6489,
+      "name": "zstd_too_long",
+      "payload": "zstd_too_long.bin",
+      "valid": false
+    },
+    {
+      "error": "pcodec payload: zstd: Unknown frame descriptor",
+      "expected_len": 6490,
+      "name": "zstd_corrupt",
+      "payload": "zstd_corrupt.bin",
+      "valid": false
+    }
+  ]
+}
