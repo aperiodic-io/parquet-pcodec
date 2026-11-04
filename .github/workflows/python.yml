@@ -94,7 +94,7 @@ jobs:
       - run: uv sync --locked --python 3.14
       - run: uv run --no-sync maturin develop --uv
       - name: mutmut (fails on any mutant that is not killed)
-        run: uv run --no-sync python ../scripts/mutmut-check.py
+        run: uv run --no-sync python scripts/mutmut_check.py
         env:
           HYPOTHESIS_PROFILE: mutation
           PARQUET_PCODEC_TESTDATA: ${{ github.workspace }}/testdata

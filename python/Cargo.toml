@@ -26,6 +26,9 @@ extension-module = ["pyo3/extension-module"]
 [dependencies]
 parquet-pcodec = { path = "../rust/parquet-pcodec" }
 parquet-pcodec-core = { path = "../rust/core" }
+# the fork that [patch.crates-io] puts in place of parquet 60.1.0: named here by path so that
+# the sdist (which follows path dependencies, not patches) contains it
+parquet = { path = "../rust/parquet", version = "=60.1.0", default-features = false }
 arrow-array = { workspace = true, features = ["ffi"] }
 arrow-schema = { workspace = true, features = ["ffi"] }
 bytes = "1"
