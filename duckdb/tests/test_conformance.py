@@ -1,4 +1,4 @@
-"""Every conformance vector, read through read_pparquet, gives exactly the expected rows."""
+"""Every conformance vector, read through read_tparquet, gives exactly the expected rows."""
 
 import pyarrow.parquet as pq
 import pytest
@@ -18,7 +18,7 @@ def test_every_vector_is_covered():
 def test_canonical_rows_match_byte_for_byte(con, name):
     path = FILES / f"{name}.parquet"
     table = con.sql(
-        f"SELECT * EXCLUDE (file_row_number) FROM read_pparquet('{path}', file_row_number := true) "
+        f"SELECT * EXCLUDE (file_row_number) FROM read_tparquet('{path}', file_row_number := true) "
         "ORDER BY file_row_number"
     ).to_arrow_table()
     got = lines(table, pq.read_schema(path))
@@ -30,5 +30,5 @@ def test_canonical_rows_match_byte_for_byte(con, name):
 def test_one_thread_reads_in_file_order(con, name):
     con.execute("SET threads = 1")
     path = FILES / f"{name}.parquet"
-    table = con.sql(f"SELECT * FROM read_pparquet('{path}')").to_arrow_table()
+    table = con.sql(f"SELECT * FROM read_tparquet('{path}')").to_arrow_table()
     assert lines(table, pq.read_schema(path)) == (EXPECTED / f"{name}.jsonl").read_text(encoding="utf-8")

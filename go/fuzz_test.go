@@ -1,4 +1,4 @@
-package pparquet_test
+package tparquet_test
 
 import (
 	"bytes"
@@ -7,15 +7,15 @@ import (
 	"github.com/apache/arrow-go/v18/parquet"
 	"github.com/apache/arrow-go/v18/parquet/compress"
 
-	pparquet "github.com/aperiodic-io/pparquet/go"
+	tparquet "github.com/aperiodic-io/tparquet/go"
 )
 
 func seedPayloads(f *testing.F) {
-	c, _ := compress.GetCodec(pparquet.Compression)
+	c, _ := compress.GetCodec(tparquet.Compression)
 	srcs := [][]byte{nil, ramp(50), float64Bytes(1.25, 3.5, 100.75, 2.0), []byte("not numbers at all")}
 	for _, src := range srcs {
 		for _, typ := range []parquet.Type{parquet.Types.Int32, parquet.Types.Int64, parquet.Types.Float, parquet.Types.Double} {
-			f.Add(c.EncodeLevel(nil, src, pparquet.Level(typ, 8)), uint16(len(src)))
+			f.Add(c.EncodeLevel(nil, src, tparquet.Level(typ, 8)), uint16(len(src)))
 		}
 		f.Add(c.Encode(nil, src), uint16(len(src)))
 	}
@@ -25,7 +25,7 @@ func seedPayloads(f *testing.F) {
 // never panics or writes past dst.
 func FuzzDecode(f *testing.F) {
 	seedPayloads(f)
-	c, _ := compress.GetCodec(pparquet.Compression)
+	c, _ := compress.GetCodec(tparquet.Compression)
 	ec := c.(compress.ErrorCodec)
 	f.Fuzz(func(t *testing.T, payload []byte, size uint16) {
 		buf := make([]byte, int(size)+16)
@@ -47,9 +47,9 @@ func FuzzRoundTrip(f *testing.F) {
 	f.Add(ramp(40), uint8(2), uint8(9))
 	f.Add(float64Bytes(0.1, 0.2, 0.30000000000000004), uint8(5), uint8(0))
 	f.Add([]byte{1, 2, 3}, uint8(1), uint8(13))
-	c, _ := compress.GetCodec(pparquet.Compression)
+	c, _ := compress.GetCodec(tparquet.Compression)
 	f.Fuzz(func(t *testing.T, data []byte, typ, lvl uint8) {
-		level := pparquet.Level(parquet.Type(typ%8), int(lvl%14)-1)
+		level := tparquet.Level(parquet.Type(typ%8), int(lvl%14)-1)
 		enc := c.EncodeLevel(nil, data, level)
 		if int64(len(enc)) > c.CompressBound(int64(len(data))) {
 			t.Fatalf("payload %d bytes over the bound", len(enc))

@@ -1,4 +1,4 @@
-# `pparquet`: a DuckDB extension for Parquet files with the PCODEC codec
+# `tparquet`: a DuckDB extension for Parquet files with the PCODEC codec
 
 DuckDB's own Parquet reader cannot read files whose column chunks use `CompressionCodec`
 20547 (`PCODEC`, [`spec/FORMAT.md`](../spec/FORMAT.md)): DuckDB 2.0.0 stops on the footer with
@@ -11,19 +11,19 @@ TProtocolException: Invalid data
 extension adds a reader and a COPY format that handle PCODEC and standard Parquet alike:
 
 ```sql
-LOAD 'build/pparquet.duckdb_extension';   -- needs allow_unsigned_extensions
+LOAD 'build/tparquet.duckdb_extension';   -- needs allow_unsigned_extensions
 
-SELECT * FROM read_pparquet('trades/*.parquet');
-SELECT symbol, avg(price) FROM read_pparquet(['a.parquet', 'b.parquet'], filename := true) GROUP BY ALL;
+SELECT * FROM read_tparquet('trades/*.parquet');
+SELECT symbol, avg(price) FROM read_tparquet(['a.parquet', 'b.parquet'], filename := true) GROUP BY ALL;
 
 COPY (SELECT ts, price, qty FROM ticks) TO 'ticks.parquet'
-    (FORMAT pparquet, COLUMN_NAMES ['ts', 'price', 'qty'], POLICY 'auto', LEVEL 8);
-COPY ticks FROM 'ticks.parquet' (FORMAT pparquet);
+    (FORMAT tparquet, COLUMN_NAMES ['ts', 'price', 'qty'], POLICY 'auto', LEVEL 8);
+COPY ticks FROM 'ticks.parquet' (FORMAT tparquet);
 ```
 
 It is written in Rust on DuckDB's C extension API (v1, version `v1.5.6`, which DuckDB 2.0.0
 serves) with the `duckdb` crate 1.20000.1 (`loadable-extension`, `vtab-arrow`), and the Parquet
-fork in [`rust/parquet`](../rust/parquet) through [`rust/pparquet`](../rust/pparquet).
+fork in [`rust/parquet`](../rust/parquet) through [`rust/tparquet`](../rust/tparquet).
 The `duckdb` crate's arrow (`^60`) unifies with the fork's arrow 60.1.0; `make check-arrow`
 fails if a second arrow or parquet ever enters the build.
 
@@ -45,12 +45,12 @@ fails if a second arrow or parquet ever enters the build.
 ## Loading
 
 ```sh
-make build                      # build/pparquet.duckdb_extension (release)
+make build                      # build/tparquet.duckdb_extension (release)
 ```
 
 - Python: `duckdb.connect(config={"allow_unsigned_extensions": "true"})`, then
-  `con.execute("LOAD 'build/pparquet.duckdb_extension'")`.
-- CLI: `duckdb -unsigned`, then `LOAD 'build/pparquet.duckdb_extension';`.
+  `con.execute("LOAD 'build/tparquet.duckdb_extension'")`.
+- CLI: `duckdb -unsigned`, then `LOAD 'build/tparquet.duckdb_extension';`.
 
 Without `allow_unsigned_extensions` DuckDB refuses the file (it has no signature; see
 [Distribution](#distribution)). The CLI path is not covered by the tests: the DuckDB 2.0.0 CLI
@@ -58,7 +58,7 @@ binary could not be downloaded in the environment the extension was developed in
 asset reachable, no `duckdb-cli` 2.0.0 wheel); the CLI loads extensions through the same engine
 code as the Python package.
 
-## Reading: `read_pparquet(path, ...)`
+## Reading: `read_tparquet(path, ...)`
 
 `path` is a file, a glob (`*`, `?`, `[...]`; matches sorted by name) or a list of files and
 globs. Named parameters:
@@ -118,12 +118,12 @@ DuckDB stores time-zoned timestamps as UTC instants in microseconds (or nanoseco
 instant in its `TimeZone` setting. Decimals of more than 38 digits and Arrow `Null` columns are
 refused with the column's name.
 
-## Writing: `COPY ... TO ... (FORMAT pparquet, ...)`
+## Writing: `COPY ... TO ... (FORMAT tparquet, ...)`
 
 DuckDB 2.0's C API has COPY functions in its stable API (`duckdb_create_copy_function`,
 `duckdb_register_copy_function`, stable since C API v1.5.6), so the extension registers the
-COPY format `pparquet` with a bind, global init, sink and finalize callback. The file is
-written with `pparquet::Writer`, whose `Auto` policy (spec section 6) compares PCODEC and
+COPY format `tparquet` with a bind, global init, sink and finalize callback. The file is
+written with `tparquet::Writer`, whose `Auto` policy (spec section 6) compares PCODEC and
 the base codec per numeric column on the first batch; the writer holds back the first 128Ki rows
 so that this comparison sees more than one DuckDB vector.
 
@@ -161,18 +161,18 @@ with `key_value`, so the file reads the same with and without its Arrow schema. 
 `HUGEINT`, `UHUGEINT`, `INTERVAL`, `UNION`, `BIT`, `TIME WITH TIME ZONE`, `BIGNUM`,
 `VARIANT` and `GEOMETRY` are refused with the column's name: cast them first.
 
-`COPY t FROM 'f.parquet' (FORMAT pparquet)` reads with `read_pparquet`; the file's
+`COPY t FROM 'f.parquet' (FORMAT tparquet)` reads with `read_tparquet`; the file's
 columns must match the table's by position and type (use `INSERT INTO t SELECT ... FROM
-read_pparquet(...)` to map or cast).
+read_tparquet(...)` to map or cast).
 
 One more finding: DuckDB's built-in Parquet writer does not keep NaN payloads (the conformance
-vector's `0x7ff0000000000001` comes out as `0xfff8000000000000`); `pparquet` keeps them.
+vector's `0x7ff0000000000001` comes out as `0xfff8000000000000`); `tparquet` keeps them.
 
 ## Ratio
 
 On 2,000,000 deterministic market-like ticks (millisecond timestamps with random gaps, a
 random-walk price on a 0.01 grid, lot sizes in 0.001 steps, a side flag;
-`tests/test_acceptance.py`), `COPY (FORMAT pparquet, POLICY 'auto', LEVEL 8)` writes
+`tests/test_acceptance.py`), `COPY (FORMAT tparquet, POLICY 'auto', LEVEL 8)` writes
 4,998,033 bytes, 0.633 of DuckDB's `COPY (FORMAT parquet, COMPRESSION zstd,
 COMPRESSION_LEVEL 9)` at 7,894,952 bytes, and the file reads back bit for bit.
 
@@ -186,7 +186,7 @@ COMPRESSION_LEVEL 9)` at 7,894,952 bytes, and the file reads back bit for bit.
 `duckdb_signature`, byte for byte what `extension-ci-tools/scripts/append_extension_metadata.py`
 writes. With ABI `C_STRUCT` DuckDB checks the C API version, not the DuckDB version, so the file
 loads in any DuckDB that serves C API v1.5.6 or later v1.x. The entrypoint is
-`pparquet_init_c_api`, so the file must be named `pparquet.duckdb_extension`.
+`tparquet_init_c_api`, so the file must be named `tparquet.duckdb_extension`.
 
 ## Tests
 
@@ -202,9 +202,9 @@ make mutation                  # cargo mutants on this crate
   writer, DuckDB vector layouts converted to Arrow (on vectors laid out in memory), the footer.
 - `tests/sql.rs` packages the library this build produced and runs pytest on it, so `cargo
   test`, and every mutant, checks what DuckDB actually loads. It also builds the
-  `pparquet` CLI the tests transcode and `verify` with.
+  `tparquet` CLI the tests transcode and `verify` with.
 - `tests/test_conformance.py`: every `testdata/files/*.parquet` read with
-  `read_pparquet`, fetched from DuckDB as Arrow and turned into canonical JSON
+  `read_tparquet`, fetched from DuckDB as Arrow and turned into canonical JSON
   (`tests/canonical.py`: float bits through `Array.view`, time-zoned timestamps back to the
   file's unit) equals `testdata/expected/*.jsonl` byte for byte.
 - `tests/test_read.py`, `tests/test_write.py`, `tests/test_acceptance.py`, and the
@@ -217,23 +217,23 @@ The extension is not submitted anywhere. Notes for doing so:
 
 - **Community extensions.** DuckDB builds, signs and serves community extensions from
   [duckdb/community-extensions](https://github.com/duckdb/community-extensions): a pull request
-  adds `extensions/pparquet/description.yml` naming the repository, a commit (`ref`), the
+  adds `extensions/tparquet/description.yml` naming the repository, a commit (`ref`), the
   language (`Rust`), the build system (`cargo`) and the maintainers. Their CI builds with
   [extension-ci-tools](https://github.com/duckdb/extension-ci-tools) for every platform, so the
   repository needs the layout of DuckDB's Rust template
   ([extension-template-rs](https://github.com/duckdb/extension-template-rs)): a top-level
   `Makefile` that includes extension-ci-tools' `makefiles/c_api_extensions/rust.Makefile`
   (with `extension-ci-tools` as a submodule pinned to a commit), `EXTENSION_NAME =
-  pparquet`, `USE_UNSTABLE_C_API = 0` and `TARGET_DUCKDB_VERSION = v1.5.6` (the C API
+  tparquet`, `USE_UNSTABLE_C_API = 0` and `TARGET_DUCKDB_VERSION = v1.5.6` (the C API
   version), and a crate whose `cdylib` is the extension. Their tooling appends the same footer as
   `package-extension` (and signs it). The workspace's path dependencies (`rust/parquet`,
-  `rust/pparquet`) must build from that checkout; the tests here use Python and need a
+  `rust/tparquet`) must build from that checkout; the tests here use Python and need a
   `test` target that the community CI can run, or none.
 - **Signing.** DuckDB loads a signed extension without `allow_unsigned_extensions` only if the
   signature verifies against one of its built-in keys (core or community); there is no way to
   sign with one's own key for a plain `LOAD`. Signing happens in the community CI. Until then,
   users load the unsigned build with `allow_unsigned_extensions` (or `duckdb -unsigned`), or
-  install it from a custom repository (`INSTALL pparquet FROM 'https://...'`), which
+  install it from a custom repository (`INSTALL tparquet FROM 'https://...'`), which
   also needs that setting for unsigned files.
 - **Versions.** The footer's C API version `v1.5.6` lets the same build load in later DuckDB
   releases that still serve C API v1, on the same platform (one build per platform: `linux_amd64`,

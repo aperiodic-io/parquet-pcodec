@@ -1,5 +1,5 @@
 /* Links the static library from plain C and round-trips a page: `make -C rust/capi c-test`. */
-#include "pparquet.h"
+#include "tparquet.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

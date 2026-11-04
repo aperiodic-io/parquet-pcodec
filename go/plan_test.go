@@ -1,4 +1,4 @@
-package pparquet_test
+package tparquet_test
 
 import (
 	"bytes"
@@ -13,15 +13,15 @@ import (
 	"github.com/apache/arrow-go/v18/parquet/compress"
 	"github.com/apache/arrow-go/v18/parquet/pqarrow"
 
-	pparquet "github.com/aperiodic-io/pparquet/go"
+	tparquet "github.com/aperiodic-io/tparquet/go"
 )
 
 func TestColumnProperties(t *testing.T) {
-	props := parquet.NewWriterProperties(pparquet.ColumnProperties("a.b", parquet.Types.Double, 5)...)
-	if props.CompressionFor("a.b") != pparquet.Compression {
+	props := parquet.NewWriterProperties(tparquet.ColumnProperties("a.b", parquet.Types.Double, 5)...)
+	if props.CompressionFor("a.b") != tparquet.Compression {
 		t.Error("codec")
 	}
-	if props.CompressionLevelFor("a.b") != pparquet.Level(parquet.Types.Double, 5) {
+	if props.CompressionLevelFor("a.b") != tparquet.Level(parquet.Types.Double, 5) {
 		t.Error("level")
 	}
 	if props.EncodingFor("a.b") != parquet.Encodings.Plain {
@@ -48,16 +48,16 @@ var mixedSchema = arrow.NewSchema([]arrow.Field{
 
 var eligibleLeaves = []string{"ts", "price", "s.qty", "l.list.element"}
 
-func newPlan(t *testing.T, sc *arrow.Schema, sample arrow.RecordBatch, opts ...pparquet.Option) *pparquet.Plan {
+func newPlan(t *testing.T, sc *arrow.Schema, sample arrow.RecordBatch, opts ...tparquet.Option) *tparquet.Plan {
 	t.Helper()
-	p, err := pparquet.NewPlan(sc, sample, opts...)
+	p, err := tparquet.NewPlan(sc, sample, opts...)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return p
 }
 
-func wantCodecs(t *testing.T, p *pparquet.Plan, want map[string]compress.Compression) {
+func wantCodecs(t *testing.T, p *tparquet.Plan, want map[string]compress.Compression) {
 	t.Helper()
 	for path, c := range want {
 		got, ok := p.Codec(path)
@@ -68,10 +68,10 @@ func wantCodecs(t *testing.T, p *pparquet.Plan, want map[string]compress.Compres
 }
 
 func TestPlanPcodecPolicy(t *testing.T) {
-	p := newPlan(t, mixedSchema, nil, pparquet.WithDefaultPolicy(pparquet.Pcodec))
+	p := newPlan(t, mixedSchema, nil, tparquet.WithDefaultPolicy(tparquet.Pcodec))
 	zstd := compress.Codecs.Zstd
-	wantCodecs(t, p, map[string]compress.Compression{"ts": pparquet.Compression, "price": pparquet.Compression,
-		"s.qty": pparquet.Compression, "l.list.element": pparquet.Compression, "name": zstd, "flag": zstd})
+	wantCodecs(t, p, map[string]compress.Compression{"ts": tparquet.Compression, "price": tparquet.Compression,
+		"s.qty": tparquet.Compression, "l.list.element": tparquet.Compression, "name": zstd, "flag": zstd})
 	if got := strings.Join(p.PcodecColumns(), ","); got != strings.Join(eligibleLeaves, ",") {
 		t.Errorf("PcodecColumns = %s", got)
 	}
@@ -89,7 +89,7 @@ func TestPlanPcodecPolicy(t *testing.T) {
 	types := map[string]parquet.Type{"ts": parquet.Types.Int64, "price": parquet.Types.Double,
 		"s.qty": parquet.Types.Int32, "l.list.element": parquet.Types.Float}
 	for path, typ := range types {
-		if props.CompressionFor(path) != pparquet.Compression || props.CompressionLevelFor(path) != pparquet.Level(typ, -1) ||
+		if props.CompressionFor(path) != tparquet.Compression || props.CompressionLevelFor(path) != tparquet.Level(typ, -1) ||
 			props.DictionaryEnabledFor(path) || props.EncodingFor(path) != parquet.Encodings.Plain {
 			t.Errorf("%s: properties %v level %#x", path, props.CompressionFor(path), props.CompressionLevelFor(path))
 		}
@@ -103,23 +103,23 @@ func TestPlanPcodecPolicy(t *testing.T) {
 
 func TestPlanBasePolicyAndOptions(t *testing.T) {
 	p := newPlan(t, mixedSchema, nil,
-		pparquet.WithDefaultPolicy(pparquet.Base),
-		pparquet.WithPolicy("price", pparquet.Pcodec),
-		pparquet.WithPolicy("name", pparquet.Pcodec), // forcing PCODEC on any column is allowed
-		pparquet.WithBaseCodec(compress.Codecs.Snappy, 7),
-		pparquet.WithPcodecLevel(4),
-		pparquet.WithWriterProperties(parquet.WithMaxRowGroupLength(77)))
+		tparquet.WithDefaultPolicy(tparquet.Base),
+		tparquet.WithPolicy("price", tparquet.Pcodec),
+		tparquet.WithPolicy("name", tparquet.Pcodec), // forcing PCODEC on any column is allowed
+		tparquet.WithBaseCodec(compress.Codecs.Snappy, 7),
+		tparquet.WithPcodecLevel(4),
+		tparquet.WithWriterProperties(parquet.WithMaxRowGroupLength(77)))
 	snappy := compress.Codecs.Snappy
-	wantCodecs(t, p, map[string]compress.Compression{"ts": snappy, "price": pparquet.Compression,
-		"name": pparquet.Compression, "s.qty": snappy, "l.list.element": snappy, "flag": snappy})
+	wantCodecs(t, p, map[string]compress.Compression{"ts": snappy, "price": tparquet.Compression,
+		"name": tparquet.Compression, "s.qty": snappy, "l.list.element": snappy, "flag": snappy})
 	props := parquet.NewWriterProperties(p.Properties()...)
 	if props.CompressionFor("ts") != snappy || props.CompressionLevelFor("ts") != 7 {
 		t.Error("base codec")
 	}
-	if props.CompressionLevelFor("price") != pparquet.Level(parquet.Types.Double, 4) {
+	if props.CompressionLevelFor("price") != tparquet.Level(parquet.Types.Double, 4) {
 		t.Error("pcodec level")
 	}
-	if props.CompressionLevelFor("name") != pparquet.Level(parquet.Types.ByteArray, 4) {
+	if props.CompressionLevelFor("name") != tparquet.Level(parquet.Types.ByteArray, 4) {
 		t.Error("the hint of a forced column is its physical type")
 	}
 	if props.MaxRowGroupLength() != 77 {
@@ -128,7 +128,7 @@ func TestPlanBasePolicyAndOptions(t *testing.T) {
 }
 
 func TestPlanWithoutPcodecKeepsV1(t *testing.T) {
-	p := newPlan(t, mixedSchema, nil, pparquet.WithDefaultPolicy(pparquet.Base))
+	p := newPlan(t, mixedSchema, nil, tparquet.WithDefaultPolicy(tparquet.Base))
 	if p.UsesPcodec() || len(p.PcodecColumns()) != 0 {
 		t.Fatal("no column should use PCODEC")
 	}
@@ -146,17 +146,17 @@ func TestPlanAutoWithoutSampleIsBase(t *testing.T) {
 
 func TestPlanUsesStoreDecimalAsInteger(t *testing.T) {
 	sc := arrow.NewSchema([]arrow.Field{{Name: "d", Type: &arrow.Decimal128Type{Precision: 9, Scale: 2}}}, nil)
-	p := newPlan(t, sc, nil, pparquet.WithDefaultPolicy(pparquet.Pcodec))
+	p := newPlan(t, sc, nil, tparquet.WithDefaultPolicy(tparquet.Pcodec))
 	if p.UsesPcodec() {
 		t.Fatal("a decimal stored as FIXED_LEN_BYTE_ARRAY is not eligible")
 	}
-	p = newPlan(t, sc, nil, pparquet.WithDefaultPolicy(pparquet.Pcodec),
-		pparquet.WithWriterProperties(parquet.WithStoreDecimalAsInteger(true)))
+	p = newPlan(t, sc, nil, tparquet.WithDefaultPolicy(tparquet.Pcodec),
+		tparquet.WithWriterProperties(parquet.WithStoreDecimalAsInteger(true)))
 	if !p.UsesPcodec() {
 		t.Fatal("a decimal stored as INT32 is eligible")
 	}
 	props := parquet.NewWriterProperties(p.Properties()...)
-	if props.CompressionLevelFor("d") != pparquet.Level(parquet.Types.Int32, -1) {
+	if props.CompressionLevelFor("d") != tparquet.Level(parquet.Types.Int32, -1) {
 		t.Fatal("hint")
 	}
 }
@@ -168,20 +168,20 @@ func TestPlanErrors(t *testing.T) {
 	cases := []struct {
 		name   string
 		sample arrow.RecordBatch
-		opts   []pparquet.Option
+		opts   []tparquet.Option
 		msg    string
 	}{
-		{"unknown column", nil, []pparquet.Option{pparquet.WithPolicy("pricee", pparquet.Pcodec)}, `pcodec: no leaf column "pricee"`},
-		{"bad column policy", nil, []pparquet.Option{pparquet.WithPolicy("ts", pparquet.Policy(3))}, "pcodec: invalid policy 3"},
-		{"negative policy", nil, []pparquet.Option{pparquet.WithDefaultPolicy(pparquet.Policy(-1))}, "pcodec: invalid policy -1"},
-		{"bad default policy", nil, []pparquet.Option{pparquet.WithDefaultPolicy(pparquet.Policy(3))}, "pcodec: invalid policy 3"},
-		{"level too high", nil, []pparquet.Option{pparquet.WithPcodecLevel(13)}, "pcodec: pcodec level 13 is not in 0..12"},
-		{"level too low", nil, []pparquet.Option{pparquet.WithPcodecLevel(-2)}, "pcodec: pcodec level -2 is not in 0..12"},
+		{"unknown column", nil, []tparquet.Option{tparquet.WithPolicy("pricee", tparquet.Pcodec)}, `pcodec: no leaf column "pricee"`},
+		{"bad column policy", nil, []tparquet.Option{tparquet.WithPolicy("ts", tparquet.Policy(3))}, "pcodec: invalid policy 3"},
+		{"negative policy", nil, []tparquet.Option{tparquet.WithDefaultPolicy(tparquet.Policy(-1))}, "pcodec: invalid policy -1"},
+		{"bad default policy", nil, []tparquet.Option{tparquet.WithDefaultPolicy(tparquet.Policy(3))}, "pcodec: invalid policy 3"},
+		{"level too high", nil, []tparquet.Option{tparquet.WithPcodecLevel(13)}, "pcodec: pcodec level 13 is not in 0..12"},
+		{"level too low", nil, []tparquet.Option{tparquet.WithPcodecLevel(-2)}, "pcodec: pcodec level -2 is not in 0..12"},
 		{"sample schema", rec, nil, "pcodec: the sample's schema differs from the file's"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := pparquet.NewPlan(mixedSchema, tc.sample, tc.opts...)
+			_, err := tparquet.NewPlan(mixedSchema, tc.sample, tc.opts...)
 			if err == nil || err.Error() != tc.msg {
 				t.Fatalf("err = %v, want %q", err, tc.msg)
 			}
@@ -189,12 +189,12 @@ func TestPlanErrors(t *testing.T) {
 	}
 	// pqarrow's own schema errors are passed on.
 	bad := arrow.NewSchema([]arrow.Field{{Name: "u", Type: arrow.DenseUnionOf(nil, nil)}}, nil)
-	if _, err := pparquet.NewPlan(bad, nil); err == nil {
+	if _, err := tparquet.NewPlan(bad, nil); err == nil {
 		t.Fatal("a union column should be refused")
 	}
 	// Levels 0 and 12 are valid.
 	for _, l := range []int{0, 12, -1} {
-		if _, err := pparquet.NewPlan(mixedSchema, nil, pparquet.WithPcodecLevel(l)); err != nil {
+		if _, err := tparquet.NewPlan(mixedSchema, nil, tparquet.WithPcodecLevel(l)); err != nil {
 			t.Fatalf("level %d: %v", l, err)
 		}
 	}
@@ -229,19 +229,19 @@ func TestPlanAutoPicksTheSmallerCodec(t *testing.T) {
 	rec := autoRecord(20000)
 	defer rec.Release()
 	p := newPlan(t, rec.Schema(), rec)
-	wantCodecs(t, p, map[string]compress.Compression{"ts": pparquet.Compression,
+	wantCodecs(t, p, map[string]compress.Compression{"ts": tparquet.Compression,
 		"cycle": compress.Codecs.Zstd, "name": compress.Codecs.Zstd})
 	// A forced policy wins over the trial.
-	p = newPlan(t, rec.Schema(), rec, pparquet.WithPolicy("ts", pparquet.Base), pparquet.WithPolicy("cycle", pparquet.Pcodec))
-	wantCodecs(t, p, map[string]compress.Compression{"ts": compress.Codecs.Zstd, "cycle": pparquet.Compression})
+	p = newPlan(t, rec.Schema(), rec, tparquet.WithPolicy("ts", tparquet.Base), tparquet.WithPolicy("cycle", tparquet.Pcodec))
+	wantCodecs(t, p, map[string]compress.Compression{"ts": compress.Codecs.Zstd, "cycle": tparquet.Compression})
 }
 
 func TestPlanAutoComparesWholeColumnChunks(t *testing.T) {
 	// With small row groups the sample is several row groups; the trial sums them.
 	rec := autoRecord(20000)
 	defer rec.Release()
-	p := newPlan(t, rec.Schema(), rec, pparquet.WithWriterProperties(parquet.WithMaxRowGroupLength(3000)))
-	wantCodecs(t, p, map[string]compress.Compression{"ts": pparquet.Compression, "cycle": compress.Codecs.Zstd})
+	p := newPlan(t, rec.Schema(), rec, tparquet.WithWriterProperties(parquet.WithMaxRowGroupLength(3000)))
+	wantCodecs(t, p, map[string]compress.Compression{"ts": tparquet.Compression, "cycle": compress.Codecs.Zstd})
 }
 
 func TestPlanAutoEmptySampleIsBase(t *testing.T) {
@@ -264,7 +264,7 @@ func TestPlanArrowWriterProperties(t *testing.T) {
 	b.Field(0).(*array.TimestampBuilder).Append(arrow.Timestamp(1))
 	rec := b.NewRecordBatch()
 	defer rec.Release()
-	_, err := pparquet.NewPlan(sc, rec, pparquet.WithArrowWriterProperties(
+	_, err := tparquet.NewPlan(sc, rec, tparquet.WithArrowWriterProperties(
 		pqarrow.NewArrowWriterProperties(pqarrow.WithCoerceTimestamps(arrow.Millisecond))))
 	if err == nil {
 		t.Fatal("the trial should use the arrow writer properties and fail on lossy coercion")
@@ -302,10 +302,10 @@ func v2Penalty(n int) arrow.RecordBatch {
 	return b.NewRecordBatch()
 }
 
-func writeFile(t *testing.T, rec arrow.RecordBatch, opts ...pparquet.Option) []byte {
+func writeFile(t *testing.T, rec arrow.RecordBatch, opts ...tparquet.Option) []byte {
 	t.Helper()
 	var buf bytes.Buffer
-	w, err := pparquet.NewFileWriter(rec.Schema(), &buf, opts...)
+	w, err := tparquet.NewFileWriter(rec.Schema(), &buf, opts...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -340,8 +340,8 @@ func TestPlanAutoCountsTheCostOfV2Pages(t *testing.T) {
 	rec := v2Penalty(4000)
 	defer rec.Release()
 	auto := writeFile(t, rec)
-	base := writeFile(t, rec, pparquet.WithDefaultPolicy(pparquet.Base))
-	pcoT := writeFile(t, rec, pparquet.WithDefaultPolicy(pparquet.Base), pparquet.WithPolicy("t", pparquet.Pcodec))
+	base := writeFile(t, rec, tparquet.WithDefaultPolicy(tparquet.Base))
+	pcoT := writeFile(t, rec, tparquet.WithDefaultPolicy(tparquet.Base), tparquet.WithPolicy("t", tparquet.Pcodec))
 	// the premise: PCODEC alone is smaller on t, but makes the whole file larger (V2 pages)
 	if chunkSize(t, pcoT, "t") >= chunkSize(t, base, "t") {
 		t.Fatalf("t: PCODEC %d bytes, base %d", chunkSize(t, pcoT, "t"), chunkSize(t, base, "t"))
@@ -365,7 +365,7 @@ func TestPlanAutoKeepsPcodecWhenTheWholeFileIsSmaller(t *testing.T) {
 	rec := autoRecord(20000)
 	defer rec.Release()
 	auto := writeFile(t, rec)
-	base := writeFile(t, rec, pparquet.WithDefaultPolicy(pparquet.Base))
+	base := writeFile(t, rec, tparquet.WithDefaultPolicy(tparquet.Base))
 	if got := columnCodecs(t, fileMetadata(t, auto))["ts"]; got != "PCODEC" {
 		t.Fatalf("ts: %s, want PCODEC", got)
 	}

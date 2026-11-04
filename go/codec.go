@@ -1,4 +1,4 @@
-package pparquet
+package tparquet
 
 import (
 	"fmt"

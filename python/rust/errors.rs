@@ -73,15 +73,15 @@ impl Pending {
     }
 }
 
-/// A `pparquet` error as a `PcodecError` (or the `OSError` it wraps).
-pub fn from_pcodec(e: pparquet::Error) -> PyErr {
+/// A `tparquet` error as a `PcodecError` (or the `OSError` it wraps).
+pub fn from_pcodec(e: tparquet::Error) -> PyErr {
     match e {
-        pparquet::Error::Io(io) => PyOSError::new_err(io.to_string()),
+        tparquet::Error::Io(io) => PyOSError::new_err(io.to_string()),
         e => invalid(e.to_string()),
     }
 }
 
-pub fn from_parquet(e: pparquet::parquet::errors::ParquetError) -> PyErr {
+pub fn from_parquet(e: tparquet::parquet::errors::ParquetError) -> PyErr {
     invalid(format!("parquet: {e}"))
 }
 
@@ -103,7 +103,7 @@ pub fn panic_for_tests(py: Python<'_>, message: Option<String>) -> PyResult<()> 
 }
 
 /// A stream whose reader panics on its first batch, for the same tests.
-#[pyclass(frozen, module = "pparquet._lib")]
+#[pyclass(frozen, module = "tparquet._lib")]
 pub struct PanickingStream;
 
 struct Panics(arrow_schema::SchemaRef);

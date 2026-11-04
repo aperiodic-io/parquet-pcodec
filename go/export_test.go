@@ -1,4 +1,4 @@
-package pparquet
+package tparquet
 
 // LinkedCodecID is the codec id the linked library reports.
 func LinkedCodecID() int32 { return linkedCodecID() }

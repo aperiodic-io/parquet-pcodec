@@ -8,5 +8,5 @@ fuzz_target!(|data: &[u8]| {
     }
     // first two bytes: expected size (bounded, as a page header bounds it)
     let expected = usize::from(u16::from_le_bytes([data[0], data[1]]));
-    let _ = pparquet_core::decompress(&data[2..], expected);
+    let _ = tparquet_core::decompress(&data[2..], expected);
 });

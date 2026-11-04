@@ -49,7 +49,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Build the C ABI static library
         working-directory: .
-        run: cargo build --release --locked -p pparquet-capi
+        run: cargo build --release --locked -p tparquet-capi
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version-file: go/go.mod
@@ -62,14 +62,14 @@ jobs:
         run: go test -race ./...
       - name: Conformance on the Go-produced vectors
         run: |
-          go run ./cmd/pparquet-go-gen "$RUNNER_TEMP/vectors"
-          PPARQUET_TESTDATA="$RUNNER_TEMP/vectors" go test -run '^TestConformanceVectors$' -v .
+          go run ./cmd/tparquet-go-gen "$RUNNER_TEMP/vectors"
+          TPARQUET_TESTDATA="$RUNNER_TEMP/vectors" go test -run '^TestConformanceVectors$' -v .
       - name: Fuzz (30 s per target)
         run: |
           go test -run '^$' -fuzz '^FuzzDecode$' -fuzztime 30s .
           go test -run '^$' -fuzz '^FuzzRoundTrip$' -fuzztime 30s .
-      - name: Build without the repository layout (pparquet_external)
-        run: CGO_LDFLAGS="$GITHUB_WORKSPACE/target/release/libpparquet_capi.a" go test -tags pparquet_external -run '^TestCompressionValue$' .
+      - name: Build without the repository layout (tparquet_external)
+        run: CGO_LDFLAGS="$GITHUB_WORKSPACE/target/release/libtparquet_capi.a" go test -tags tparquet_external -run '^TestCompressionValue$' .
 
   mutation:
     if: github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
@@ -86,16 +86,16 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Build the C ABI static library
         working-directory: .
-        run: cargo build --release --locked -p pparquet-capi
+        run: cargo build --release --locked -p tparquet-capi
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version-file: go/go.mod
           cache-dependency-path: go/go.sum
       - name: gremlins (every viable mutant killed; config in go/.gremlins.yaml)
         # gremlins tests a copy of the module, so the library is linked by absolute path
-        # (pparquet_external tag, set in .gremlins.yaml). -count=1: the timeouts come from an
+        # (tparquet_external tag, set in .gremlins.yaml). -count=1: the timeouts come from an
         # uncached coverage run.
         env:
-          CGO_LDFLAGS: ${{ github.workspace }}/target/release/libpparquet_capi.a
+          CGO_LDFLAGS: ${{ github.workspace }}/target/release/libtparquet_capi.a
           GOFLAGS: -count=1
         run: go run github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0 unleash .

@@ -1,10 +1,10 @@
-//! C ABI over `pparquet-core`; the contract is `include/pparquet.h`.
+//! C ABI over `tparquet-core`; the contract is `include/tparquet.h`.
 #![allow(clippy::missing_safety_doc)] // the header documents the contract
 
-use pparquet_core::{self as core, Error, Options, PhysicalType};
 use std::cell::RefCell;
 use std::ffi::c_char;
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use tparquet_core::{self as core, Error, Options, PhysicalType};
 
 pub const PCP_OK: i32 = 0;
 pub const PCP_ERR_ARGUMENT: i32 = 1;
@@ -32,7 +32,7 @@ fn guarded(f: impl FnOnce() -> Result<(), (i32, String)>) -> i32 {
             code
         }
         Err(_) => {
-            set_error("internal panic in pparquet".into());
+            set_error("internal panic in tparquet".into());
             PCP_ERR_PANIC
         }
     }

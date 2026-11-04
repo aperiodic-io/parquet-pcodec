@@ -1,14 +1,14 @@
 """Cross-language acceptance: vectors written by one implementation, read by the others.
 
 A vector directory holds `files/<name>.parquet` and `expected/<name>.jsonl`, the canonical
-rows of `testdata/README.md`. Rust (`testdata/`, `gen-testdata`) and Go (`pparquet-go-gen`)
+rows of `testdata/README.md`. Rust (`testdata/`, `gen-testdata`) and Go (`tparquet-go-gen`)
 write their own; this script writes the Python and DuckDB ones and holds the Python and
 DuckDB readers. `run.sh` puts them together.
 
     vectors.py write-python OUT SRC...       transcode every SRC/files/*.parquet to PCODEC
-    vectors.py write-duckdb EXT OUT SRC...   rewrite every SRC vector with COPY (FORMAT pparquet)
-    vectors.py check-python DIR              read DIR with pparquet
-    vectors.py check-duckdb EXT DIR          read DIR with read_pparquet
+    vectors.py write-duckdb EXT OUT SRC...   rewrite every SRC vector with COPY (FORMAT tparquet)
+    vectors.py check-python DIR              read DIR with tparquet
+    vectors.py check-duckdb EXT DIR          read DIR with read_tparquet
 
 Every check prints `<n> vectors match`, or names the first differing line and exits 1.
 """
@@ -67,8 +67,8 @@ def joined(lines: Iterator[str]) -> str:
 
 
 def python_reader() -> Callable[[pathlib.Path], str]:
-    import pparquet as ppc
-    from pparquet import canonical
+    import tparquet as ppc
+    from tparquet import canonical
 
     return lambda f: joined(canonical.lines(ppc.read_table(f)))
 
@@ -83,7 +83,7 @@ def duckdb_connect(extension: str):
 
 def scan(path: pathlib.Path) -> str:
     return (
-        f"SELECT * EXCLUDE (file_row_number) FROM read_pparquet('{path}', file_row_number := true) "
+        f"SELECT * EXCLUDE (file_row_number) FROM read_tparquet('{path}', file_row_number := true) "
         "ORDER BY file_row_number"
     )
 
@@ -105,7 +105,7 @@ def fresh(out: pathlib.Path) -> None:
 def write_python(out: pathlib.Path, sources: list[pathlib.Path]) -> int:
     """Every vector transcoded by the Python package with the Pcodec policy; the rows stay
     those of the source, so its expected rows are copied."""
-    import pparquet as ppc
+    import tparquet as ppc
 
     fresh(out)
     n = 0
@@ -121,7 +121,7 @@ def write_duckdb(extension: str, out: pathlib.Path, sources: list[pathlib.Path])
     """Every vector read and written back by the extension. The expected rows are those of
     the same query written by DuckDB's built-in Parquet writer, read by pyarrow: no PCODEC
     code is involved in them."""
-    from pparquet import canonical
+    from tparquet import canonical
 
     con = duckdb_connect(extension)
     fresh(out)
@@ -135,7 +135,7 @@ def write_duckdb(extension: str, out: pathlib.Path, sources: list[pathlib.Path])
                 cols = ", ".join("'" + c.replace("'", "''") + "'" for c in con.sql(q).columns)
                 con.execute(
                     f"COPY ({q}) TO '{out / 'files' / f'{name}.parquet'}' "
-                    f"(FORMAT pparquet, COLUMN_NAMES [{cols}])"
+                    f"(FORMAT tparquet, COLUMN_NAMES [{cols}])"
                 )
                 standard = pathlib.Path(tmp) / f"{name}.parquet"
                 con.execute(f"COPY ({q}) TO '{standard}' (FORMAT parquet)")

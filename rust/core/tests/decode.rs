@@ -3,7 +3,7 @@
 
 use pco::ChunkConfig;
 use pco::standalone::simple_compress;
-use pparquet_core::{Error, Mode, PhysicalType, decompress, decompress_into, mode_of};
+use tparquet_core::{Error, Mode, PhysicalType, decompress, decompress_into, mode_of};
 
 fn pco_i64(v: &[i64]) -> Vec<u8> {
     simple_compress(v, &ChunkConfig::default()).unwrap()
@@ -224,7 +224,7 @@ fn errors_display_and_types_map() {
         [PhysicalType::Int32, PhysicalType::Int64, PhysicalType::Float, PhysicalType::Double].map(|t| t as u8),
         [1, 2, 4, 5]
     );
-    assert_eq!(pparquet_core::CODEC_ID, 20547);
-    assert_eq!(pparquet_core::KV_KEY, "parquet.pcodec.version");
-    assert_eq!(pparquet_core::KV_VALUE, "1");
+    assert_eq!(tparquet_core::CODEC_ID, 20547);
+    assert_eq!(tparquet_core::KV_KEY, "parquet.pcodec.version");
+    assert_eq!(tparquet_core::KV_VALUE, "1");
 }

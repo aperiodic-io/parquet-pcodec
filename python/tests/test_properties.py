@@ -11,8 +11,8 @@ import pyarrow.compute as pc
 from hypothesis import given
 from hypothesis import strategies as st
 
-import pparquet as ppc
-from pparquet import canonical
+import tparquet as ppc
+from tparquet import canonical
 
 
 def ints(bits: int, signed: bool = True) -> st.SearchStrategy[int]:
@@ -150,14 +150,14 @@ def test_streamed_batches_round_trip(table: pa.Table, level: int, chunk: int) ->
 
 @given(data=st.binary(max_size=2000), hint=st.sampled_from([None, "INT32", "INT64", "FLOAT", "DOUBLE"]))
 def test_payloads_round_trip(data: bytes, hint: Any) -> None:
-    from pparquet import codec
+    from tparquet import codec
 
     assert codec.decompress(codec.compress(data, hint=hint), len(data)) == data
 
 
 @given(payload=st.binary(max_size=300), expected=st.integers(0, 5000))
 def test_garbage_payloads_raise_cleanly(payload: bytes, expected: int) -> None:
-    from pparquet import codec
+    from tparquet import codec
 
     try:
         out = codec.decompress(payload, expected)

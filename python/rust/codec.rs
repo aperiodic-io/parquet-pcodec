@@ -1,10 +1,10 @@
-//! The PCODEC page payload on its own (spec section 4), over `pparquet-core`.
+//! The PCODEC page payload on its own (spec section 4), over `tparquet-core`.
 
 use crate::errors::{detached, invalid};
-use pparquet_core::{Mode, Options, PhysicalType};
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
 use pyo3::types::PyBytes;
+use tparquet_core::{Mode, Options, PhysicalType};
 
 fn hint(name: &str) -> PyResult<PhysicalType> {
     match name {
@@ -27,7 +27,7 @@ pub fn compress<'py>(
 ) -> PyResult<Bound<'py, PyBytes>> {
     let level = u8::try_from(level).map_err(|_| invalid(format!("compression level {level} is not in 0..=12")))?;
     let opts = Options { level, hint: hint.map(self::hint).transpose()?, ..Options::default() };
-    let payload = detached(py, || pparquet_core::compress(&data, &opts).map_err(|e| invalid(e.to_string())))?;
+    let payload = detached(py, || tparquet_core::compress(&data, &opts).map_err(|e| invalid(e.to_string())))?;
     Ok(PyBytes::new(py, &payload))
 }
 
@@ -36,14 +36,14 @@ pub fn compress<'py>(
 pub fn decompress<'py>(py: Python<'py>, payload: PyBackedBytes, expected_len: i64) -> PyResult<Bound<'py, PyBytes>> {
     let n = usize::try_from(expected_len)
         .map_err(|_| invalid(format!("expected_len must not be negative, got {expected_len}")))?;
-    let data = detached(py, || pparquet_core::decompress(&payload, n).map_err(|e| invalid(e.to_string())))?;
+    let data = detached(py, || tparquet_core::decompress(&payload, n).map_err(|e| invalid(e.to_string())))?;
     Ok(PyBytes::new(py, &data))
 }
 
 /// The mode of a payload: `RAW`, `PCO`, `DECIMAL` or `ZSTD`.
 #[pyfunction]
 pub fn mode(payload: &[u8]) -> PyResult<&'static str> {
-    match pparquet_core::mode_of(payload).map_err(|e| invalid(e.to_string()))? {
+    match tparquet_core::mode_of(payload).map_err(|e| invalid(e.to_string()))? {
         Mode::Raw => Ok("RAW"),
         Mode::Pco => Ok("PCO"),
         Mode::Decimal => Ok("DECIMAL"),
@@ -56,8 +56,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(compress, m)?)?;
     m.add_function(wrap_pyfunction!(decompress, m)?)?;
     m.add_function(wrap_pyfunction!(mode, m)?)?;
-    m.add("CODEC_ID", pparquet_core::CODEC_ID)?;
-    m.add("FORMAT_VERSION", pparquet_core::FORMAT_VERSION)?;
-    m.add("KV_KEY", pparquet_core::KV_KEY)?;
+    m.add("CODEC_ID", tparquet_core::CODEC_ID)?;
+    m.add("FORMAT_VERSION", tparquet_core::FORMAT_VERSION)?;
+    m.add("KV_KEY", tparquet_core::KV_KEY)?;
     Ok(())
 }

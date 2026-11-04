@@ -22,8 +22,8 @@ intended change, which must also be listed below.
 
 | File | Item | Change | Why |
 |---|---|---|---|
-| `Cargo.toml` | `[features]` | new feature `pcodec = ["dep:pparquet-core"]`, in `default` | the codec, default on like the other codecs |
-| `Cargo.toml` | `[dependencies]`, `[dev-dependencies]` | `pparquet-core = { path = "../core" }` (optional; and for tests) | the payload encoder and decoder; unit tests build every codec, as upstream does with `cfg(any(feature, test))` |
+| `Cargo.toml` | `[features]` | new feature `pcodec = ["dep:tparquet-core"]`, in `default` | the codec, default on like the other codecs |
+| `Cargo.toml` | `[dependencies]`, `[dev-dependencies]` | `tparquet-core = { path = "../core" }` (optional; and for tests) | the payload encoder and decoder; unit tests build every codec, as upstream does with `cfg(any(feature, test))` |
 | `src/basic.rs` | `CompressionCodec` (thrift enum) | `PCODEC = 20547` | the codec id of spec section 2 |
 | `src/basic.rs` | `Compression` | variant `PCODEC(PcodecLevel)` | the writer-side codec choice |
 | `src/basic.rs` | `From<CompressionCodec> for Compression`, `From<Compression> for CompressionCodec` | `PCODEC` arms | conversion to and from the footer |
@@ -31,7 +31,7 @@ intended change, which must also be listed below.
 | `src/basic.rs` | `pub use crate::compression::…` | adds `PcodecLevel` | public like `ZstdLevel` (the `compression` module is private unless `experimental`) |
 | `src/compression.rs` | `CodecOptions`, `CodecOptionsBuilder` (struct, `Default`, `build`) | field `physical_type: Option<Type>`, setter `CodecOptionsBuilder::set_physical_type` | the PCODEC type hint; other codecs ignore it |
 | `src/compression.rs` | `create_codec` | `PCODEC` arm; `pcodec` added to the `cfg_attr` feature lists of its lint expectations | creates `PcodecCodec` |
-| `src/compression.rs` | new `mod pcodec_codec`: `PcodecCodec::{new, compress, decompress}` | the codec over `pparquet_core`; `decompress` without `uncompress_size` is an error | PCODEC needs the expected size (spec section 3) |
+| `src/compression.rs` | new `mod pcodec_codec`: `PcodecCodec::{new, compress, decompress}` | the codec over `tparquet_core`; `decompress` without `uncompress_size` is an error | PCODEC needs the expected size (spec section 3) |
 | `src/compression.rs` | new `PcodecLevel` (`CompressionLevel`, `try_new`, `compression_level`, `Default`) | levels 0..=12, default 8 | as `ZstdLevel` |
 | `src/column/writer/mod.rs` | `GenericColumnWriter::new` | `CodecOptionsBuilder::default().set_physical_type(descr.physical_type())` | data pages and dictionary pages get the type hint |
 | `src/file/writer.rs` | `SerializedFileWriter::write_metadata` | calls `with_pcodec_version` on the key-value metadata | spec section 2 |

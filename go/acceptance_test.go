@@ -1,4 +1,4 @@
-package pparquet_test
+package tparquet_test
 
 import (
 	"bytes"
@@ -12,7 +12,7 @@ import (
 	"github.com/apache/arrow-go/v18/parquet/compress"
 	"github.com/apache/arrow-go/v18/parquet/pqarrow"
 
-	pparquet "github.com/aperiodic-io/pparquet/go"
+	tparquet "github.com/aperiodic-io/tparquet/go"
 )
 
 // marketTrades is deterministic synthetic trade data: millisecond timestamps arriving in
@@ -72,7 +72,7 @@ func TestAcceptanceAutoBeatsZstd9OnMarketData(t *testing.T) {
 	}
 
 	var auto bytes.Buffer
-	pw, err := pparquet.NewFileWriter(rec.Schema(), &auto)
+	pw, err := tparquet.NewFileWriter(rec.Schema(), &auto)
 	if err != nil {
 		t.Fatal(err)
 	}

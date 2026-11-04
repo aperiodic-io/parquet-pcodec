@@ -1,7 +1,7 @@
 //! Property tests: lossless on any bytes with any hint and level; the decoder never panics.
 
-use pparquet_core::{Options, PhysicalType, compress, decompress};
 use proptest::prelude::*;
+use tparquet_core::{Options, PhysicalType, compress, decompress};
 
 fn any_hint() -> impl Strategy<Value = Option<PhysicalType>> {
     prop_oneof![

@@ -3,7 +3,7 @@ requires = ["maturin>=1.9,<2"]
 build-backend = "maturin"
 
 [project]
-name = "pparquet"
+name = "tparquet"
 description = "pcodec as a Parquet compression codec: read and write PCODEC Parquet files from Python, pandas, Polars and DuckDB"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -26,7 +26,7 @@ polars = ["polars>=1.20"]
 duckdb = ["duckdb>=1.1"]
 
 [project.urls]
-Repository = "https://github.com/aperiodic-io/pparquet"
+Repository = "https://github.com/aperiodic-io/tparquet"
 
 [dependency-groups]
 dev = [
@@ -53,7 +53,7 @@ package = false
 
 [tool.maturin]
 python-source = "src"
-module-name = "pparquet._lib"
+module-name = "tparquet._lib"
 
 [tool.ruff]
 line-length = 120
@@ -74,7 +74,7 @@ ignore = [
 "tests/*" = ["TC", "E501"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["pparquet", "conftest"]
+known-first-party = ["tparquet", "conftest"]
 
 [tool.mypy]
 strict = true
@@ -96,10 +96,10 @@ markers = [
 filterwarnings = ["error"]
 
 [tool.mutmut]
-# run from python/: `HYPOTHESIS_PROFILE=mutation PPARQUET_TESTDATA=$PWD/../testdata mutmut run`
+# run from python/: `HYPOTHESIS_PROFILE=mutation TPARQUET_TESTDATA=$PWD/../testdata mutmut run`
 # (the copy in mutants/ cannot find ../testdata by itself); the extension module is copied
 # with the sources, so build it first (maturin develop)
-source_paths = ["src/pparquet"]
+source_paths = ["src/tparquet"]
 pytest_add_cli_args = ["-m", "not slow", "-p", "no:cacheprovider"]
 pytest_add_cli_args_test_selection = ["tests/"]
 # Polars, DuckDB and the extension start thread pools: workers forked from the process that

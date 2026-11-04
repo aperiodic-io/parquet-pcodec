@@ -1,4 +1,4 @@
-//! `read_pparquet`: which files, which columns, and the batches they yield.
+//! `read_tparquet`: which files, which columns, and the batches they yield.
 //!
 //! The DuckDB callbacks in [`crate::read`] only move values between DuckDB and this module, so
 //! everything here is tested without a database:
@@ -14,19 +14,19 @@ use arrow_array::{ArrayRef, new_null_array};
 use arrow_schema::{DataType, SchemaRef};
 use parquet::arrow::ProjectionMask;
 use parquet::arrow::arrow_reader::{ArrowReaderMetadata, ArrowReaderOptions, ParquetRecordBatchReaderBuilder};
-use pparquet::read::ParquetRecordBatchReader;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use tparquet::read::ParquetRecordBatchReader;
 
 /// The name of the table function.
-pub const FUNCTION: &str = "read_pparquet";
+pub const FUNCTION: &str = "read_tparquet";
 /// Name of the column `filename := true` adds.
 pub const FILENAME: &str = "filename";
 /// Name of the column `file_row_number := true` adds.
 pub const FILE_ROW_NUMBER: &str = "file_row_number";
 
-/// The named parameters of `read_pparquet`.
+/// The named parameters of `read_tparquet`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ReadOptions {
     /// Add a `filename` column.
@@ -422,7 +422,7 @@ mod tests {
     use arrow_array::{Array, Int32Array, Int64Array, RecordBatch, StringArray};
     use arrow_schema::{Field, Schema};
     use parquet::file::properties::WriterProperties;
-    use pparquet::{Policy, Writer, WriterOptions};
+    use tparquet::{Policy, Writer, WriterOptions};
 
     /// Writes `batch` with PCODEC to `dir/name`, `rows_per_group` rows per row group.
     fn write(dir: &Path, name: &str, batch: &RecordBatch, rows_per_group: usize) -> PathBuf {

@@ -1,5 +1,5 @@
 [package]
-name = "pparquet-core-fuzz"
+name = "tparquet-core-fuzz"
 version = "0.0.0"
 publish = false
 edition = "2024"
@@ -9,7 +9,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-pparquet-core = { path = ".." }
+tparquet-core = { path = ".." }
 
 # not part of the root workspace: built only with `cargo +nightly fuzz`
 [workspace]

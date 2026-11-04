@@ -1,14 +1,14 @@
-# Working on pparquet
+# Working on tparquet
 
 ## Layout
 
 | Path | What |
 |---|---|
 | `spec/FORMAT.md` | the file-format specification; the source of truth |
-| `rust/core` | `pparquet-core`: the codec payload (encode, decode), no Parquet dependency |
-| `rust/capi` | C ABI over the core (`include/pparquet.h`), linked by Go |
+| `rust/core` | `tparquet-core`: the codec payload (encode, decode), no Parquet dependency |
+| `rust/capi` | C ABI over the core (`include/tparquet.h`), linked by Go |
 | `rust/parquet` | fork of the arrow-rs `parquet` crate with the PCODEC codec; see `rust/parquet/FORK.md` |
-| `rust/pparquet` | high-level Rust API (auto selection, transcode) and the `pparquet` CLI |
+| `rust/tparquet` | high-level Rust API (auto selection, transcode) and the `tparquet` CLI |
 | `go/` | Go package: arrow-go codec plugin and writer helpers |
 | `python/` | Python package: pyarrow, pandas, Polars, DuckDB |
 | `duckdb/` | DuckDB loadable extension |

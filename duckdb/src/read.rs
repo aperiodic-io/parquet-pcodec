@@ -1,5 +1,5 @@
-//! The C API callbacks of `read_pparquet(path, filename := , file_row_number := ,
-//! union_by_name := )`, also used for `COPY table FROM 'file' (FORMAT pparquet)`.
+//! The C API callbacks of `read_tparquet(path, filename := , file_row_number := ,
+//! union_by_name := )`, also used for `COPY table FROM 'file' (FORMAT tparquet)`.
 //!
 //! - bind: reads the path argument and the options, binds the files ([`scan::Bound`]) and adds
 //!   the result columns; in a COPY FROM, DuckDB already set the columns of the target table and
@@ -170,7 +170,7 @@ unsafe extern "C" fn function(info: ffi::duckdb_function_info, output: ffi::duck
     }
 }
 
-/// A new `read_pparquet` table function (to register, or to attach to the COPY
+/// A new `read_tparquet` table function (to register, or to attach to the COPY
 /// function); the caller destroys it.
 pub fn table_function() -> Result<ffi::duckdb_table_function, String> {
     unsafe {
@@ -193,7 +193,7 @@ pub fn table_function() -> Result<ffi::duckdb_table_function, String> {
     }
 }
 
-/// Registers `read_pparquet` on `connection`.
+/// Registers `read_tparquet` on `connection`.
 ///
 /// # Safety
 /// `connection` is an open connection.

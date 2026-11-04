@@ -1,11 +1,11 @@
 //! Writer options from Python arguments.
 
 use crate::errors::{from_pcodec, invalid};
-use pparquet::parquet::basic::Compression;
-use pparquet::parquet::file::properties::WriterProperties;
-use pparquet::{ColumnCodec, Policy, WriterOptions};
 use pyo3::prelude::*;
 use std::collections::BTreeMap;
+use tparquet::parquet::basic::Compression;
+use tparquet::parquet::file::properties::WriterProperties;
+use tparquet::{ColumnCodec, Policy, WriterOptions};
 
 /// The keyword arguments `write_table`, `Writer` and `transcode` share.
 #[derive(FromPyObject)]

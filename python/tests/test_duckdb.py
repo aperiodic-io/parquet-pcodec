@@ -1,4 +1,4 @@
-"""pparquet.duckdb: PCODEC files queried from DuckDB-Python through the Arrow stream."""
+"""tparquet.duckdb: PCODEC files queried from DuckDB-Python through the Arrow stream."""
 
 from __future__ import annotations
 
@@ -13,9 +13,9 @@ import duckdb
 import pyarrow as pa
 import pytest
 
-import pparquet as ppc
-import pparquet.duckdb as pdd
-from conftest import PPARQUET_FILES, vector
+import tparquet as ppc
+import tparquet.duckdb as pdd
+from conftest import TPARQUET_FILES, vector
 
 
 @pytest.fixture
@@ -64,7 +64,7 @@ def test_same_rows_as_duckdb_reading_a_standard_copy(
     assert ours == theirs
 
 
-@pytest.mark.parametrize("name", PPARQUET_FILES)
+@pytest.mark.parametrize("name", TPARQUET_FILES)
 def test_conformance_files(con: duckdb.DuckDBPyConnection, name: str, tmp_path: pathlib.Path) -> None:
     # every vector reads in DuckDB as DuckDB reads its standard transcoding
     std = tmp_path / "std.parquet"
@@ -144,7 +144,7 @@ def test_works_without_pyarrow(trades: pathlib.Path) -> None:
         import sys
         sys.modules["pyarrow"] = None  # importing pyarrow now fails
         import duckdb
-        import pparquet.duckdb as pdd
+        import tparquet.duckdb as pdd
         con = duckdb.connect()
         pdd.register(con, "t", {str(trades)!r})
         print(con.sql("select count(*), min(size) from t").fetchall()[0])

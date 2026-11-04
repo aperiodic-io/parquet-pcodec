@@ -1,6 +1,6 @@
-# pparquet
+# tparquet
 
-[pcodec](https://github.com/pcodec/pcodec) as a Parquet compression codec (`CompressionCodec`
+**Parquet for time series.** [pcodec](https://github.com/pcodec/pcodec) as a Parquet compression codec (`CompressionCodec`
 20547), with readers and writers for Rust, Go, Python, pandas, Polars and DuckDB.
 
 Numeric columns (`INT32`, `INT64`, `FLOAT`, `DOUBLE`) are compressed with pcodec. Floats that are
@@ -10,7 +10,7 @@ files are 0.27–0.31× the size of pyarrow's ZSTD level 9, bit for bit lossless
 
 **A PCODEC file is not standard Parquet.** Readers without this codec refuse it with an error
 instead of returning wrong data. The acceptance tests check this for pyarrow, pandas, Polars,
-DuckDB's `read_parquet` and the upstream arrow-rs `parquet` crate. `pparquet decode` (or `transcode(..., target="standard")`) writes a standard copy.
+DuckDB's `read_parquet` and the upstream arrow-rs `parquet` crate. `tparquet decode` (or `transcode(..., target="standard")`) writes a standard copy.
 
 The format is specified in [`spec/FORMAT.md`](spec/FORMAT.md).
 
@@ -18,39 +18,39 @@ The format is specified in [`spec/FORMAT.md`](spec/FORMAT.md).
 
 | Where | Package | Notes |
 |---|---|---|
-| Rust | [`rust/pparquet`](rust/pparquet) | writer with automatic codec choice, `transcode`, `inspect`, `verify`, and the `pparquet` CLI |
+| Rust | [`rust/tparquet`](rust/tparquet) | writer with automatic codec choice, `transcode`, `inspect`, `verify`, and the `tparquet` CLI |
 | Rust, DataFusion, anything on arrow-rs | [`rust/parquet`](rust/parquet) | a small fork of the arrow-rs `parquet` crate 60.1.0 that adds the codec; changes listed in [`FORK.md`](rust/parquet/FORK.md). Use it with `[patch.crates-io] parquet = { path = ... }` |
 | Rust, no Parquet | [`rust/core`](rust/core) | the page payload codec alone |
-| C | [`rust/capi`](rust/capi) | C ABI over the core ([`pparquet.h`](rust/capi/include/pparquet.h)) |
+| C | [`rust/capi`](rust/capi) | C ABI over the core ([`tparquet.h`](rust/capi/include/tparquet.h)) |
 | Go | [`go/`](go) | arrow-go codec plugin (no fork: `compress.RegisterCodec`) and writer helpers |
-| Python, pandas, Polars | [`python/`](python) | pyo3 package: `read_table`, `write_table`, `Writer`; `pparquet.pandas`, `pparquet.polars` (`scan_parquet` with pushdown), `pparquet.duckdb` |
-| DuckDB | [`duckdb/`](duckdb) | loadable extension: `read_pparquet(...)`, `COPY ... (FORMAT pparquet)` |
+| Python, pandas, Polars | [`python/`](python) | pyo3 package: `read_table`, `write_table`, `Writer`; `tparquet.pandas`, `tparquet.polars` (`scan_parquet` with pushdown), `tparquet.duckdb` |
+| DuckDB | [`duckdb/`](duckdb) | loadable extension: `read_tparquet(...)`, `COPY ... (FORMAT tparquet)` |
 
 ## Quick start
 
 ```sh
-pparquet encode trades.parquet trades.pcodec.parquet       # standard -> PCODEC (Auto)
-pparquet inspect trades.pcodec.parquet                     # codecs, sizes, payload modes
-pparquet verify trades.parquet trades.pcodec.parquet       # same data, floats bit for bit
-pparquet decode trades.pcodec.parquet trades.standard.parquet
+tparquet encode trades.parquet trades.pcodec.parquet       # standard -> PCODEC (Auto)
+tparquet inspect trades.pcodec.parquet                     # codecs, sizes, payload modes
+tparquet verify trades.parquet trades.pcodec.parquet       # same data, floats bit for bit
+tparquet decode trades.pcodec.parquet trades.standard.parquet
 ```
 
 ```python
-import pparquet as ppc
+import tparquet as ppc
 
 ppc.write_table(table, "trades.parquet")          # {"price": "PCODEC", "sym": "ZSTD", ...}
 table = ppc.read_table("trades.parquet", columns=["ts", "price"])
 ```
 
 ```go
-import pparquet "github.com/aperiodic-io/pparquet/go" // reading: the import is enough
+import tparquet "github.com/aperiodic-io/tparquet/go" // reading: the import is enough
 
-w, err := pparquet.NewFileWriter(schema, out) // Auto, base codec ZSTD(3)
+w, err := tparquet.NewFileWriter(schema, out) // Auto, base codec ZSTD(3)
 ```
 
 ```sql
-LOAD 'pparquet.duckdb_extension';
-SELECT * FROM read_pparquet('trades/*.parquet');
+LOAD 'tparquet.duckdb_extension';
+SELECT * FROM read_tparquet('trades/*.parquet');
 ```
 
 Each package's README has the details: [Python](python/README.md), [Go](go/README.md),

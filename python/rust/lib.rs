@@ -1,4 +1,4 @@
-//! `pparquet._lib`: the extension module behind the `pparquet` Python package.
+//! `tparquet._lib`: the extension module behind the `tparquet` Python package.
 //!
 //! Data crosses the boundary only through the Arrow PyCapsule interface, so the module needs
 //! no Python Arrow library. The GIL is released while files are read, encoded and decoded.

@@ -19,7 +19,7 @@ settings.register_profile("mutation", max_examples=10, deadline=None, derandomiz
 settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "default"))
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
-TESTDATA = pathlib.Path(os.environ.get("PPARQUET_TESTDATA", REPO / "testdata"))
+TESTDATA = pathlib.Path(os.environ.get("TPARQUET_TESTDATA", REPO / "testdata"))
 
 
 def manifest() -> list[dict[str, Any]]:
@@ -33,7 +33,7 @@ def vector(name: str) -> pathlib.Path:
     return TESTDATA / "files" / f"{name}.parquet"
 
 
-PPARQUET_FILES = [f["name"] for f in manifest() if f["pcodec_version"] is not None]
+TPARQUET_FILES = [f["name"] for f in manifest() if f["pcodec_version"] is not None]
 
 
 @pytest.fixture

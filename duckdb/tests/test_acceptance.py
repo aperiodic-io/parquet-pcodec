@@ -13,10 +13,10 @@ import pytest
 from canonical import lines
 from conftest import FILES, extension_path
 
-PPARQUET_VECTORS = sorted(p.stem for p in FILES.glob("*.parquet") if p.stem != "standard_control")
+TPARQUET_VECTORS = sorted(p.stem for p in FILES.glob("*.parquet") if p.stem != "standard_control")
 
 
-@pytest.mark.parametrize("name", PPARQUET_VECTORS)
+@pytest.mark.parametrize("name", TPARQUET_VECTORS)
 def test_a_builtin_read_parquet_fails_loudly_on_pcodec(plain, name):
     """(a) DuckDB 2.0.0's own reader cannot read PCODEC and says so; it never returns rows."""
     with pytest.raises(duckdb.Error) as e:
@@ -26,9 +26,9 @@ def test_a_builtin_read_parquet_fails_loudly_on_pcodec(plain, name):
 
 
 def test_b_standard_control_reads_like_builtin_read_parquet(con):
-    """(b) a plain Parquet file reads through read_pparquet exactly as DuckDB reads it."""
+    """(b) a plain Parquet file reads through read_tparquet exactly as DuckDB reads it."""
     f = FILES / "standard_control.parquet"
-    ours = con.sql(f"SELECT * FROM read_pparquet('{f}')").to_arrow_table()
+    ours = con.sql(f"SELECT * FROM read_tparquet('{f}')").to_arrow_table()
     theirs = con.sql(f"SELECT * FROM read_parquet('{f}')").to_arrow_table()
     schema = pq.read_schema(f)
     assert lines(ours, schema) == lines(theirs, schema)
@@ -55,15 +55,15 @@ def test_c_ratio_against_duckdb_zstd_9_with_a_bit_exact_round_trip(con, tmp_path
     con.execute(f"COPY ticks TO '{zstd}' (FORMAT parquet, COMPRESSION zstd, COMPRESSION_LEVEL 9)")
     ours = tmp_path / "pcodec.parquet"
     con.execute(
-        f"COPY ticks TO '{ours}' (FORMAT pparquet, COLUMN_NAMES ['ts', 'price', 'qty', 'buy'], "
+        f"COPY ticks TO '{ours}' (FORMAT tparquet, COLUMN_NAMES ['ts', 'price', 'qty', 'buy'], "
         "POLICY 'auto', LEVEL 8)"
     )
     ratio = ours.stat().st_size / zstd.stat().st_size
-    print(f"\npparquet {ours.stat().st_size} bytes, DuckDB zstd 9 {zstd.stat().st_size} bytes, ratio {ratio:.3f}")
-    with open(os.environ.get("PPARQUET_DUCKDB_RATIO_LOG", os.devnull), "a") as log:
+    print(f"\ntparquet {ours.stat().st_size} bytes, DuckDB zstd 9 {zstd.stat().st_size} bytes, ratio {ratio:.3f}")
+    with open(os.environ.get("TPARQUET_DUCKDB_RATIO_LOG", os.devnull), "a") as log:
         log.write(f"{ours.stat().st_size} {zstd.stat().st_size} {ratio:.4f}\n")
     assert ratio <= 0.8
-    back = f"read_pparquet('{ours}')"
+    back = f"read_tparquet('{ours}')"
     for a, b in [("ticks", back), (back, "ticks")]:
         assert con.execute(f"SELECT count(*) FROM (SELECT * FROM {a} EXCEPT ALL SELECT * FROM {b})").fetchall() == [(0,)]
     # bit for bit, in order: the doubles compared as their 64-bit patterns
@@ -89,10 +89,10 @@ c.execute("LOAD '{extension_path()}'")
 if sys.argv[1] == 'write':
     c.execute("COPY (SELECT i AS a, i * 3 AS b, i % 1000 AS c, (i * 0.25)::DOUBLE AS d, i * 7 AS e "
               "FROM range(10000000) r(i)) TO '{path}' "
-              "(FORMAT pparquet, COLUMN_NAMES ['a', 'b', 'c', 'd', 'e'], POLICY 'pcodec', ROW_GROUP_ROWS 1000000)")
+              "(FORMAT tparquet, COLUMN_NAMES ['a', 'b', 'c', 'd', 'e'], POLICY 'pcodec', ROW_GROUP_ROWS 1000000)")
 else:
     before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    r = c.execute("SELECT sum(a), sum(b), sum(c), sum(d), sum(e) FROM read_pparquet('{path}')").fetchall()
+    r = c.execute("SELECT sum(a), sum(b), sum(c), sum(d), sum(e) FROM read_tparquet('{path}')").fetchall()
     assert r[0][0] == 49999995000000, r
     print(before, resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
 """

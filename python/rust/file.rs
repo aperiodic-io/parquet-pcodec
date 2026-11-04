@@ -6,13 +6,6 @@ use crate::options::codec_name;
 use arrow_array::{RecordBatch, RecordBatchIterator, RecordBatchReader};
 use arrow_schema::{ArrowError, SchemaRef};
 use bytes::Bytes;
-use pparquet::parquet::arrow::ProjectionMask;
-use pparquet::parquet::arrow::arrow_reader::{
-    ArrowReaderMetadata, ArrowReaderOptions, ParquetRecordBatchReader, ParquetRecordBatchReaderBuilder,
-};
-use pparquet::parquet::errors::Result as ParquetResult;
-use pparquet::parquet::file::reader::{ChunkReader, Length};
-use pparquet::parquet::file::statistics::Statistics;
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
 use pyo3::types::PyDict;
@@ -20,6 +13,13 @@ use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tparquet::parquet::arrow::ProjectionMask;
+use tparquet::parquet::arrow::arrow_reader::{
+    ArrowReaderMetadata, ArrowReaderOptions, ParquetRecordBatchReader, ParquetRecordBatchReaderBuilder,
+};
+use tparquet::parquet::errors::Result as ParquetResult;
+use tparquet::parquet::file::reader::{ChunkReader, Length};
+use tparquet::parquet::file::statistics::Statistics;
 
 /// Where the file's bytes are.
 #[derive(Clone)]
@@ -72,7 +72,7 @@ impl Source {
 }
 
 /// A Parquet file whose footer has been read.
-#[pyclass(frozen, module = "pparquet._lib")]
+#[pyclass(frozen, module = "tparquet._lib")]
 pub struct File {
     source: Source,
     metadata: ArrowReaderMetadata,
@@ -265,10 +265,10 @@ impl File {
             .collect()
     }
 
-    /// The `pparquet inspect --json` report.
+    /// The `tparquet inspect --json` report.
     fn inspect(&self, py: Python<'_>) -> PyResult<String> {
         detached(py, || {
-            let report = pparquet::inspect::inspect(&self.reader()?).map_err(from_pcodec)?;
+            let report = tparquet::inspect::inspect(&self.reader()?).map_err(from_pcodec)?;
             Ok(report.to_json().to_string())
         })
     }
@@ -278,7 +278,7 @@ impl File {
 #[pyfunction]
 pub fn verify(py: Python<'_>, a: &File, b: &File) -> PyResult<Option<String>> {
     detached(py, || {
-        let d = pparquet::verify::verify(a.reader()?, b.reader()?).map_err(from_pcodec)?;
+        let d = tparquet::verify::verify(a.reader()?, b.reader()?).map_err(from_pcodec)?;
         Ok(d.map(|d| d.to_string()))
     })
 }

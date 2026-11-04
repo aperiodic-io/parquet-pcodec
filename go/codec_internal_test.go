@@ -1,4 +1,4 @@
-package pparquet
+package tparquet
 
 import (
 	"bytes"
@@ -69,19 +69,19 @@ func TestLibraryRefusesAnOutOfRangeLevel(t *testing.T) {
 }
 
 func TestVendoredHeaderMatchesTheCAPI(t *testing.T) {
-	want, err := os.ReadFile("../rust/capi/include/pparquet.h")
+	want, err := os.ReadFile("../rust/capi/include/tparquet.h")
 	if errors.Is(err, os.ErrNotExist) {
 		t.Skip("not in the repository checkout: ../rust/capi is absent")
 	}
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := os.ReadFile("include/pparquet.h")
+	got, err := os.ReadFile("include/tparquet.h")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(got, want) {
-		t.Fatal("include/pparquet.h differs from rust/capi/include/pparquet.h; copy it again")
+		t.Fatal("include/tparquet.h differs from rust/capi/include/tparquet.h; copy it again")
 	}
 }
 

@@ -1,7 +1,7 @@
 //! The `package-extension` binary.
 
-use pparquet_duckdb::metadata::{Metadata, current_platform};
 use std::process::Command;
+use tparquet_duckdb::metadata::{Metadata, current_platform};
 
 fn run(args: &[&std::ffi::OsStr]) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_package-extension")).args(args).output().unwrap()
@@ -12,7 +12,7 @@ fn appends_the_footer_for_this_or_a_named_platform() {
     let dir = tempfile::tempdir().unwrap();
     let lib = dir.path().join("lib.so");
     std::fs::write(&lib, b"\x7fELF not really").unwrap();
-    let out = dir.path().join("pparquet.duckdb_extension");
+    let out = dir.path().join("tparquet.duckdb_extension");
     let r = run(&[lib.as_os_str(), out.as_os_str()]);
     assert!(r.status.success(), "{}", String::from_utf8_lossy(&r.stderr));
     let file = std::fs::read(&out).unwrap();

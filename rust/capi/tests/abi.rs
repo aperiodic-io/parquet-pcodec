@@ -1,7 +1,7 @@
 //! The C ABI, called the way C and Go call it.
 
-use pparquet_capi::*;
 use std::ptr;
+use tparquet_capi::*;
 
 fn compress(src: &[u8], t: i32, level: i32, decimal: i32) -> (i32, Vec<u8>) {
     let mut dst = vec![0u8; pcp_compress_bound(src.len())];

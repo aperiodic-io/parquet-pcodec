@@ -1,5 +1,5 @@
 [package]
-name = "pparquet-core"
+name = "tparquet-core"
 version = "0.1.0"
 description = "The PCODEC Parquet compression codec payload (spec/FORMAT.md)"
 edition.workspace = true

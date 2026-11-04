@@ -1,4 +1,4 @@
-module github.com/aperiodic-io/pparquet/go
+module github.com/aperiodic-io/tparquet/go
 
 go 1.25.0
 

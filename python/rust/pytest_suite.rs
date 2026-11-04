@@ -1,11 +1,11 @@
 //! Runs the Python test suite against the extension module this build produced, so that
-//! `cargo test -p pparquet-python` (and `cargo mutants` on this crate) tests the Rust
+//! `cargo test -p tparquet-python` (and `cargo mutants` on this crate) tests the Rust
 //! code through Python.
 //!
-//! `PPARQUET_PYTHON` names an interpreter with the development dependencies installed
+//! `TPARQUET_PYTHON` names an interpreter with the development dependencies installed
 //! (`python/.venv/bin/python` after `uv sync`). Without it the test only says so and passes,
 //! so that `cargo test --workspace` works on machines without that environment; `make
-//! python-mutants` and the CI set it. `PPARQUET_PYTEST_ARGS` replaces the default pytest
+//! python-mutants` and the CI set it. `TPARQUET_PYTEST_ARGS` replaces the default pytest
 //! selection (`-m "not slow"`).
 
 use std::path::{Path, PathBuf};
@@ -22,10 +22,10 @@ fn extension() -> PathBuf {
 /// A copy of the Python package with `lib` as its extension module.
 fn package(lib: &Path) -> PathBuf {
     let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("pytest-{}", std::process::id()));
-    let pkg = root.join("pparquet");
+    let pkg = root.join("tparquet");
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&pkg).expect("create the package directory");
-    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("pparquet");
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("tparquet");
     for entry in std::fs::read_dir(&src).expect("read the package sources") {
         let path = entry.expect("package entry").path();
         if path.is_file() && path.extension().is_some_and(|e| e == "py" || e == "pyi" || e == "typed") {
@@ -38,15 +38,15 @@ fn package(lib: &Path) -> PathBuf {
 
 #[test]
 fn pytest() {
-    let Some(python) = std::env::var_os("PPARQUET_PYTHON") else {
-        eprintln!("PPARQUET_PYTHON is not set: the Python suite did not run");
+    let Some(python) = std::env::var_os("TPARQUET_PYTHON") else {
+        eprintln!("TPARQUET_PYTHON is not set: the Python suite did not run");
         return;
     };
     let lib = extension();
     assert!(lib.exists(), "{} was not built", lib.display());
     let root = package(&lib);
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let args: Vec<String> = match std::env::var("PPARQUET_PYTEST_ARGS") {
+    let args: Vec<String> = match std::env::var("TPARQUET_PYTEST_ARGS") {
         Ok(a) => a.split_whitespace().map(String::from).collect(),
         Err(_) => vec!["-m".into(), "not slow".into()],
     };
@@ -56,7 +56,7 @@ fn pytest() {
         .arg(manifest.join("tests"))
         .env("PYTHONPATH", &root)
         .env("PYTHONDONTWRITEBYTECODE", "1")
-        .env("PPARQUET_TESTDATA", manifest.join("..").join("testdata"))
+        .env("TPARQUET_TESTDATA", manifest.join("..").join("testdata"))
         .current_dir(manifest);
     let status = cmd.status().expect("run pytest");
     let _ = std::fs::remove_dir_all(&root);

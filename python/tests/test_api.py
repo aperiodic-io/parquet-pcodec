@@ -11,7 +11,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-import pparquet as ppc
+import tparquet as ppc
 from conftest import vector
 
 if TYPE_CHECKING:
@@ -534,9 +534,9 @@ def test_default_level_and_batch_size_behave(big_exp: pa.Table, tmp_path: pathli
     import pandas as pd
     import polars as pl
 
-    import pparquet.duckdb as pdd
-    import pparquet.pandas as ppd
-    import pparquet.polars as ppl
+    import tparquet.duckdb as pdd
+    import tparquet.pandas as ppd
+    import tparquet.polars as ppl
 
     def written(f: object, data: object, **kw: object) -> bytes:
         buf = io.BytesIO()
@@ -579,9 +579,9 @@ def test_default_level_and_batch_size_behave(big_exp: pa.Table, tmp_path: pathli
 def test_public_defaults() -> None:
     import inspect
 
-    import pparquet.duckdb as pdd
-    import pparquet.pandas as ppd
-    import pparquet.polars as ppl
+    import tparquet.duckdb as pdd
+    import tparquet.pandas as ppd
+    import tparquet.polars as ppl
 
     def defaults(f: object) -> dict[str, object]:
         return {
@@ -618,7 +618,7 @@ def test_public_defaults() -> None:
 
 
 def test_rust_panics_become_pcodec_errors() -> None:
-    from pparquet import _lib
+    from tparquet import _lib
 
     with pytest.raises(ppc.PcodecError, match=r"^internal error: boom$"):
         _lib._panic("boom")
@@ -637,7 +637,7 @@ def test_rust_panics_become_pcodec_errors() -> None:
 def test_functions_returning_pyarrow_say_what_to_do(monkeypatch: pytest.MonkeyPatch) -> None:
     import sys
 
-    from pparquet import _core
+    from tparquet import _core
 
     monkeypatch.setitem(sys.modules, "pyarrow", None)
     with pytest.raises(ImportError) as e:

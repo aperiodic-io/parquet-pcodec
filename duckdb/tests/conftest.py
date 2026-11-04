@@ -1,6 +1,6 @@
 """Fixtures of the SQL tests: a DuckDB connection with the built extension loaded.
 
-The extension comes from $PPARQUET_DUCKDB_EXTENSION (a `pparquet.duckdb_extension`, as
+The extension comes from $TPARQUET_DUCKDB_EXTENSION (a `tparquet.duckdb_extension`, as
 `make build` or the cargo test `tests/sql.rs` makes it).
 """
 
@@ -28,19 +28,19 @@ def _watch_memory(limit_mb: int) -> None:
         time.sleep(0.2)
 
 
-# $PPARQUET_DUCKDB_MEMORY_LIMIT_MB bounds the resident memory of the test process (`make
+# $TPARQUET_DUCKDB_MEMORY_LIMIT_MB bounds the resident memory of the test process (`make
 # mutation` sets it). A mutant that makes a scan loop forever produces rows without end, about
 # 65 MB/s, which exhausts a CI runner before cargo-mutants' timeout. Over the limit the process
 # exits, the tests fail, and the mutant is caught. (An address-space limit does not work:
 # DuckDB and the other native libraries reserve far more address space than they use.)
-if limit := os.environ.get("PPARQUET_DUCKDB_MEMORY_LIMIT_MB"):
+if limit := os.environ.get("TPARQUET_DUCKDB_MEMORY_LIMIT_MB"):
     threading.Thread(target=_watch_memory, args=(int(limit),), daemon=True).start()
 
-# $PPARQUET_DUCKDB_TEST_TIMEOUT (seconds, `make mutation` sets it) ends the process when one test
+# $TPARQUET_DUCKDB_TEST_TIMEOUT (seconds, `make mutation` sets it) ends the process when one test
 # runs longer, even inside DuckDB's C code: faulthandler's watchdog dumps the stacks and exits.
 # An endless mutant then fails in that time, long before cargo-mutants' own timeout, at which
 # CI runners were seen to shut down.
-_TEST_TIMEOUT = float(os.environ.get("PPARQUET_DUCKDB_TEST_TIMEOUT", "0"))
+_TEST_TIMEOUT = float(os.environ.get("TPARQUET_DUCKDB_TEST_TIMEOUT", "0"))
 
 
 @pytest.fixture(autouse=True)
@@ -58,9 +58,9 @@ EXPECTED = TESTDATA / "expected"
 
 
 def extension_path() -> str:
-    path = os.environ.get("PPARQUET_DUCKDB_EXTENSION")
+    path = os.environ.get("TPARQUET_DUCKDB_EXTENSION")
     if not path:
-        raise RuntimeError("set PPARQUET_DUCKDB_EXTENSION to the built pparquet.duckdb_extension")
+        raise RuntimeError("set TPARQUET_DUCKDB_EXTENSION to the built tparquet.duckdb_extension")
     return path
 
 
@@ -87,10 +87,10 @@ def plain():
 
 
 def cli() -> str:
-    """The pparquet CLI ($PPARQUET_CLI, built by tests/sql.rs or `make build`)."""
-    path = os.environ.get("PPARQUET_CLI")
+    """The tparquet CLI ($TPARQUET_CLI, built by tests/sql.rs or `make build`)."""
+    path = os.environ.get("TPARQUET_CLI")
     if not path:
-        raise RuntimeError("set PPARQUET_CLI to the pparquet binary")
+        raise RuntimeError("set TPARQUET_CLI to the tparquet binary")
     return path
 
 

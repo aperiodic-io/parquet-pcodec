@@ -11,7 +11,7 @@ fn testdata(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/files").join(format!("{name}.parquet"))
 }
 
-const PPARQUET_FILES: [&str; 12] = [
+const TPARQUET_FILES: [&str; 12] = [
     "primitives_required",
     "primitives_optional",
     "lists",
@@ -28,7 +28,7 @@ const PPARQUET_FILES: [&str; 12] = [
 
 #[test]
 fn upstream_rejects_every_pcodec_file() {
-    for name in PPARQUET_FILES {
+    for name in TPARQUET_FILES {
         let err = SerializedFileReader::new(File::open(testdata(name)).unwrap()).err();
         let err = err.unwrap_or_else(|| panic!("{name}: upstream read a PCODEC file"));
         assert!(err.to_string().contains("Unexpected CompressionCodec 20547"), "{name}: {err}");

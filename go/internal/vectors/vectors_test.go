@@ -9,7 +9,7 @@ import (
 
 	"github.com/apache/arrow-go/v18/parquet/file"
 
-	pparquet "github.com/aperiodic-io/pparquet/go"
+	tparquet "github.com/aperiodic-io/tparquet/go"
 )
 
 func TestGenerateThenCheck(t *testing.T) {
@@ -137,7 +137,7 @@ func TestVectorsCoverThePageKinds(t *testing.T) {
 			md := r.MetaData().RowGroup(i)
 			for j := 0; j < md.NumColumns(); j++ {
 				cc, _ := md.ColumnChunk(j)
-				if cc.Compression() == pparquet.Compression {
+				if cc.Compression() == tparquet.Compression {
 					pco++
 					dict = dict || cc.HasDictionaryPage()
 				} else {
@@ -150,7 +150,7 @@ func TestVectorsCoverThePageKinds(t *testing.T) {
 	for _, name := range []string{"go_ints", "go_float_decimals", "go_special_floats", "go_temporal", "go_nested",
 		"go_v1_pages", "go_dictionary_pages", "go_fallback", "go_auto_mixed"} {
 		r := open(name)
-		if v := r.MetaData().KeyValueMetadata().FindValue(pparquet.FooterKey); v == nil || *v != "1" {
+		if v := r.MetaData().KeyValueMetadata().FindValue(tparquet.FooterKey); v == nil || *v != "1" {
 			t.Errorf("%s: no footer key", name)
 		}
 		pco, other, dict := codecs(r)

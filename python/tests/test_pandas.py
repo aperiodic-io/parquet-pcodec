@@ -1,4 +1,4 @@
-"""pparquet.pandas: DataFrames round-trip with their index and dtypes, as with pyarrow."""
+"""tparquet.pandas: DataFrames round-trip with their index and dtypes, as with pyarrow."""
 
 from __future__ import annotations
 
@@ -11,8 +11,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-import pparquet as ppc
-import pparquet.pandas as ppd
+import tparquet as ppc
+import tparquet.pandas as ppd
 
 
 def frame() -> pd.DataFrame:

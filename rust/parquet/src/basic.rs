@@ -642,7 +642,7 @@ enum CompressionCodec {
   LZ4 = 5;     // DEPRECATED (Added in 2.4)
   ZSTD = 6;    // Added in 2.4
   LZ4_RAW = 7; // Added in 2.9
-  PCODEC = 20547; // pparquet fork, spec/FORMAT.md
+  PCODEC = 20547; // tparquet fork, spec/FORMAT.md
 }
 );
 
@@ -685,7 +685,7 @@ pub enum Compression {
     ZSTD(ZstdLevel),
     /// [LZ4 compression](https://lz4.org/).
     LZ4_RAW,
-    /// [pcodec](https://github.com/pcodec/pcodec) for numeric columns (pparquet fork,
+    /// [pcodec](https://github.com/pcodec/pcodec) for numeric columns (tparquet fork,
     /// spec/FORMAT.md)
     PCODEC(PcodecLevel),
 }
@@ -2395,7 +2395,7 @@ mod tests {
 
     #[test]
     fn test_pcodec_compression() {
-        // pparquet fork: the PCODEC codec (spec/FORMAT.md section 2)
+        // tparquet fork: the PCODEC codec (spec/FORMAT.md section 2)
         assert_eq!(CompressionCodec::PCODEC as i32, 20547);
         test_roundtrip(CompressionCodec::PCODEC);
         let level = PcodecLevel::try_new(3).unwrap();

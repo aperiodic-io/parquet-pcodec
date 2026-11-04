@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Cross-language acceptance: every implementation reads the vectors every other one wrote.
 #
-#   writers: rust (testdata/), go (pparquet-go-gen), python (transcode), duckdb (COPY)
-#   readers: rust (gen-testdata --check), go (pparquet-go-gen -check), python, duckdb
+#   writers: rust (testdata/), go (tparquet-go-gen), python (transcode), duckdb (COPY)
+#   readers: rust (gen-testdata --check), go (tparquet-go-gen -check), python, duckdb
 #
 # Needs: the Rust workspace, Go, python/.venv with the package installed (`make python-test`
 # or `maturin develop`), and the built DuckDB extension (`make -C duckdb build`).
@@ -12,21 +12,21 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
 out=${1:-$root/target/cross}
 py=${PYTHON:-$root/python/.venv/bin/python}
-ext=${PPARQUET_DUCKDB_EXTENSION:-$root/duckdb/build/pparquet.duckdb_extension}
+ext=${TPARQUET_DUCKDB_EXTENSION:-$root/duckdb/build/tparquet.duckdb_extension}
 vectors="$root/acceptance/cross/vectors.py"
 mkdir -p "$out"
 
-cargo build -q --manifest-path "$root/Cargo.toml" -p pparquet --bin gen-testdata
-# the Go package links target/release/libpparquet_capi.a (go/link.go)
-cargo build -q --release --manifest-path "$root/Cargo.toml" -p pparquet-capi
+cargo build -q --manifest-path "$root/Cargo.toml" -p tparquet --bin gen-testdata
+# the Go package links target/release/libtparquet_capi.a (go/link.go)
+cargo build -q --release --manifest-path "$root/Cargo.toml" -p tparquet-capi
 rust_check() { "$root/target/debug/gen-testdata" --check "$1"; }
-(cd "$root/go" && go build -o "$out/pparquet-go-gen" ./cmd/pparquet-go-gen)
-go_check() { "$out/pparquet-go-gen" -check "$1"; }
+(cd "$root/go" && go build -o "$out/tparquet-go-gen" ./cmd/tparquet-go-gen)
+go_check() { "$out/tparquet-go-gen" -check "$1"; }
 python_check() { "$py" "$vectors" check-python "$1"; }
 duckdb_check() { "$py" "$vectors" check-duckdb "$ext" "$1"; }
 
 echo "== writers"
-"$out/pparquet-go-gen" "$out/go" > /dev/null
+"$out/tparquet-go-gen" "$out/go" > /dev/null
 "$py" "$vectors" write-python "$out/python" "$root/testdata" "$out/go"
 "$py" "$vectors" write-duckdb "$ext" "$out/duckdb" "$root/testdata" "$out/go"
 

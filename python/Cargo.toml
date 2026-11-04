@@ -1,7 +1,7 @@
 [package]
-name = "pparquet-python"
+name = "tparquet-python"
 version = "0.1.0"
-description = "Python bindings of pparquet (the pparquet._lib extension module)"
+description = "Python bindings of tparquet (the tparquet._lib extension module)"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -24,8 +24,8 @@ default = ["extension-module"]
 extension-module = ["pyo3/extension-module"]
 
 [dependencies]
-pparquet = { path = "../rust/pparquet" }
-pparquet-core = { path = "../rust/core" }
+tparquet = { path = "../rust/tparquet" }
+tparquet-core = { path = "../rust/core" }
 # the fork that [patch.crates-io] puts in place of parquet 60.1.0: named here by path so that
 # the sdist (which follows path dependencies, not patches) contains it
 parquet = { path = "../rust/parquet", version = "=60.1.0", default-features = false }

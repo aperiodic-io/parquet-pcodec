@@ -10,9 +10,9 @@ from typing import Any
 import pyarrow.parquet as pq
 import pytest
 
-import pparquet as ppc
+import tparquet as ppc
 from conftest import TESTDATA, manifest, vector
-from pparquet import canonical, codec
+from tparquet import canonical, codec
 
 FILES = manifest()
 PAYLOADS: list[dict[str, Any]] = json.loads((TESTDATA / "payloads" / "manifest.json").read_text())["vectors"]

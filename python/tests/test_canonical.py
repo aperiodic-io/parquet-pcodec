@@ -1,4 +1,4 @@
-"""pparquet.canonical: canonical JSON as testdata/README.md defines it."""
+"""tparquet.canonical: canonical JSON as testdata/README.md defines it."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import Any
 import pyarrow as pa
 import pytest
 
-from pparquet import canonical
+from tparquet import canonical
 
 
 def line(arr: pa.Array[Any], name: str = "x") -> list[str]:

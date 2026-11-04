@@ -493,7 +493,7 @@ impl<W: Write + Send> SerializedFileWriter<W> {
     }
 }
 
-/// pparquet fork: adds `parquet.pcodec.version = "1"` to the key-value metadata of a
+/// tparquet fork: adds `parquet.pcodec.version = "1"` to the key-value metadata of a
 /// file with PCODEC column chunks, unless it is already there (spec/FORMAT.md section 2)
 #[cfg(any(feature = "pcodec", test))]
 fn with_pcodec_version(
@@ -507,13 +507,13 @@ fn with_pcodec_version(
     let has_version = key_value_metadata
         .iter()
         .flatten()
-        .any(|kv| kv.key == pparquet_core::KV_KEY);
+        .any(|kv| kv.key == tparquet_core::KV_KEY);
     if has_pcodec && !has_version {
         key_value_metadata
             .get_or_insert_default()
             .push(KeyValue::new(
-                pparquet_core::KV_KEY.to_string(),
-                pparquet_core::KV_VALUE.to_string(),
+                tparquet_core::KV_KEY.to_string(),
+                tparquet_core::KV_VALUE.to_string(),
             ));
     }
     key_value_metadata
@@ -2054,7 +2054,7 @@ mod tests {
         test_kv_metadata(None, Some(vec![]));
     }
 
-    /// pparquet fork: the key-value metadata of a one-column file written with
+    /// tparquet fork: the key-value metadata of a one-column file written with
     /// `compression`, `initial_kv` in the properties and `appended_kv` appended
     fn pcodec_kv_metadata(
         compression: Compression,
@@ -2104,7 +2104,7 @@ mod tests {
 
     #[test]
     fn test_write_metadata_page_indexes() {
-        // pparquet fork: pins the page index decisions of `write_metadata`, a function
+        // tparquet fork: pins the page index decisions of `write_metadata`, a function
         // the fork changes (its mutants must be caught by these modules' tests)
         let page_indexes = |props: WriterProperties| {
             let schema = Arc::new(

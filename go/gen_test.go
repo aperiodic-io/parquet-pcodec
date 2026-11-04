@@ -1,4 +1,4 @@
-package pparquet_test
+package tparquet_test
 
 import (
 	"fmt"

@@ -40,8 +40,8 @@ jobs:
       - run: uv run --no-sync ruff format --check src tests
       # the extension's stubs (_lib.pyi) are what mypy checks the package against
       - run: uv run --no-sync mypy --strict
-      - run: cargo fmt -p pparquet-python --check
-      - run: cargo clippy -j 2 --no-deps -p pparquet-python --all-targets -- -D warnings
+      - run: cargo fmt -p tparquet-python --check
+      - run: cargo clippy -j 2 --no-deps -p tparquet-python --all-targets -- -D warnings
         env:
           PYO3_PYTHON: ${{ github.workspace }}/python/.venv/bin/python
 
@@ -74,7 +74,7 @@ jobs:
           fi
         env:
           HYPOTHESIS_PROFILE: ${{ github.event_name == 'schedule' && 'thorough' || 'default' }}
-          PPARQUET_ACCEPTANCE_LOG: ${{ github.workspace }}/acceptance-${{ matrix.python }}.json
+          TPARQUET_ACCEPTANCE_LOG: ${{ github.workspace }}/acceptance-${{ matrix.python }}.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -102,7 +102,7 @@ jobs:
         run: uv run --no-sync python scripts/mutmut_check.py
         env:
           HYPOTHESIS_PROFILE: mutation
-          PPARQUET_TESTDATA: ${{ github.workspace }}/testdata
+          TPARQUET_TESTDATA: ${{ github.workspace }}/testdata
 
   rust-mutants:
     if: github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
@@ -128,16 +128,16 @@ jobs:
         if: github.event_name == 'pull_request'
         run: |
           git diff "origin/${{ github.base_ref }}...HEAD" > pr.diff
-          cargo mutants -p pparquet-python --in-diff pr.diff -j 2 || { [ $? -eq 3 ] && [ ! -s mutants.out/missed.txt ]; }
+          cargo mutants -p tparquet-python --in-diff pr.diff -j 2 || { [ $? -eq 3 ] && [ ! -s mutants.out/missed.txt ]; }
         env:
-          PPARQUET_PYTHON: ${{ github.workspace }}/python/.venv/bin/python
+          TPARQUET_PYTHON: ${{ github.workspace }}/python/.venv/bin/python
           PYO3_PYTHON: ${{ github.workspace }}/python/.venv/bin/python
           HYPOTHESIS_PROFILE: mutation
       - name: every mutant (weekly and on demand)
         if: github.event_name != 'pull_request'
-        run: cargo mutants -p pparquet-python -j 2 || { [ $? -eq 3 ] && [ ! -s mutants.out/missed.txt ]; }
+        run: cargo mutants -p tparquet-python -j 2 || { [ $? -eq 3 ] && [ ! -s mutants.out/missed.txt ]; }
         env:
-          PPARQUET_PYTHON: ${{ github.workspace }}/python/.venv/bin/python
+          TPARQUET_PYTHON: ${{ github.workspace }}/python/.venv/bin/python
           PYO3_PYTHON: ${{ github.workspace }}/python/.venv/bin/python
           HYPOTHESIS_PROFILE: mutation
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

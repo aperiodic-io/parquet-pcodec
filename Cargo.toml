@@ -1,12 +1,12 @@
 [workspace]
 resolver = "3"
-members = ["rust/core", "rust/capi", "rust/parquet", "rust/pparquet", "python", "duckdb"]
+members = ["rust/core", "rust/capi", "rust/parquet", "rust/tparquet", "python", "duckdb"]
 
 [workspace.package]
 edition = "2024"
 rust-version = "1.88"
 license = "Apache-2.0"
-repository = "https://github.com/aperiodic-io/pparquet"
+repository = "https://github.com/aperiodic-io/tparquet"
 
 [workspace.dependencies]
 pco = "=1.0.4"
@@ -40,5 +40,5 @@ opt-level = 2
 [profile.dev.package.parquet]
 opt-level = 2
 
-[profile.dev.package.pparquet-core]
+[profile.dev.package.tparquet-core]
 opt-level = 2

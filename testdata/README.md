@@ -5,19 +5,19 @@ exactly the expected rows, and decodes the payload vectors exactly as listed. Th
 by a deterministic generator:
 
 ```
-cargo run -p pparquet --bin gen-testdata            # rewrites testdata/{files,expected,payloads}
-cargo run -p pparquet --bin gen-testdata -- --out DIR
+cargo run -p tparquet --bin gen-testdata            # rewrites testdata/{files,expected,payloads}
+cargo run -p tparquet --bin gen-testdata -- --out DIR
 ```
 
 CI regenerates them and fails if any byte differs (`make testdata-check`). Do not edit them by
-hand; change the generator (`rust/pparquet/src/bin/gen-testdata/`) and regenerate.
+hand; change the generator (`rust/tparquet/src/bin/gen-testdata/`) and regenerate.
 
 ## Layout
 
 | Path | What |
 |---|---|
 | `files/<name>.parquet` | a Parquet file |
-| `files/manifest.json` | per file: description, rows, row groups, the `parquet.pcodec.version` footer value (or `null`), and per leaf column its physical type, codecs, page counts per page type and PCODEC payload modes per page (as `pparquet inspect --json` reports them) |
+| `files/manifest.json` | per file: description, rows, row groups, the `parquet.pcodec.version` footer value (or `null`), and per leaf column its physical type, codecs, page counts per page type and PCODEC payload modes per page (as `tparquet inspect --json` reports them) |
 | `expected/<name>.jsonl` | the file's rows in canonical JSON (below) |
 | `payloads/<name>.bin` | a PCODEC page payload (spec section 4) |
 | `payloads/<name>.out` | for a valid payload, the bytes it decodes to |
@@ -64,4 +64,4 @@ empty `.jsonl`. Each line is one JSON object, written compactly: no whitespace o
 - Dictionary-encoded values are written as their decoded value.
 
 Two rows are equal exactly when their canonical JSON lines are equal byte for byte, which is
-how `pparquet verify` compares files.
+how `tparquet verify` compares files.
