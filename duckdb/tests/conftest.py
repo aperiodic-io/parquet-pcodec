@@ -4,6 +4,7 @@ The extension comes from $PCODEC_DUCKDB_EXTENSION (a `parquet_pcodec.duckdb_exte
 `make build` or the cargo test `tests/sql.rs` makes it).
 """
 
+import faulthandler
 import os
 import pathlib
 import subprocess
@@ -34,6 +35,21 @@ def _watch_memory(limit_mb: int) -> None:
 # DuckDB and the other native libraries reserve far more address space than they use.)
 if limit := os.environ.get("PCODEC_DUCKDB_MEMORY_LIMIT_MB"):
     threading.Thread(target=_watch_memory, args=(int(limit),), daemon=True).start()
+
+# $PCODEC_DUCKDB_TEST_TIMEOUT (seconds, `make mutation` sets it) ends the process when one test
+# runs longer, even inside DuckDB's C code: faulthandler's watchdog dumps the stacks and exits.
+# An endless mutant then fails in that time, long before cargo-mutants' own timeout, at which
+# CI runners were seen to shut down.
+_TEST_TIMEOUT = float(os.environ.get("PCODEC_DUCKDB_TEST_TIMEOUT", "0"))
+
+
+@pytest.fixture(autouse=True)
+def _test_deadline():
+    if _TEST_TIMEOUT > 0:
+        faulthandler.dump_traceback_later(_TEST_TIMEOUT, exit=True)
+    yield
+    faulthandler.cancel_dump_traceback_later()
+
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 TESTDATA = ROOT / "testdata"

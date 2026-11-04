@@ -16,6 +16,7 @@ DYLIB := $(if $(filter Darwin,$(shell uname)),libparquet_pcodec_duckdb.dylib,lib
 EXTENSION := build/parquet_pcodec.duckdb_extension
 MUTANTS_OUT ?= $(TARGET)/mutants-duckdb
 MEMORY_LIMIT_MB ?= 2048
+TEST_TIMEOUT ?= 60
 
 .PHONY: venv build test sql mutation check fmt-check clippy check-arrow clean
 
@@ -48,8 +49,9 @@ mutation: venv
 	@# when none was missed (the root Makefile's MUTANTS_OK)
 	@# MEMORY_LIMIT_MB: a mutant that makes a scan endless grows ~65 MB/s and would exhaust the
 	@# runner before cargo mutants' timeout; tests/conftest.py ends a test process past it
-	@# (the suite needs under 1 GB; JOBS processes run at once)
-	PCODEC_DUCKDB_MEMORY_LIMIT_MB=$(MEMORY_LIMIT_MB) \
+	@# (the suite needs under 1 GB; JOBS processes run at once). TEST_TIMEOUT ends a test process
+	@# when one test takes longer (the slowest takes a few seconds), before cargo mutants' timeout
+	PCODEC_DUCKDB_MEMORY_LIMIT_MB=$(MEMORY_LIMIT_MB) PCODEC_DUCKDB_TEST_TIMEOUT=$(TEST_TIMEOUT) \
 	PCODEC_DUCKDB_PYTEST_MARK="not slow" PCODEC_DUCKDB_PYTHON=$(abspath $(PYTHON)) \
 		$(CARGO) mutants --dir $(ROOT) $(CRATE) -j $(JOBS) --output $(MUTANTS_OUT) $(MUTANTS_ARGS) \
 		|| { [ $$? -eq 3 ] && [ ! -s $(MUTANTS_OUT)/mutants.out/missed.txt ]; }
