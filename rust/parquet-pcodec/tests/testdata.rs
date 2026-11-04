@@ -173,7 +173,10 @@ fn check_reads_every_vector_of_a_directory() {
     let mut rows: Vec<String> = std::fs::read_to_string(&path).unwrap().lines().map(String::from).collect();
     rows[2] = rows[2].replacen('1', "2", 1);
     std::fs::write(&path, rows.join("\n") + "\n").unwrap();
-    check(dir.path()).code(1).stdout("").stderr("gen-testdata: temporal: line 3 differs from expected/temporal.jsonl\n");
+    check(dir.path())
+        .code(1)
+        .stdout("")
+        .stderr("gen-testdata: temporal: line 3 differs from expected/temporal.jsonl\n");
 
     // missing or extra rows are differences too
     std::fs::write(&path, "").unwrap();
@@ -181,7 +184,9 @@ fn check_reads_every_vector_of_a_directory() {
     let rows = std::fs::read_to_string(testdata().join("expected/temporal.jsonl")).unwrap();
     std::fs::write(&path, rows.clone() + "{}\n").unwrap();
     let n = rows.lines().count();
-    check(dir.path()).code(1).stderr(format!("gen-testdata: temporal: line {} differs from expected/temporal.jsonl\n", n + 1));
+    check(dir.path())
+        .code(1)
+        .stderr(format!("gen-testdata: temporal: line {} differs from expected/temporal.jsonl\n", n + 1));
 
     // every file needs its expected rows
     std::fs::remove_file(&path).unwrap();
@@ -195,9 +200,7 @@ fn check_refuses_a_directory_without_vectors_or_with_a_corrupt_file() {
     std::fs::create_dir_all(dir.path().join("files")).unwrap();
     std::fs::create_dir_all(dir.path().join("expected")).unwrap();
     std::fs::write(dir.path().join("files/notes.txt"), b"not a vector").unwrap();
-    check(dir.path())
-        .code(1)
-        .stderr(format!("gen-testdata: no files/*.parquet in {}\n", dir.path().display()));
+    check(dir.path()).code(1).stderr(format!("gen-testdata: no files/*.parquet in {}\n", dir.path().display()));
     std::fs::write(dir.path().join("files/bad.parquet"), b"PAR1 not parquet").unwrap();
     std::fs::write(dir.path().join("expected/bad.jsonl"), b"").unwrap();
     check(dir.path()).code(1).stderr(predicates::str::starts_with("gen-testdata: bad: "));

@@ -135,8 +135,8 @@ fn check(dir: &Path) -> Result<usize> {
         let expected = format!("expected/{name}.jsonl");
         let want = std::fs::read_to_string(dir.join(&expected)).map_err(|e| fail(format!("{expected}: {e}")))?;
         let got = canonical_rows(&files.join(format!("{name}.parquet"))).map_err(fail)?;
-        if let Some(i) = (0..got.lines().count().max(want.lines().count()))
-            .find(|&i| got.lines().nth(i) != want.lines().nth(i))
+        if let Some(i) =
+            (0..got.lines().count().max(want.lines().count())).find(|&i| got.lines().nth(i) != want.lines().nth(i))
         {
             return Err(fail(format!("line {} differs from {expected}", i + 1)));
         }

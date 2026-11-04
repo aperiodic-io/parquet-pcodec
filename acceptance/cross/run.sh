@@ -17,6 +17,8 @@ vectors="$root/acceptance/cross/vectors.py"
 mkdir -p "$out"
 
 cargo build -q --manifest-path "$root/Cargo.toml" -p parquet-pcodec --bin gen-testdata
+# the Go package links target/release/libparquet_pcodec.a (go/link.go)
+cargo build -q --release --manifest-path "$root/Cargo.toml" -p parquet-pcodec-capi
 rust_check() { "$root/target/debug/gen-testdata" --check "$1"; }
 (cd "$root/go" && go build -o "$out/pcodec-go-gen" ./cmd/pcodec-go-gen)
 go_check() { "$out/pcodec-go-gen" -check "$1"; }
