@@ -14,8 +14,14 @@ use arrow_schema::{DataType, Field, FieldRef, Fields, TimeUnit};
 use std::fmt;
 use std::sync::Arc;
 
-/// The time zone written for `TIMESTAMPTZ` columns: DuckDB stores instants in UTC.
+/// The time zone written for `TIMESTAMPTZ` columns: DuckDB stores instants in UTC, and `UTC`
+/// is what the Parquet reader gives a timestamp with `isAdjustedToUTC` (so the file reads the
+/// same with and without its embedded Arrow schema).
 pub const UTC: &str = "UTC";
+/// The name Parquet gives a list element (`LogicalTypes.md`).
+pub const LIST_ELEMENT: &str = "element";
+/// The name Parquet gives the entries of a map.
+pub const MAP_ENTRIES: &str = "key_value";
 
 /// A DuckDB column type.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -227,10 +233,10 @@ impl SqlType {
             Self::TimestampNs => DataType::Timestamp(TimeUnit::Nanosecond, None),
             Self::TimestampTz => DataType::Timestamp(TimeUnit::Microsecond, Some(UTC.into())),
             Self::TimestampTzNs => DataType::Timestamp(TimeUnit::Nanosecond, Some(UTC.into())),
-            Self::List(t) => DataType::List(Arc::new(Field::new("item", t.to_arrow()?, true))),
+            Self::List(t) => DataType::List(Arc::new(Field::new(LIST_ELEMENT, t.to_arrow()?, true))),
             Self::Array(t, n) => {
                 let n = i32::try_from(*n).map_err(|_| format!("ARRAY length {n} is too large"))?;
-                DataType::FixedSizeList(Arc::new(Field::new("item", t.to_arrow()?, true)), n)
+                DataType::FixedSizeList(Arc::new(Field::new(LIST_ELEMENT, t.to_arrow()?, true)), n)
             }
             Self::Struct(fields) => DataType::Struct(
                 fields
@@ -240,7 +246,7 @@ impl SqlType {
             ),
             Self::Map(k, v) => DataType::Map(
                 Arc::new(Field::new(
-                    "entries",
+                    MAP_ENTRIES,
                     DataType::Struct(Fields::from(vec![
                         Field::new("key", k.to_arrow()?, false),
                         Field::new("value", v.to_arrow()?, true),
@@ -365,6 +371,11 @@ mod tests {
 
     fn item(t: DataType) -> FieldRef {
         Arc::new(Field::new("item", t, true))
+    }
+
+    /// The list element as Parquet names it.
+    fn element(t: DataType) -> FieldRef {
+        Arc::new(Field::new("element", t, true))
     }
 
     #[test]
@@ -510,8 +521,8 @@ mod tests {
             (SqlType::TimestampNs, DataType::Timestamp(Nanosecond, None)),
             (SqlType::TimestampTz, DataType::Timestamp(Microsecond, Some("UTC".into()))),
             (SqlType::TimestampTzNs, DataType::Timestamp(Nanosecond, Some("UTC".into()))),
-            (SqlType::List(Box::new(SqlType::Double)), DataType::List(item(DataType::Float64))),
-            (SqlType::Array(Box::new(SqlType::Integer), 2), DataType::FixedSizeList(item(DataType::Int32), 2)),
+            (SqlType::List(Box::new(SqlType::Double)), DataType::List(element(DataType::Float64))),
+            (SqlType::Array(Box::new(SqlType::Integer), 2), DataType::FixedSizeList(element(DataType::Int32), 2)),
         ];
         for (sql, arrow) in cases {
             assert_eq!(sql.to_arrow().unwrap(), arrow, "{sql}");
@@ -526,7 +537,7 @@ mod tests {
         );
         let m = SqlType::Map(Box::new(SqlType::Varchar), Box::new(SqlType::BigInt)).to_arrow().unwrap();
         let DataType::Map(entries, false) = &m else { panic!("{m}") };
-        assert_eq!(entries.name(), "entries");
+        assert_eq!(entries.name(), "key_value");
         assert!(!entries.is_nullable());
         let DataType::Struct(kv) = entries.data_type() else { panic!() };
         assert_eq!((kv[0].name().as_str(), kv[0].data_type(), kv[0].is_nullable()), ("key", &DataType::Utf8, false));

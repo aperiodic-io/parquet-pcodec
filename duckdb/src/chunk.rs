@@ -10,7 +10,7 @@
 //! is NULL. A NULL row is never dereferenced (its string pointer or list entry may be garbage),
 //! and list children are read only where an entry points.
 
-use crate::types::{SqlType, UTC};
+use crate::types::{LIST_ELEMENT, MAP_ENTRIES, SqlType, UTC};
 use arrow_array::builder::{BinaryBuilder, StringBuilder};
 use arrow_array::types::*;
 use arrow_array::{
@@ -253,11 +253,11 @@ pub fn convert<V: VectorView>(v: &V, t: &SqlType, sel: &[Option<usize>]) -> Resu
                 ]);
                 let entries =
                     StructArray::try_new(fields.clone(), vec![key, value], None).map_err(|e| e.to_string())?;
-                let field = Arc::new(Field::new("entries", DataType::Struct(fields), false));
+                let field = Arc::new(Field::new(MAP_ENTRIES, DataType::Struct(fields), false));
                 Arc::new(MapArray::try_new(field, offsets, entries, nulls(rows), false).map_err(|e| e.to_string())?)
             } else {
                 let values = convert(&child, child_type, &child_sel)?;
-                let field = Arc::new(Field::new("item", values.data_type().clone(), true));
+                let field = Arc::new(Field::new(LIST_ELEMENT, values.data_type().clone(), true));
                 Arc::new(ListArray::try_new(field, offsets, values, nulls(rows)).map_err(|e| e.to_string())?)
             }
         }
@@ -266,7 +266,7 @@ pub fn convert<V: VectorView>(v: &V, t: &SqlType, sel: &[Option<usize>]) -> Resu
             let child_sel: Vec<Option<usize>> =
                 rows.iter().flat_map(|r| (0..*n).map(move |i| r.map(|r| r * n + i))).collect();
             let values = convert(&child, child_type, &child_sel)?;
-            let field = Arc::new(Field::new("item", values.data_type().clone(), true));
+            let field = Arc::new(Field::new(LIST_ELEMENT, values.data_type().clone(), true));
             let size = i32::try_from(*n).map_err(|_| format!("ARRAY length {n} is too large"))?;
             Arc::new(FixedSizeListArray::try_new(field, size, values, nulls(rows)).map_err(|e| e.to_string())?)
         }
@@ -635,6 +635,24 @@ pub(crate) mod tests {
             (SqlType::TimestampTz, Mem::of(&[1i64])),
             (SqlType::Decimal { width: 18, scale: 3 }, Mem::of(&[1i64])),
             (SqlType::Enum(vec!["a".into()]), Mem::of(&[0u8])),
+            (SqlType::List(Box::new(SqlType::Integer)), {
+                let mut l = Mem::of(&entries(&[(0, 1)]));
+                l.children = vec![Mem::of(&[1i32])];
+                l.child_len = 1;
+                l
+            }),
+            (SqlType::Array(Box::new(SqlType::Integer), 1), {
+                let mut a = Mem::of(&[0u8]);
+                a.children = vec![Mem::of(&[1i32])];
+                a
+            }),
+            (SqlType::Map(Box::new(SqlType::Integer), Box::new(SqlType::Integer)), {
+                let kv = Mem { children: vec![Mem::of(&[1i32]), Mem::of(&[2i32])], ..Default::default() };
+                let mut m = Mem::of(&entries(&[(0, 1)]));
+                m.children = vec![kv];
+                m.child_len = 1;
+                m
+            }),
             (SqlType::Struct(vec![("a".into(), SqlType::Integer)]), {
                 let mut s = Mem::of(&[0u8]);
                 s.children = vec![Mem::of(&[1i32])];

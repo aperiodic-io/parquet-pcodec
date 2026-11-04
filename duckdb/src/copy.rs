@@ -21,6 +21,17 @@ pub const FORMAT: &str = "pcodec_parquet";
 /// on more than one DuckDB vector.
 pub const SAMPLE_ROWS: usize = 128 * 1024;
 
+/// The highest pcodec level.
+pub const MAX_LEVEL: u32 = 12;
+
+fn value_text(v: &Val) -> String {
+    match v {
+        Val::Int(i) => i.to_string(),
+        Val::Str(s) => s.clone(),
+        other => format!("{other:?}"),
+    }
+}
+
 /// The options a COPY accepts, with what they take.
 pub const OPTIONS: &[(&str, &str)] = &[
     ("COLUMN_NAMES", "a list of the column names, in order"),
@@ -29,7 +40,7 @@ pub const OPTIONS: &[(&str, &str)] = &[
     ("COLUMN_POLICY", "a list of 'column=policy'"),
     ("COMPRESSION", "the base codec: 'zstd', 'snappy', 'gzip', 'brotli', 'lz4' or 'uncompressed'"),
     ("COMPRESSION_LEVEL", "the level of the base codec"),
-    ("ROW_GROUP_SIZE", "rows per row group"),
+    ("ROW_GROUP_ROWS", "rows per row group (DuckDB keeps ROW_GROUP_SIZE for itself)"),
 ];
 
 /// What a COPY writes.
@@ -108,7 +119,9 @@ impl CopyOptions {
                 }
                 "LEVEL" => {
                     let level = integer(&name, value)?;
-                    let level = u32::try_from(level).map_err(|_| format!("invalid LEVEL {level}: expected 0 to 12"))?;
+                    let level = u32::try_from(level).ok().filter(|&l| l <= MAX_LEVEL);
+                    let level = level
+                        .ok_or_else(|| format!("invalid LEVEL {}: expected 0 to {MAX_LEVEL}", value_text(value)))?;
                     writer = writer.with_level(level).map_err(|e| e.to_string())?;
                 }
                 "COLUMN_POLICY" => {
@@ -120,10 +133,10 @@ impl CopyOptions {
                 }
                 "COMPRESSION" => compression = Some(string(&name, value)?),
                 "COMPRESSION_LEVEL" => compression_level = Some(integer(&name, value)?),
-                "ROW_GROUP_SIZE" => {
+                "ROW_GROUP_ROWS" => {
                     let rows = integer(&name, value)?;
                     let rows = usize::try_from(rows).ok().filter(|&r| r > 0);
-                    let rows = rows.ok_or_else(|| "ROW_GROUP_SIZE must be a positive number of rows".to_string())?;
+                    let rows = rows.ok_or_else(|| "ROW_GROUP_ROWS must be a positive number of rows".to_string())?;
                     properties = properties.set_max_row_group_row_count(Some(rows));
                 }
                 // DuckDB may pass the format along with the options
@@ -323,7 +336,7 @@ mod tests {
         assert_eq!(with(&[("POLICY", Val::Int(1))]).unwrap_err(), "POLICY must be a string, not Int(1)");
         assert_eq!(with(&[("LEVEL", Val::Int(12))]).unwrap().writer.level.compression_level(), 12);
         assert_eq!(with(&[("LEVEL", s("0"))]).unwrap().writer.level.compression_level(), 0);
-        assert!(with(&[("LEVEL", Val::Int(13))]).is_err());
+        assert_eq!(with(&[("LEVEL", Val::Int(13))]).unwrap_err(), "invalid LEVEL 13: expected 0 to 12");
         assert_eq!(with(&[("LEVEL", Val::Int(-1))]).unwrap_err(), "invalid LEVEL -1: expected 0 to 12");
         assert_eq!(with(&[("LEVEL", s("x"))]).unwrap_err(), "LEVEL must be an integer, not \"x\"");
         assert_eq!(with(&[("LEVEL", Val::Bool(true))]).unwrap_err(), "LEVEL must be an integer, not Bool(true)");
@@ -361,12 +374,12 @@ mod tests {
         // a level alone applies to zstd
         let o = with(&[("COMPRESSION_LEVEL", Val::Int(9))]).unwrap();
         assert_eq!(o.writer.base, Compression::ZSTD(ZstdLevel::try_new(9).unwrap()));
-        let o = with(&[("ROW_GROUP_SIZE", Val::Int(1000))]).unwrap();
+        let o = with(&[("ROW_GROUP_ROWS", Val::Int(1000))]).unwrap();
         assert_eq!(o.writer.properties.max_row_group_row_count(), Some(1000));
-        assert!(with(&[("ROW_GROUP_SIZE", Val::Int(0))]).is_err());
+        assert!(with(&[("ROW_GROUP_ROWS", Val::Int(0))]).is_err());
         assert_eq!(
-            with(&[("ROW_GROUP_SIZE", Val::Int(-5))]).unwrap_err(),
-            "ROW_GROUP_SIZE must be a positive number of rows"
+            with(&[("ROW_GROUP_ROWS", Val::Int(-5))]).unwrap_err(),
+            "ROW_GROUP_ROWS must be a positive number of rows"
         );
     }
 
@@ -377,7 +390,7 @@ mod tests {
         assert_eq!(
             e,
             "unknown option COMPRESION for FORMAT pcodec_parquet; the options are COLUMN_NAMES, POLICY, LEVEL, \
-             COLUMN_POLICY, COMPRESSION, COMPRESSION_LEVEL, ROW_GROUP_SIZE"
+             COLUMN_POLICY, COMPRESSION, COMPRESSION_LEVEL, ROW_GROUP_ROWS"
         );
     }
 
@@ -396,7 +409,7 @@ mod tests {
     fn writes_what_it_receives_after_a_sample() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("out.parquet");
-        let o = with(&[("ROW_GROUP_SIZE", Val::Int(100_000))]).unwrap();
+        let o = with(&[("ROW_GROUP_ROWS", Val::Int(100_000))]).unwrap();
         let mut w = CopyWriter::create(path.to_str().unwrap(), &o).unwrap();
         let mut from = 0;
         // vectors of 2048 rows; the codecs are chosen once SAMPLE_ROWS have arrived
