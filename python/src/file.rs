@@ -177,16 +177,18 @@ impl File {
                 usize::try_from(limit).map_err(|_| invalid(format!("limit must not be negative, got {limit}")))?;
             builder = builder.with_limit(limit);
         }
-        let Some(columns) = columns else {
-            return Ok(RecordBatchStream::new(Box::new(builder.build().map_err(from_parquet)?)));
+        // the reader's own schema lacks the file's schema metadata: use the file's, projected
+        let file_schema = self.metadata.schema();
+        let wanted = match columns {
+            Some(columns) => roots(file_schema, &columns)?,
+            None => (0..file_schema.fields().len()).collect(),
         };
-        let wanted = roots(self.metadata.schema(), &columns)?;
         let mut sorted = wanted.clone();
         sorted.sort_unstable();
         let order: Vec<usize> = wanted.iter().map(|i| sorted.binary_search(i).unwrap_or_default()).collect();
+        let schema = Arc::new(file_schema.project(&sorted).and_then(|s| s.project(&order)).map_err(from_arrow)?);
         let mask = ProjectionMask::roots(self.metadata.parquet_schema(), sorted);
         let inner = builder.with_projection(mask).build().map_err(from_parquet)?;
-        let schema = Arc::new(inner.schema().project(&order).map_err(from_arrow)?);
         Ok(RecordBatchStream::new(Box::new(Reordered { inner, order, schema })))
     }
 

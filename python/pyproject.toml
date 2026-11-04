@@ -64,6 +64,10 @@ ignore = [
     "UP007",
 ]
 
+[tool.ruff.lint.per-file-ignores]
+# tests import what they annotate at runtime; long literal expectations stay on one line
+"tests/*" = ["TC", "E501"]
+
 [tool.ruff.lint.isort]
 known-first-party = ["parquet_pcodec", "conftest"]
 
