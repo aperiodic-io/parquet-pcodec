@@ -130,12 +130,9 @@ fn decimal<V: VectorView>(v: &V, rows: &[Option<usize>], width: u8, scale: u8) -
                     2 => read::<i16, V>(v, *r) as i128,
                     4 => read::<i32, V>(v, *r) as i128,
                     8 => read::<i64, V>(v, *r) as i128,
-                    _ => {
-                        // duckdb_hugeint: lower u64, then upper i64
-                        let lower = read::<u64, V>(v, 2 * *r) as i128;
-                        let upper = read::<i64, V>(v, 2 * *r + 1) as i128;
-                        (upper << 64) | lower
-                    }
+                    // duckdb_hugeint is the lower u64, then the upper i64: on the little-endian
+                    // targets DuckDB supports, the bytes of an i128
+                    _ => read::<i128, V>(v, *r),
                 }
             },
         })
