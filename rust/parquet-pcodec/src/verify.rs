@@ -29,17 +29,20 @@ impl fmt::Display for Difference {
     }
 }
 
-/// The schema without metadata, for comparison.
+/// The schema without metadata, for comparison. The names of list items and map entries
+/// are not data (writers differ: `item` and `entries` in arrow-rs, `element` and
+/// `key_value` in pyarrow and the Parquet spec), so they are made the same.
 fn bare(fields: &Fields) -> Fields {
     fields.iter().map(|f| Arc::new(bare_field(f))).collect()
 }
 
 fn bare_field(f: &Field) -> Field {
+    let item = |c: &Field| Arc::new(bare_field(c).with_name("item"));
     let t = match f.data_type() {
-        DataType::List(c) => DataType::List(Arc::new(bare_field(c))),
-        DataType::LargeList(c) => DataType::LargeList(Arc::new(bare_field(c))),
-        DataType::FixedSizeList(c, n) => DataType::FixedSizeList(Arc::new(bare_field(c)), *n),
-        DataType::Map(c, sorted) => DataType::Map(Arc::new(bare_field(c)), *sorted),
+        DataType::List(c) => DataType::List(item(c)),
+        DataType::LargeList(c) => DataType::LargeList(item(c)),
+        DataType::FixedSizeList(c, n) => DataType::FixedSizeList(item(c), *n),
+        DataType::Map(c, sorted) => DataType::Map(Arc::new(bare_field(c).with_name("entries")), *sorted),
         DataType::Struct(fields) => DataType::Struct(bare(fields)),
         t => t.clone(),
     };

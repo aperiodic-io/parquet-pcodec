@@ -1,6 +1,7 @@
 mod common;
 
 use arrow_array::{ArrayRef, Float64Array, Int32Array, Int64Array, RecordBatch};
+use arrow_schema::{DataType, Field};
 use bytes::Bytes;
 use common::write;
 use parquet_pcodec::inspect::inspect;
@@ -60,6 +61,29 @@ fn schemas_and_row_counts() {
     assert_eq!(verify(long.clone(), a.clone()).unwrap(), Some(Difference::RowCount { a: 3, b: 1 }));
     assert_eq!(verify(a, long).unwrap(), Some(Difference::RowCount { a: 1, b: 3 }));
     assert_eq!(Difference::RowCount { a: 1, b: 3 }.to_string(), "row counts differ: 1 vs 3");
+}
+
+/// A list<double> column whose item field is called `item`; and a map<string, int64> whose
+/// entries are called `entries`.
+fn nested(item: &str, entries: &str, value: f64) -> Bytes {
+    use arrow_array::builder::{Float64Builder, Int64Builder, ListBuilder, MapBuilder, MapFieldNames, StringBuilder};
+    let mut list = ListBuilder::new(Float64Builder::new()).with_field(Field::new(item, DataType::Float64, true));
+    list.values().append_value(value);
+    list.append(true);
+    let names = MapFieldNames { entry: entries.into(), key: "key".into(), value: "value".into() };
+    let mut map = MapBuilder::new(Some(names), StringBuilder::new(), Int64Builder::new());
+    map.keys().append_value("k");
+    map.values().append_value(1);
+    map.append(true).unwrap();
+    file(vec![("l", Arc::new(list.finish()) as ArrayRef), ("m", Arc::new(map.finish()) as ArrayRef)])
+}
+
+#[test]
+fn list_item_and_map_entry_names_are_not_data() {
+    // pyarrow writes Parquet's `element` and `key_value`, arrow-rs `item` and `entries`
+    assert_eq!(verify(nested("item", "entries", 1.0), nested("element", "key_value", 1.0)).unwrap(), None);
+    let d = verify(nested("item", "entries", 1.0), nested("element", "key_value", 2.0)).unwrap();
+    assert!(matches!(d, Some(Difference::Row { row: 0, .. })), "{d:?}");
 }
 
 #[test]
