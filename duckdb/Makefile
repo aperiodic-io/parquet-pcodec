@@ -41,6 +41,8 @@ sql: venv build
 # Every viable mutant must be caught. The slow memory test is left out of the mutation run:
 # a mutant that only it could catch would also have to keep every other result right.
 mutation: venv
+	@# cargo mutants creates the output directory but not its parents (a fresh clone has no target/)
+	mkdir -p $(MUTANTS_OUT)
 	PCODEC_DUCKDB_PYTEST_MARK="not slow" PCODEC_DUCKDB_PYTHON=$(abspath $(PYTHON)) \
 		$(CARGO) mutants --dir $(ROOT) $(CRATE) -j $(JOBS) --output $(MUTANTS_OUT) $(MUTANTS_ARGS)
 
@@ -52,9 +54,9 @@ clippy:
 
 # the duckdb crate depends on arrow ^60: it must share arrow 60.1.0 with the parquet fork
 check-arrow:
-	@dups="$$($(CARGO) tree $(CRATE) -e normal --prefix none -f '{p}' | sed 's/ (.*//' | sort -u \
-		| awk '{print $$1}' | uniq -d | grep -E '^(arrow|parquet)' || true)"; \
-	if [ -n "$$dups" ]; then echo "more than one version of: $$dups"; exit 1; fi; \
+	@dups="$$($(CARGO) tree $(CRATE) -e normal --duplicates --depth 0 --prefix none \
+		| awk '/^(arrow|parquet)/ {print $$1}' | sort -u)"; \
+	if [ -n "$$dups" ]; then echo "more than one version of:" $$dups; exit 1; fi; \
 	$(CARGO) tree $(CRATE) -e normal --prefix none -f '{p}' | grep -E '^(arrow |arrow-array |parquet )' | sort -u
 
 check: fmt-check clippy check-arrow test
