@@ -52,7 +52,7 @@ dev = [
 package = false
 
 [tool.maturin]
-python-source = "python"
+python-source = "src"
 module-name = "parquet_pcodec._lib"
 
 [tool.ruff]
@@ -76,7 +76,7 @@ known-first-party = ["parquet_pcodec", "conftest"]
 [tool.mypy]
 strict = true
 python_version = "3.10"
-files = ["python", "tests"]
+files = ["src", "tests"]
 mypy_path = "tests"
 
 [[tool.mypy.overrides]]

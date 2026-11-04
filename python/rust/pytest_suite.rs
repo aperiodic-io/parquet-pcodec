@@ -25,7 +25,7 @@ fn package(lib: &Path) -> PathBuf {
     let pkg = root.join("parquet_pcodec");
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&pkg).expect("create the package directory");
-    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("python").join("parquet_pcodec");
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("parquet_pcodec");
     for entry in std::fs::read_dir(&src).expect("read the package sources") {
         let path = entry.expect("package entry").path();
         if path.is_file() && path.extension().is_some_and(|e| e == "py" || e == "pyi" || e == "typed") {

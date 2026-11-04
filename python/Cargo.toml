@@ -11,9 +11,10 @@ autotests = false
 
 [lib]
 name = "_lib"
-# rlib too, so that `cargo test` builds the library (and with it the cdylib) for rust-tests/
+path = "rust/lib.rs"
+# rlib too, so that `cargo test` builds the library (and with it the cdylib) for the test
 crate-type = ["cdylib", "rlib"]
-# the extension is tested from Python: rust-tests/pytest.rs runs the pytest suite against it
+# the extension is tested from Python: rust/pytest_suite.rs runs the pytest suite against it
 test = false
 doctest = false
 
@@ -32,4 +33,4 @@ pyo3 = { version = "0.30", features = ["abi3-py310"] }
 
 [[test]]
 name = "pytest"
-path = "rust-tests/pytest.rs"
+path = "rust/pytest_suite.rs"
