@@ -27,6 +27,7 @@ fn tree(dir: &Path) -> BTreeSet<PathBuf> {
 
 #[test]
 fn generator_reproduces_testdata_byte_for_byte() {
+    let _lock = TESTDATA.lock().unwrap_or_else(|e| e.into_inner());
     let dir = tempfile::tempdir().unwrap();
     Command::cargo_bin("gen-testdata").unwrap().arg("--out").arg(dir.path()).assert().success();
     let (ours, committed) = (tree(dir.path()), tree(&testdata()));
@@ -50,12 +51,14 @@ fn generator_reproduces_testdata_byte_for_byte() {
 
 #[test]
 fn generator_usage_errors() {
-    Command::cargo_bin("gen-testdata")
-        .unwrap()
-        .arg("--frob")
-        .assert()
-        .code(1)
-        .stderr("gen-testdata: usage: gen-testdata [--out DIR]\n");
+    for args in [&["--frob"][..], &["--frob", "dir"], &["--out", "a", "b"]] {
+        Command::cargo_bin("gen-testdata")
+            .unwrap()
+            .args(args)
+            .assert()
+            .code(1)
+            .stderr("gen-testdata: usage: gen-testdata [--out DIR]\n");
+    }
     let file = tempfile::NamedTempFile::new().unwrap();
     Command::cargo_bin("gen-testdata")
         .unwrap()
@@ -66,8 +69,23 @@ fn generator_usage_errors() {
         .stderr(predicates::str::starts_with("gen-testdata: "));
 }
 
+/// Tests that read `testdata/` hold this lock against the one that rewrites it.
+static TESTDATA: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[test]
+fn generator_rewrites_testdata_in_place_unchanged() {
+    let _lock = TESTDATA.lock().unwrap_or_else(|e| e.into_inner());
+    let read_all =
+        || tree(&testdata()).into_iter().map(|f| (std::fs::read(testdata().join(&f)).unwrap(), f)).collect::<Vec<_>>();
+    let before = read_all();
+    // without arguments it writes the repository's testdata/
+    Command::cargo_bin("gen-testdata").unwrap().assert().success();
+    assert!(read_all() == before, "regenerating changed testdata/");
+}
+
 #[test]
 fn files_read_as_expected() {
+    let _lock = TESTDATA.lock().unwrap_or_else(|e| e.into_inner());
     let m = manifest(&testdata().join("files/manifest.json"));
     let files = m["files"].as_array().unwrap();
     assert_eq!(files.len(), 13);
@@ -102,6 +120,7 @@ fn read_open_reports_missing_files() {
 
 #[test]
 fn payload_vectors_decode_or_fail() {
+    let _lock = TESTDATA.lock().unwrap_or_else(|e| e.into_inner());
     let dir = testdata().join("payloads");
     let m = manifest(&dir.join("manifest.json"));
     let (mut valid, mut invalid) = (0, 0);

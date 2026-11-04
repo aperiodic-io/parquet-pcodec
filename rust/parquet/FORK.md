@@ -81,10 +81,13 @@ mutated with:
 cargo mutants --no-config -p parquet \
   -f rust/parquet/src/basic.rs -f rust/parquet/src/compression.rs \
   -f rust/parquet/src/column/writer/mod.rs -f rust/parquet/src/file/writer.rs \
-  --re 'PcodecLevel|PcodecCodec|pcodec_codec|with_pcodec_version|set_physical_type|CodecOptionsBuilder|create_codec|<impl From<CompressionCodec> for Compression>::from|<impl From<Compression> for CompressionCodec>::from|<impl FromStr for Compression>::from_str|GenericColumnWriter<.*>::new|write_metadata' \
+  --re 'PcodecLevel|PcodecCodec|with_pcodec_version|CodecOptionsBuilder::set_physical_type|CodecOptionsBuilder::build|create_codec|<impl From<CompressionCodec> for Compression>::from|<impl From<Compression> for CompressionCodec>::from|<impl FromStr for Compression>::from_str|write_metadata' \
   -- --lib -- basic:: compression:: column::writer:: file::writer:: \
   --skip test_byte_stream_split_extended_roundtrip --skip test_int96_interop \
   --skip test_rewrite_missing_column_index --skip test_rewrite_no_page_indexes
 ```
 
-(the four skipped tests need `parquet-testing`). `make fork-mutants` runs it.
+(the four skipped tests need `parquet-testing`). `make fork-mutants` runs it. cargo-mutants
+generates no mutants in `GenericColumnWriter::new` (a constructor) and none in the
+`CompressionCodec` enum; the one-line change in `new` is covered by
+`test_column_writer_pcodec_physical_type`.
