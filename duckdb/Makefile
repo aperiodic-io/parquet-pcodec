@@ -42,7 +42,7 @@ sql: venv build
 # a mutant that only it could catch would also have to keep every other result right.
 mutation: venv
 	PCODEC_DUCKDB_PYTEST_MARK="not slow" PCODEC_DUCKDB_PYTHON=$(abspath $(PYTHON)) \
-		$(CARGO) mutants --dir $(ROOT) $(CRATE) -j $(JOBS) --copy-target=true --output $(MUTANTS_OUT) $(MUTANTS_ARGS)
+		$(CARGO) mutants --dir $(ROOT) $(CRATE) -j $(JOBS) --output $(MUTANTS_OUT) $(MUTANTS_ARGS)
 
 fmt-check:
 	$(CARGO) fmt $(CRATE) --check

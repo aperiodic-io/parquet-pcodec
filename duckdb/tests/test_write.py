@@ -164,7 +164,21 @@ def test_bad_options_are_explained(con, tmp_path, options, message):
 
 
 @pytest.mark.parametrize(
-    "expr, name", [("uuid()", "UUID"), ("1::HUGEINT", "HUGEINT"), ("INTERVAL 1 DAY", "INTERVAL"), ("[INTERVAL 1 DAY]", "INTERVAL")]
+    "expr, name",
+    [
+        ("uuid()", "UUID"),
+        ("1::HUGEINT", "HUGEINT"),
+        ("1::UHUGEINT", "UHUGEINT"),
+        ("INTERVAL 1 DAY", "INTERVAL"),
+        ("[INTERVAL 1 DAY]", "INTERVAL"),
+        ("union_value(k := 1)", "UNION"),
+        ("'101'::BIT", "BIT"),
+        ("'12:00:00+01'::TIMETZ", "TIME WITH TIME ZONE"),
+        ("1::BIGNUM", "BIGNUM"),
+        ("1::VARIANT", "VARIANT"),
+        ("'POINT(1 2)'::GEOMETRY", "GEOMETRY"),
+        ("NULL", "NULL"),
+    ],
 )
 def test_types_it_cannot_write_are_refused(con, tmp_path, expr, name):
     with pytest.raises(duckdb.Error, match=f'column "v": columns of type {name} cannot be written'):

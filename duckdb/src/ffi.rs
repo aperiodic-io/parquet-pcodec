@@ -290,3 +290,33 @@ pub unsafe extern "C" fn drop_box<T>(p: *mut c_void) {
         let _ = catch_unwind(AssertUnwindSafe(|| drop(unsafe { Box::from_raw(p as *mut T) })));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn guard_turns_panics_into_messages() {
+        assert_eq!(guard(|| Ok::<_, String>(5)), Ok(5));
+        assert_eq!(guard(|| Err::<(), _>("no".to_string())), Err("no".to_string()));
+        let hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        assert_eq!(guard::<()>(|| panic!("static text")), Err("internal error: static text".to_string()));
+        let n = 3;
+        assert_eq!(guard::<()>(|| panic!("formatted {n}")), Err("internal error: formatted 3".to_string()));
+        assert_eq!(guard::<()>(|| std::panic::panic_any(7u8)), Err("internal error".to_string()));
+        std::panic::set_hook(hook);
+    }
+
+    #[test]
+    fn boxes_round_trip_and_strings_lose_nuls() {
+        let p = into_raw(String::from("kept"));
+        assert!(!p.is_null());
+        assert_eq!(unsafe { &*(p as *const String) }, "kept");
+        unsafe { drop_box::<String>(p) };
+        unsafe { drop_box::<String>(std::ptr::null_mut()) };
+        assert_eq!(c_string("a\0b").as_bytes(), b"a?b");
+        assert_eq!(c_string("name").as_bytes(), b"name");
+        assert_eq!(unsafe { take_string(std::ptr::null_mut()) }, "");
+    }
+}
