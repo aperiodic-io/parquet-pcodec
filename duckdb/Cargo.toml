@@ -1,0 +1,31 @@
+[package]
+name = "parquet-pcodec-duckdb"
+version = "0.1.0"
+description = "DuckDB loadable extension `parquet_pcodec`: read and write Parquet files with the PCODEC codec"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+name = "parquet_pcodec_duckdb"
+# cdylib: the extension DuckDB loads; rlib: the unit tests and the packaging binary
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# the C extension API (v1.5.6, which DuckDB 2.0.0 serves) through function pointers that DuckDB
+# hands over at LOAD; nothing links libduckdb
+duckdb = { version = "=1.20000.1", default-features = false, features = ["loadable-extension", "vtab-arrow"] }
+parquet-pcodec = { path = "../rust/parquet-pcodec" }
+parquet = { workspace = true, features = ["arrow", "zstd", "snap", "lz4", "brotli", "flate2-zlib-rs", "pcodec"] }
+arrow-array.workspace = true
+arrow-schema.workspace = true
+arrow-buffer.workspace = true
+arrow-data.workspace = true
+arrow-cast.workspace = true
+glob = "0.3"
+
+[dev-dependencies]
+tempfile = "3"
+half = "2"
