@@ -146,8 +146,9 @@ impl<W: Write + Send> Writer<W> {
         Ok(writer)
     }
 
-    /// The writer properties with PCODEC on the leaves where `pcodec` is set.
-    fn properties(&self, pcodec: &[bool]) -> WriterProperties {
+    /// The writer properties with PCODEC on the leaves where `pcodec` is set, and V2 pages
+    /// when any is (or when `v2`).
+    fn properties(&self, pcodec: &[bool], v2: bool) -> WriterProperties {
         let mut b = self.options.properties.clone().into_builder().set_compression(self.options.base);
         for (leaf, _) in self.leaves.iter().zip(pcodec).filter(|(_, p)| **p) {
             b = b
@@ -155,32 +156,41 @@ impl<W: Write + Send> Writer<W> {
                 .set_column_encoding(leaf.path.clone(), Encoding::PLAIN)
                 .set_column_dictionary_enabled(leaf.path.clone(), false);
         }
-        if pcodec.contains(&true) {
+        if v2 || pcodec.contains(&true) {
             b = b.set_writer_version(WriterVersion::PARQUET_2_0);
         }
         b.build()
     }
 
     /// Chooses the codecs (with `sample` for the Auto columns) and opens the file.
+    ///
+    /// Each Auto leaf gets PCODEC when it is smaller than the base codec, both with V2 pages.
+    /// A file with PCODEC is written with V2 pages, which can make the base columns larger
+    /// (V2 pages store levels uncompressed): when only Auto leaves would use PCODEC, the file
+    /// keeps the base codec everywhere if that is smaller in total.
     fn open(&mut self, sink: W, sample: &[&RecordBatch]) -> Result<()> {
         let forced: Vec<bool> = self.leaves.iter().map(|l| l.policy == Some(Policy::Pcodec)).collect();
         let auto: Vec<bool> = self.leaves.iter().map(|l| l.policy == Some(Policy::Auto)).collect();
-        self.pcodec = forced;
+        self.pcodec = forced.clone();
         if let [batch] = sample {
-            let base = self.chunk_sizes(batch, &vec![false; self.leaves.len()])?;
-            let pcodec = self.chunk_sizes(batch, &auto)?;
-            for i in 0..self.leaves.len() {
-                self.pcodec[i] |= auto[i] && pcodec[i] < base[i];
+            let none = vec![false; self.leaves.len()];
+            let base_v2 = self.chunk_sizes(batch, &none, true)?;
+            let pcodec = self.chunk_sizes(batch, &auto, true)?;
+            let choice: Vec<bool> =
+                (0..self.leaves.len()).map(|i| forced[i] || (auto[i] && pcodec[i] < base_v2[i])).collect();
+            let v2_total: i64 = (0..choice.len()).map(|i| if choice[i] { pcodec[i] } else { base_v2[i] }).sum();
+            if forced.contains(&true) || v2_total < self.chunk_sizes(batch, &none, false)?.iter().sum() {
+                self.pcodec = choice;
             }
         }
-        let props = self.properties(&self.pcodec);
+        let props = self.properties(&self.pcodec, false);
         self.state = State::Open(Box::new(ArrowWriter::try_new(sink, self.schema.clone(), Some(props))?));
         Ok(())
     }
 
     /// Compressed bytes per leaf of `batch` written with PCODEC on the `pcodec` leaves.
-    fn chunk_sizes(&self, batch: &RecordBatch, pcodec: &[bool]) -> Result<Vec<i64>> {
-        let mut w = ArrowWriter::try_new(Vec::new(), self.schema.clone(), Some(self.properties(pcodec)))?;
+    fn chunk_sizes(&self, batch: &RecordBatch, pcodec: &[bool], v2: bool) -> Result<Vec<i64>> {
+        let mut w = ArrowWriter::try_new(Vec::new(), self.schema.clone(), Some(self.properties(pcodec, v2)))?;
         w.write(batch)?;
         let metadata = w.close()?;
         let mut sizes = vec![0; self.leaves.len()];

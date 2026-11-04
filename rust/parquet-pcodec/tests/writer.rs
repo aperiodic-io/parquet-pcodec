@@ -228,3 +228,37 @@ fn nested_leaves_are_chosen_one_by_one() {
     assert_eq!(codecs(&file)[2].1, "ZSTD");
     assert_eq!(codecs(&file)[0].1, "PCODEC");
 }
+
+/// a PCODEC gain on `t`, and order-book-like price lists that V2 pages make larger
+fn v2_penalty(rows: usize) -> RecordBatch {
+    let mut rng = Rng(12);
+    let mut mid = 6_500_000i64;
+    let mut bids = ListBuilder::new(Float64Builder::new());
+    let mut asks = ListBuilder::new(Float64Builder::new());
+    for _ in 0..rows {
+        mid += rng.below(5) as i64 - 2;
+        bids.append_value((0..20).map(|k| Some((mid - k) as f64 / 100.0)));
+        asks.append_value((0..20).map(|k| Some((mid + 1 + k) as f64 / 100.0)));
+    }
+    RecordBatch::try_from_iter([
+        ("t", Arc::new(Int64Array::from_iter_values(0..rows as i64)) as ArrayRef),
+        ("bids", Arc::new(bids.finish()) as ArrayRef),
+        ("asks", Arc::new(asks.finish()) as ArrayRef),
+    ])
+    .unwrap()
+}
+
+#[test]
+fn auto_counts_the_cost_of_v2_pages() {
+    let batch = v2_penalty(4000);
+    let (auto, _) = write(std::slice::from_ref(&batch), WriterOptions::default());
+    let (base, _) = write(std::slice::from_ref(&batch), WriterOptions::default().with_policy(Policy::Base));
+    let (pcodec_t, _) =
+        write(std::slice::from_ref(&batch), WriterOptions::default().with_policy(Policy::Base).with_column("t", Policy::Pcodec));
+    // PCODEC alone is smaller on `t`, but makes the whole file larger (V2 pages)
+    assert!(report(&pcodec_t).columns[0].compressed_bytes < report(&base).columns[0].compressed_bytes);
+    assert!(pcodec_t.len() > base.len());
+    assert_eq!(codecs(&auto), pairs(&[("t", "ZSTD"), ("bids.list.item", "ZSTD"), ("asks.list.item", "ZSTD")]));
+    assert_eq!(auto.len(), base.len());
+    assert_eq!(lines(&auto), batch_lines(&[batch]));
+}

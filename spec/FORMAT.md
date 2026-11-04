@@ -163,6 +163,13 @@ the base codec (ZSTD by default, with the writer's normal encodings) and with PC
 no dictionary). The smaller one is used for that column in the whole file. A user can force
 either codec per column.
 
+Writers that write every page of a file with PCODEC columns as `DATA_PAGE_V2` (as the Rust
+writer does: its page version is per file) compare both candidates with V2 pages, and also
+compare the whole first batch: when no column is forced to PCODEC and the base codec with the
+writer's normal page version is smaller in total than the per-column choice, every column
+keeps the base codec. V2 pages store repetition and definition levels uncompressed, which can
+cost the other columns more than PCODEC saves.
+
 ## 7. Security
 
 Payloads are untrusted input. A decoder MUST bound its output by the expected size, MUST check
