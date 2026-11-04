@@ -19,7 +19,7 @@ fn decimal(dtype: u8, exp: u8, deltas: &[u8], exceptions: &[u8], q: &[i64]) -> V
 }
 
 fn bits64(b: &[u8]) -> Vec<u64> {
-    b.chunks_exact(8).map(|c| u64::from_le_bytes(c.try_into().unwrap())).collect()
+    b.as_chunks::<8>().0.iter().map(|c| u64::from_le_bytes(*c)).collect()
 }
 
 #[test]
@@ -70,7 +70,7 @@ fn decimal_vector_float_rounds_through_f64() {
     // f32(f64(q) / 10^e): 0.1f32 is not 0.1, but this is the value the spec defines
     let p = decimal(4, 1, &[], &[], &[1, 25, -3]);
     let out = decompress(&p, 12).unwrap();
-    let got: Vec<u32> = out.chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect();
+    let got: Vec<u32> = out.as_chunks::<4>().0.iter().map(|c| u32::from_le_bytes(*c)).collect();
     let want: Vec<u32> = [1i64, 25, -3].iter().map(|q| ((*q as f64 / 10.0) as f32).to_bits()).collect();
     assert_eq!(got, want);
 }

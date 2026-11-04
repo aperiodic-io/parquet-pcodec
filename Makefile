@@ -44,9 +44,12 @@ testdata-check: testdata
 	git diff --exit-code -- testdata
 	test -z "$$(git status --porcelain -- testdata)"
 
+# --target: cargo-fuzz defaults to the platform it was built for, and prebuilt cargo-fuzz
+# binaries (as CI installs) are musl builds, for which nightly ships no sanitizer std
 fuzz-smoke:
-	cd rust/core && for t in $$($(CARGO) +nightly fuzz list); do \
-		$(CARGO) +nightly fuzz run $$t -- -max_total_time=$(FUZZ_TIME) || exit 1; done
+	cd rust/core && host=$$(rustc +nightly -vV | sed -n 's/^host: //p') && \
+	for t in $$($(CARGO) +nightly fuzz list); do \
+		$(CARGO) +nightly fuzz run --target $$host $$t -- -max_total_time=$(FUZZ_TIME) || exit 1; done
 
 # python/rust is judged by the Python suite (see python-mutants); the DuckDB extension has its
 # own run, `make -C duckdb mutation`: the tests of both need Python

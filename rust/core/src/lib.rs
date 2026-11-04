@@ -178,7 +178,7 @@ pub fn compress(src: &[u8], opts: &Options) -> Result<Vec<u8>, Error> {
 }
 
 fn values<T, const W: usize>(src: &[u8], f: fn([u8; W]) -> T) -> Vec<T> {
-    src.chunks_exact(W).map(|c| f(c.try_into().expect("chunks_exact"))).collect()
+    src.as_chunks::<W>().0.iter().map(|c| f(*c)).collect()
 }
 
 fn pco_bytes<T: Number>(v: &[T], cfg: &ChunkConfig) -> Result<Vec<u8>, Error> {
