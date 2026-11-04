@@ -108,10 +108,7 @@ pub fn inspect<R: ChunkReader>(reader: &R) -> Result<FileReport> {
 
 fn scan_pages<R: ChunkReader>(reader: &R, chunk: &ColumnChunkMetaData, report: &mut ColumnReport) -> Result<()> {
     let bad = || invalid(format!("column {}: bad column chunk offsets", report.path));
-    let start = match chunk.dictionary_page_offset() {
-        Some(d) if d > 0 => d,
-        _ => chunk.data_page_offset(),
-    };
+    let start = chunk.dictionary_page_offset().unwrap_or(chunk.data_page_offset());
     let start = u64::try_from(start).map_err(|_| bad())?;
     let len = usize::try_from(chunk.compressed_size()).map_err(|_| bad())?;
     if start.checked_add(len as u64).is_none_or(|end| end > reader.len()) {
@@ -287,9 +284,6 @@ impl<'a> Compact<'a> {
 
     /// A list, set or map element: booleans take one byte there.
     fn element(&mut self, t: u8) -> Parse<()> {
-        if self.pos >= self.buf.len() {
-            return Err("truncated".into());
-        }
         match t {
             1 | 2 => self.take(1),
             t => self.skip(t),
@@ -445,6 +439,13 @@ mod tests {
         let mut deep = vec![0x1c; 40];
         deep.extend([0; 41]);
         assert_eq!(Compact::new(&deep).page_header().unwrap_err(), "nested too deep");
+        // depth is per nesting, not per struct: 40 sibling structs are fine
+        let mut siblings = vec![0x15, 0, 0x15, 0, 0x15, 0];
+        for _ in 0..40 {
+            siblings.extend([0x1c, 0]);
+        }
+        siblings.push(0);
+        assert!(Compact::new(&siblings).page_header().is_ok());
         let mut ok = vec![0x15, 0, 0x15, 0, 0x15, 0];
         ok.extend([0x1c; 31]);
         ok.extend([0; 32]);

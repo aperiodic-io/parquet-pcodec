@@ -2,7 +2,6 @@
 
 use assert_cmd::Command;
 use parquet_pcodec::canonical;
-use parquet_pcodec::parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use serde_json::Value;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -41,7 +40,10 @@ fn generator_reproduces_testdata_byte_for_byte() {
             f.display()
         );
     }
-    // a second run over the first replaces everything with the same bytes
+    // a second run over the first replaces everything with the same bytes, and drops stale files
+    for sub in ["files", "expected", "payloads"] {
+        std::fs::write(dir.path().join(sub).join("stale"), b"x").unwrap();
+    }
     Command::cargo_bin("gen-testdata").unwrap().arg("--out").arg(dir.path()).assert().success();
     assert_eq!(tree(dir.path()), committed);
 }
@@ -73,8 +75,7 @@ fn files_read_as_expected() {
     let mut pcodec = 0;
     for f in files {
         let path = testdata().join(f["file"].as_str().unwrap());
-        let reader =
-            ParquetRecordBatchReaderBuilder::try_new(std::fs::File::open(&path).unwrap()).unwrap().build().unwrap();
+        let reader = parquet_pcodec::read::open(&path).unwrap().build().unwrap();
         let mut actual = String::new();
         for b in reader {
             canonical::write_batch(&b.unwrap(), &mut actual).unwrap();
@@ -91,6 +92,12 @@ fn files_read_as_expected() {
         assert!(modes.contains(m), "{m}");
     }
     assert_eq!(pcodec, 12);
+}
+
+#[test]
+fn read_open_reports_missing_files() {
+    let err = parquet_pcodec::read::open(testdata().join("files/missing.parquet")).err().unwrap();
+    assert!(err.to_string().starts_with("io: "), "{err}");
 }
 
 #[test]

@@ -69,14 +69,14 @@ pub fn transcode<R: ChunkReader + 'static, W: Write + Send>(
     options.properties = options
         .properties
         .into_builder()
-        .set_key_value_metadata((!other_kv.is_empty()).then_some(other_kv))
+        .set_key_value_metadata(Some(other_kv))
         .set_max_row_group_row_count(None)
         .set_max_row_group_bytes(None)
         .build();
 
     let mut writer = Writer::try_new(output, schema.clone(), options)?;
     // batches do not follow row groups: cut them at the input's row group boundaries
-    let mut sizes = metadata.row_groups().iter().map(|rg| rg.num_rows()).filter(|n| *n > 0);
+    let mut sizes = metadata.row_groups().iter().map(|rg| rg.num_rows());
     let mut left = sizes.next().unwrap_or(i64::MAX);
     for batch in builder.build()? {
         let mut batch = RecordBatch::try_new(schema.clone(), batch?.columns().to_vec())?;

@@ -253,8 +253,10 @@ fn auto_counts_the_cost_of_v2_pages() {
     let batch = v2_penalty(4000);
     let (auto, _) = write(std::slice::from_ref(&batch), WriterOptions::default());
     let (base, _) = write(std::slice::from_ref(&batch), WriterOptions::default().with_policy(Policy::Base));
-    let (pcodec_t, _) =
-        write(std::slice::from_ref(&batch), WriterOptions::default().with_policy(Policy::Base).with_column("t", Policy::Pcodec));
+    let (pcodec_t, _) = write(
+        std::slice::from_ref(&batch),
+        WriterOptions::default().with_policy(Policy::Base).with_column("t", Policy::Pcodec),
+    );
     // PCODEC alone is smaller on `t`, but makes the whole file larger (V2 pages)
     assert!(report(&pcodec_t).columns[0].compressed_bytes < report(&base).columns[0].compressed_bytes);
     assert!(pcodec_t.len() > base.len());

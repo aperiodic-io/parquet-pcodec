@@ -151,3 +151,19 @@ fn bad_input_is_an_error() {
     let err = transcode(Bytes::from_static(b"not parquet"), &mut out, &Target::standard()).unwrap_err();
     assert!(err.to_string().starts_with("parquet: "), "{err}");
 }
+
+#[test]
+fn row_groups_without_rows_are_dropped() {
+    // testdata's `empty` file: one row group without rows
+    let input = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/files/empty.parquet")).unwrap();
+    let out = run(Bytes::from(input), &Target::standard());
+    assert_eq!(row_groups(&out), Vec::<i64>::new());
+    // a zero-row group between others
+    let mut buf = Vec::new();
+    let mut w = ArrowWriter::try_new(&mut buf, batch(0, 1).schema(), None).unwrap();
+    w.write(&batch(0, 10)).unwrap();
+    w.flush().unwrap();
+    w.close().unwrap();
+    let out = run(Bytes::from(buf), &Target::Pcodec(WriterOptions::default()));
+    assert_eq!(row_groups(&out), [10]);
+}

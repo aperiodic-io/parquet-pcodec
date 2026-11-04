@@ -275,8 +275,10 @@ mod tests {
         let mut mb = MapBuilder::new(None, StringBuilder::new(), Int32Builder::new());
         mb.keys().append_value("k");
         mb.values().append_value(1);
+        mb.keys().append_value("l");
+        mb.values().append_value(2);
         mb.append(true).unwrap();
-        assert_eq!(one(Arc::new(mb.finish())), ["[{\"key\":\"k\",\"value\":1}]"]);
+        assert_eq!(one(Arc::new(mb.finish())), ["[{\"key\":\"k\",\"value\":1},{\"key\":\"l\",\"value\":2}]"]);
 
         let d: DictionaryArray<Int8Type> = vec!["x", "y", "x"].into_iter().collect();
         assert_eq!(one(Arc::new(d)), ["\"x\"", "\"y\"", "\"x\""]);

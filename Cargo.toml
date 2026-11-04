@@ -34,3 +34,11 @@ incremental = false
 
 [profile.dev.package."*"]
 debug = false
+# tests (and every mutant) run much faster with optimized dependencies
+opt-level = 2
+
+[profile.dev.package.parquet]
+opt-level = 2
+
+[profile.dev.package.parquet-pcodec-core]
+opt-level = 2

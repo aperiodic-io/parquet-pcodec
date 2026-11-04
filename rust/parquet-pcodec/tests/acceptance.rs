@@ -79,7 +79,8 @@ fn books() -> Vec<RecordBatch> {
     let mut out = vec![];
     for _ in 0..BOOKS / (BATCH / 5) {
         let mut ts = Vec::new();
-        let mut lists: Vec<ListBuilder<Float64Builder>> = (0..4).map(|_| ListBuilder::new(Float64Builder::new())).collect();
+        let mut lists: Vec<ListBuilder<Float64Builder>> =
+            (0..4).map(|_| ListBuilder::new(Float64Builder::new())).collect();
         for _ in 0..BATCH / 5 {
             t += 100;
             mid += rng.below(5) as i64 - 2;
