@@ -42,5 +42,7 @@ def test_strings_decimals_binary_and_nesting():
     assert values(st, st.type) == ['{"x":1,"y":true}', "null"]
     m = pa.array([[("k", 1)]], pa.map_(pa.string(), pa.int64()))
     assert values(m, m.type) == ['[{"key":"k","value":1}]']
+    d = pa.array(["u", None, "u"]).dictionary_encode()
+    assert values(d, d.type) == ['"u"', "null", '"u"']
     t = pa.table({"a": [1, 2], "b": ["x", None]})
     assert lines(t, t.schema) == '{"a":1,"b":"x"}\n{"a":2,"b":null}\n'

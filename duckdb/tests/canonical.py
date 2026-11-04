@@ -43,6 +43,8 @@ def _base(t: pa.DataType) -> pa.DataType:
 
 def values(arr: pa.Array, file_type: pa.DataType) -> list:
     """The canonical JSON text of every element of `arr` (None for null)."""
+    if pa.types.is_dictionary(arr.type):
+        arr = arr.dictionary_decode()
     t = arr.type
     want = _base(file_type)
     valid = [v.is_valid for v in arr] if arr.null_count else [True] * len(arr)

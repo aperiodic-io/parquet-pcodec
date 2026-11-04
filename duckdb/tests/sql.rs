@@ -35,6 +35,26 @@ fn python(manifest: &Path) -> PathBuf {
     venv
 }
 
+/// Builds the `parquet-pcodec` CLI (the tests transcode and `verify` with it) into this
+/// build's target directory, and returns its path.
+fn cli(manifest: &Path) -> PathBuf {
+    let profile_dir = library().parent().unwrap().to_path_buf();
+    let profile_dir =
+        if profile_dir.ends_with("deps") { profile_dir.parent().unwrap().to_path_buf() } else { profile_dir };
+    let target = profile_dir.parent().unwrap();
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
+    let mut cmd = Command::new(cargo);
+    cmd.current_dir(manifest.parent().unwrap())
+        .args(["build", "-q", "-j", "2", "-p", "parquet-pcodec", "--bin", "parquet-pcodec", "--target-dir"])
+        .arg(target);
+    if profile_dir.file_name().is_some_and(|p| p == "release") {
+        cmd.arg("--release");
+    }
+    let status = cmd.status().expect("run cargo");
+    assert!(status.success(), "cannot build the parquet-pcodec CLI");
+    profile_dir.join(format!("parquet-pcodec{}", std::env::consts::EXE_SUFFIX))
+}
+
 #[test]
 fn sql_tests() {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -48,7 +68,8 @@ fn sql_tests() {
     cmd.current_dir(manifest)
         .args(["-m", "pytest", "-q", "-x", "-p", "no:cacheprovider", "tests"])
         .env("PCODEC_DUCKDB_EXTENSION", &extension)
-        .env("PCODEC_DUCKDB_SCRATCH", dir.path());
+        .env("PCODEC_DUCKDB_SCRATCH", dir.path())
+        .env("PCODEC_CLI", cli(manifest));
     if let Ok(extra) = std::env::var("PCODEC_DUCKDB_PYTEST_ARGS") {
         cmd.args(extra.split_whitespace());
     }

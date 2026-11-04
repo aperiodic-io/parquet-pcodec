@@ -6,6 +6,7 @@ The extension comes from $PCODEC_DUCKDB_EXTENSION (a `parquet_pcodec.duckdb_exte
 
 import os
 import pathlib
+import subprocess
 
 import duckdb
 import pytest
@@ -43,3 +44,22 @@ def plain():
     c = duckdb.connect()
     yield c
     c.close()
+
+
+def cli() -> str:
+    """The parquet-pcodec CLI ($PCODEC_CLI, built by tests/sql.rs or `make build`)."""
+    path = os.environ.get("PCODEC_CLI")
+    if not path:
+        raise RuntimeError("set PCODEC_CLI to the parquet-pcodec binary")
+    return path
+
+
+def run_cli(*args) -> subprocess.CompletedProcess:
+    return subprocess.run([cli(), *map(str, args)], capture_output=True, text=True)
+
+
+def encode(src, dst, policy: str = "pcodec"):
+    """Transcodes a standard Parquet file to PCODEC with the Rust CLI."""
+    out = run_cli("encode", src, dst, "--policy", policy)
+    assert out.returncode == 0, out.stderr
+    return dst
