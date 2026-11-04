@@ -30,7 +30,7 @@ import pyarrow.parquet as pq
 import pytest
 
 import tparquet as ppc
-from conftest import TPARQUET_FILES, REPO, TESTDATA, manifest, vector
+from conftest import REPO, TESTDATA, TPARQUET_FILES, manifest, vector
 from tparquet import canonical
 
 LOG: dict[str, Any] = {"errors": {}, "ratios": {}}

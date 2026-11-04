@@ -20,9 +20,11 @@ TEST_TIMEOUT ?= 60
 
 .PHONY: venv build test sql mutation check fmt-check clippy check-arrow clean
 
-venv: $(PYTHON)
+venv: .venv/.synced
 
-$(PYTHON): pyproject.toml uv.lock
+# a stamp file of our own: .venv/bin/python is a symlink to the interpreter uv found, which
+# `touch` would follow (on CI runners that interpreter is not writable)
+.venv/.synced: pyproject.toml uv.lock
 	$(UV) sync --python 3.14 --frozen
 	@touch $@
 
