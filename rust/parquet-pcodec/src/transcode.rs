@@ -75,21 +75,33 @@ pub fn transcode<R: ChunkReader + 'static, W: Write + Send>(
         .build();
 
     let mut writer = Writer::try_new(output, schema.clone(), options)?;
-    // batches do not follow row groups: cut them at the input's row group boundaries
-    let mut sizes = metadata.row_groups().iter().map(|rg| rg.num_rows());
-    let mut left = sizes.next().unwrap_or(i64::MAX);
+    // batches do not follow row groups: cut them at the input's row group boundaries (the
+    // running row counts), flushing a row group at each
+    let mut cuts = metadata
+        .row_groups()
+        .iter()
+        .scan(0i64, |rows, rg| {
+            *rows += rg.num_rows();
+            Some(*rows)
+        })
+        .peekable();
+    let mut row = 0i64;
     for batch in builder.build()? {
-        let mut batch = RecordBatch::try_new(schema.clone(), batch?.columns().to_vec())?;
-        while batch.num_rows() > 0 {
-            let take = batch.num_rows().min(usize::try_from(left).unwrap_or(usize::MAX));
-            writer.write(&batch.slice(0, take))?;
-            batch = batch.slice(take, batch.num_rows() - take);
-            left -= take as i64;
-            if left == 0 {
-                writer.flush()?;
-                left = sizes.next().unwrap_or(i64::MAX);
-            }
+        let batch = RecordBatch::try_new(schema.clone(), batch?.columns().to_vec())?;
+        let end = row + batch.num_rows() as i64;
+        let mut from = row;
+        while let Some(cut) = cuts.next_if(|cut| *cut < end) {
+            writer.write(&batch.slice(offset(from - row)?, offset(cut - from)?))?;
+            writer.flush()?;
+            from = cut;
         }
+        writer.write(&batch.slice(offset(from - row)?, offset(end - from)?))?;
+        row = end;
     }
     writer.close()
+}
+
+/// A row offset within a batch; negative only when the footer's row counts are wrong.
+fn offset(n: i64) -> Result<usize> {
+    usize::try_from(n).map_err(|_| crate::error::invalid("row group sizes do not match the data"))
 }

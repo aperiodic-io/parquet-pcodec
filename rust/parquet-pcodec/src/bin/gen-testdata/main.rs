@@ -11,7 +11,7 @@ mod rng;
 use parquet_pcodec::canonical;
 use parquet_pcodec::inspect::inspect;
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -41,7 +41,7 @@ fn files(out: &Path) -> Result<()> {
     let files = fresh(out, "files")?;
     let expected = fresh(out, "expected")?;
     let mut manifest = vec![];
-    let mut modes: BTreeMap<String, u64> = BTreeMap::new();
+    let mut modes = BTreeSet::new();
     for case in cases::all() {
         let bytes = cases::write(&case).map_err(|e| format!("{}: {e}", case.name))?;
         let mut lines = String::new();
@@ -50,9 +50,7 @@ fn files(out: &Path) -> Result<()> {
         }
         let report = inspect(&bytes::Bytes::from(bytes.clone())).map_err(|e| format!("{}: {e}", case.name))?;
         for c in &report.columns {
-            for (m, n) in &c.modes {
-                *modes.entry(m.clone()).or_default() += n;
-            }
+            modes.extend(c.modes.keys().cloned());
         }
         manifest.push(json!({
             "name": case.name,
@@ -74,7 +72,7 @@ fn files(out: &Path) -> Result<()> {
         write(&expected.join(format!("{}.jsonl", case.name)), lines.as_bytes())?;
     }
     for m in ["RAW", "PCO", "DECIMAL", "ZSTD"] {
-        if !modes.contains_key(m) {
+        if !modes.contains(m) {
             return Err(format!("no file has a {m} payload"));
         }
     }

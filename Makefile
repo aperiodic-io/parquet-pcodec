@@ -51,10 +51,15 @@ fuzz-smoke:
 	for t in $$($(CARGO) +nightly fuzz list); do \
 		$(CARGO) +nightly fuzz run --target $$host $$t -- -max_total_time=$(FUZZ_TIME) || exit 1; done
 
+# cargo mutants exits 3 when some mutants only made the tests hang (a timeout). A hang is a
+# detected mutant, so exit 3 is accepted, but only when no mutant was missed: cargo-mutants
+# also exits 3 when there are both timeouts and missed mutants, so missed.txt is checked.
+MUTANTS_OK = || { [ $$? -eq 3 ] && [ ! -s mutants.out/missed.txt ]; }
+
 # python/rust is judged by the Python suite (see python-mutants); the DuckDB extension has its
 # own run, `make -C duckdb mutation`: the tests of both need Python
 mutants:
-	$(CARGO) mutants --workspace -j $(JOBS) --exclude 'python/**' --exclude 'duckdb/**'
+	$(CARGO) mutants --workspace -j $(JOBS) --exclude 'python/**' --exclude 'duckdb/**' $(MUTANTS_OK)
 
 PYTHON_VENV := $(CURDIR)/python/.venv/bin/python
 
@@ -67,19 +72,21 @@ python-mutants:
 	cd python && HYPOTHESIS_PROFILE=mutation PARQUET_PCODEC_TESTDATA=$(CURDIR)/testdata \
 	  uv run --no-sync python scripts/mutmut_check.py
 	HYPOTHESIS_PROFILE=mutation PARQUET_PCODEC_PYTHON=$(PYTHON_VENV) PYO3_PYTHON=$(PYTHON_VENV) \
-	  $(CARGO) mutants -p parquet-pcodec-python -j $(JOBS)
+	  $(CARGO) mutants -p parquet-pcodec-python -j $(JOBS) $(MUTANTS_OK)
 
-# the fork's changed functions only (rust/parquet/FORK.md)
+# the fork's changed functions only (rust/parquet/FORK.md); the fork is rebuilt for every
+# mutant, so it is built without optimization here
 fork-mutants:
-	$(CARGO) mutants --no-config -p parquet -j $(JOBS) \
+	CARGO_PROFILE_DEV_PACKAGE_PARQUET_OPT_LEVEL=0 $(CARGO) mutants --no-config -p parquet -j $(JOBS) \
 	  -f rust/parquet/src/basic.rs -f rust/parquet/src/compression.rs \
 	  -f rust/parquet/src/column/writer/mod.rs -f rust/parquet/src/file/writer.rs \
-	  --re 'PcodecLevel|PcodecCodec|pcodec_codec|with_pcodec_version|set_physical_type|CodecOptionsBuilder|create_codec|<impl From<CompressionCodec> for Compression>::from|<impl From<Compression> for CompressionCodec>::from|<impl FromStr for Compression>::from_str|GenericColumnWriter<.*>::new|write_metadata' \
-	  -- --lib -- basic:: compression:: column::writer:: file::writer:: \
+	  --re 'PcodecLevel|PcodecCodec|with_pcodec_version|CodecOptionsBuilder::set_physical_type|CodecOptionsBuilder::build|create_codec|<impl From<CompressionCodec> for Compression>::from|<impl From<Compression> for CompressionCodec>::from|<impl FromStr for Compression>::from_str|write_metadata' \
+	  --cargo-arg=--lib -- -- basic:: compression:: column::writer:: file::writer:: \
 	  --skip test_byte_stream_split_extended_roundtrip --skip test_int96_interop \
-	  --skip test_rewrite_missing_column_index --skip test_rewrite_no_page_indexes
+	  --skip test_rewrite_missing_column_index --skip test_rewrite_no_page_indexes \
+	  $(MUTANTS_OK)
 
-# the upstream suite of the fork; without parquet-testing/arrow-testing, 333 tests fail
-# before and after the fork (see rust/parquet/FORK.md)
+# the upstream suite of the fork; without parquet-testing/arrow-testing, 340 tests fail
+# for want of that data, before and after the fork (see rust/parquet/FORK.md)
 fork-upstream-tests:
 	$(CARGO) test -j $(JOBS) -p parquet --all-features --no-fail-fast -- --test-threads $(JOBS)

@@ -43,8 +43,11 @@ sql: venv build
 mutation: venv
 	@# cargo mutants creates the output directory but not its parents (a fresh clone has no target/)
 	mkdir -p $(MUTANTS_OUT)
+	@# exit 3 means some mutants made the tests hang, which detects them; it is accepted only
+	@# when none was missed (the root Makefile's MUTANTS_OK)
 	PCODEC_DUCKDB_PYTEST_MARK="not slow" PCODEC_DUCKDB_PYTHON=$(abspath $(PYTHON)) \
-		$(CARGO) mutants --dir $(ROOT) $(CRATE) -j $(JOBS) --output $(MUTANTS_OUT) $(MUTANTS_ARGS)
+		$(CARGO) mutants --dir $(ROOT) $(CRATE) -j $(JOBS) --output $(MUTANTS_OUT) $(MUTANTS_ARGS) \
+		|| { [ $$? -eq 3 ] && [ ! -s $(MUTANTS_OUT)/mutants.out/missed.txt ]; }
 
 fmt-check:
 	$(CARGO) fmt $(CRATE) --check

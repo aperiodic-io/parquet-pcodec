@@ -42,7 +42,9 @@ intended change, which must also be listed below.
 Unit tests added: `basic::tests::test_pcodec_compression`; `compression::tests::{test_codec_pcodec,
 test_codec_pcodec_physical_type, test_codec_pcodec_requires_size,
 test_codec_options_physical_type}`; `column::writer::tests::test_column_writer_pcodec_physical_type`;
-`file::writer::tests::test_pcodec_version_metadata` (with its helper `pcodec_kv_metadata`).
+`file::writer::tests::test_pcodec_version_metadata` (with its helper `pcodec_kv_metadata`)
+and `file::writer::tests::test_write_metadata_page_indexes`, which pins upstream's page index
+decisions in `write_metadata` (a function the fork changes) so that its mutants are caught.
 
 ### Decompression call sites without the expected size
 
@@ -66,11 +68,14 @@ test_codec_options_physical_type}`; `column::writer::tests::test_column_writer_p
   V1 and V2 pages, with and without dictionary pages, levels 0, 8 and 12, logical types,
   lists in a struct, NaN payloads and signed zeros bit for bit, the fallback for strings and
   booleans, page types, codec in the metadata, the footer key, string parsing).
-- The upstream suite: `cargo test -p parquet --all-features --no-fail-fast`. Without the
-  `parquet-testing` and `arrow-testing` data, 333 upstream tests fail the same way before and
-  after the fork (they panic in `arrow::util::test_util::parquet_test_data` or load
-  `parquet-testing` files); every other test passes. See the report in the pull request for
-  the counts.
+- The upstream suite: `cargo test -p parquet --all-features --no-fail-fast` (`make
+  fork-upstream-tests`), without the `parquet-testing` and `arrow-testing` data. With the fork:
+  1806 tests pass and 340 fail (335 test functions and 5 doc tests); every failure is missing
+  data: 199 panic in `arrow::util::test_util::parquet_test_data`, 4 in `arrow_test_data`, and
+  137 in `tests/variant_integration.rs` on a `LazyLock` poisoned by that panic. The unmodified
+  tree (test binaries only) fails the same 335 test functions, plus
+  `parquet-fromcsv::tests::test_command_help`, which only failed there because that run
+  started the binaries without `CARGO_MANIFEST_DIR`.
 
 ## Mutation testing
 
@@ -81,10 +86,21 @@ mutated with:
 cargo mutants --no-config -p parquet \
   -f rust/parquet/src/basic.rs -f rust/parquet/src/compression.rs \
   -f rust/parquet/src/column/writer/mod.rs -f rust/parquet/src/file/writer.rs \
-  --re 'PcodecLevel|PcodecCodec|pcodec_codec|with_pcodec_version|set_physical_type|CodecOptionsBuilder|create_codec|<impl From<CompressionCodec> for Compression>::from|<impl From<Compression> for CompressionCodec>::from|<impl FromStr for Compression>::from_str|GenericColumnWriter<.*>::new|write_metadata' \
-  -- --lib -- basic:: compression:: column::writer:: file::writer:: \
+  --re 'PcodecLevel|PcodecCodec|with_pcodec_version|CodecOptionsBuilder::set_physical_type|CodecOptionsBuilder::build|create_codec|<impl From<CompressionCodec> for Compression>::from|<impl From<Compression> for CompressionCodec>::from|<impl FromStr for Compression>::from_str|write_metadata' \
+  --cargo-arg=--lib -- -- basic:: compression:: column::writer:: file::writer:: \
   --skip test_byte_stream_split_extended_roundtrip --skip test_int96_interop \
   --skip test_rewrite_missing_column_index --skip test_rewrite_no_page_indexes
 ```
 
-(the four skipped tests need `parquet-testing`). `make fork-mutants` runs it.
+(the four skipped tests need `parquet-testing`). `make fork-mutants` runs it. cargo-mutants
+generates no mutants in `GenericColumnWriter::new` (a constructor) and none in the
+`CompressionCodec` enum; the one-line change in `new` is covered by
+`test_column_writer_pcodec_physical_type`.
+
+Result (47 mutants): 36 caught and 7 unviable on the first run; the two `||` mutants in the
+upstream part of `write_metadata` survived and are caught since
+`test_write_metadata_page_indexes`; `CodecOptionsBuilder::build` replaced by
+`Default::default()` times out (twice, the file is listed by two `-f` patterns):
+`CodecOptions::default()` calls `build`, so the mutant recurses forever and the tests hang.
+A hang is a detected mutant: `make fork-mutants` accepts cargo-mutants' exit code 3 when
+`missed.txt` is empty.

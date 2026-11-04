@@ -67,11 +67,6 @@ fn varint(mut v: u64, out: &mut Vec<u8>) {
     out.push(v as u8);
 }
 
-/// Length in bytes of the varint at the start of `b`.
-fn varint_len(b: &[u8]) -> usize {
-    b.iter().position(|x| x & 0x80 == 0).expect("terminated varint") + 1
-}
-
 pub fn all() -> Vec<Vector> {
     let mut rng = Rng(0x5043_0002);
     let n = 2000;
@@ -83,7 +78,7 @@ pub fn all() -> Vec<Vector> {
     let fprices: Vec<f32> = (0..n).map(|_| (100_000 + rng.below(40_000)) as f32 / 100.0).collect();
     let mut with_exc = prices.clone();
     for i in (3..with_exc.len()).step_by(200) {
-        with_exc[i] = f64::from_bits(0x7ff8_0000_0000_0000 | i as u64);
+        with_exc[i] = f64::from_bits(0x7ff8_0000_0000_0000 + i as u64);
     }
     let random: Vec<u8> = (0..4096).map(|_| rng.next() as u8).collect();
     let text: Vec<u8> = (0..300).flat_map(|i| format!("row {i}: hello pcodec\n").into_bytes()).collect();
@@ -117,11 +112,12 @@ pub fn all() -> Vec<Vector> {
         p
     };
     // the first exception position of `decimal_exceptions`, moved past the end
-    let k_len = varint_len(&dec[4..]);
-    let first = 4 + k_len;
+    // (header: version, mode, dtype, exponent, then k and the first position, one byte each)
+    assert!(dec[4] < 0x80 && dec[5] < 0x80, "one-byte varints");
+    let first = 5;
     let mut past_end = dec[..first].to_vec();
     varint(with_exc.len() as u64, &mut past_end);
-    past_end.extend_from_slice(&dec[first + varint_len(&dec[first..])..]);
+    past_end.extend_from_slice(&dec[first + 1..]);
     let mut many = vec![1, 2, 5, 2];
     varint(1000, &mut many);
     let mut short_exc = vec![1, 2, 5, 2, 1, 0];
