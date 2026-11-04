@@ -51,17 +51,18 @@ fuzz-smoke:
 mutants:
 	$(CARGO) mutants --workspace -j $(JOBS)
 
-# the fork's changed functions only (rust/parquet/FORK.md)
+# the fork's changed functions only (rust/parquet/FORK.md); the fork is rebuilt for every
+# mutant, so it is built without optimization here
 fork-mutants:
-	$(CARGO) mutants --no-config -p parquet -j $(JOBS) \
+	CARGO_PROFILE_DEV_PACKAGE_PARQUET_OPT_LEVEL=0 $(CARGO) mutants --no-config -p parquet -j $(JOBS) \
 	  -f rust/parquet/src/basic.rs -f rust/parquet/src/compression.rs \
 	  -f rust/parquet/src/column/writer/mod.rs -f rust/parquet/src/file/writer.rs \
 	  --re 'PcodecLevel|PcodecCodec|with_pcodec_version|CodecOptionsBuilder::set_physical_type|CodecOptionsBuilder::build|create_codec|<impl From<CompressionCodec> for Compression>::from|<impl From<Compression> for CompressionCodec>::from|<impl FromStr for Compression>::from_str|write_metadata' \
-	  -- --lib -- basic:: compression:: column::writer:: file::writer:: \
+	  --cargo-arg=--lib -- -- basic:: compression:: column::writer:: file::writer:: \
 	  --skip test_byte_stream_split_extended_roundtrip --skip test_int96_interop \
 	  --skip test_rewrite_missing_column_index --skip test_rewrite_no_page_indexes
 
-# the upstream suite of the fork; without parquet-testing/arrow-testing, 333 tests fail
-# before and after the fork (see rust/parquet/FORK.md)
+# the upstream suite of the fork; without parquet-testing/arrow-testing, 340 tests fail
+# for want of that data, before and after the fork (see rust/parquet/FORK.md)
 fork-upstream-tests:
 	$(CARGO) test -j $(JOBS) -p parquet --all-features --no-fail-fast -- --test-threads $(JOBS)

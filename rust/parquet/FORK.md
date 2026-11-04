@@ -66,11 +66,14 @@ test_codec_options_physical_type}`; `column::writer::tests::test_column_writer_p
   V1 and V2 pages, with and without dictionary pages, levels 0, 8 and 12, logical types,
   lists in a struct, NaN payloads and signed zeros bit for bit, the fallback for strings and
   booleans, page types, codec in the metadata, the footer key, string parsing).
-- The upstream suite: `cargo test -p parquet --all-features --no-fail-fast`. Without the
-  `parquet-testing` and `arrow-testing` data, 333 upstream tests fail the same way before and
-  after the fork (they panic in `arrow::util::test_util::parquet_test_data` or load
-  `parquet-testing` files); every other test passes. See the report in the pull request for
-  the counts.
+- The upstream suite: `cargo test -p parquet --all-features --no-fail-fast` (`make
+  fork-upstream-tests`), without the `parquet-testing` and `arrow-testing` data. With the fork:
+  1806 tests pass and 340 fail (335 test functions and 5 doc tests); every failure is missing
+  data: 199 panic in `arrow::util::test_util::parquet_test_data`, 4 in `arrow_test_data`, and
+  137 in `tests/variant_integration.rs` on a `LazyLock` poisoned by that panic. The unmodified
+  tree (test binaries only) fails the same 335 test functions, plus
+  `parquet-fromcsv::tests::test_command_help`, which only failed there because that run
+  started the binaries without `CARGO_MANIFEST_DIR`.
 
 ## Mutation testing
 
@@ -82,7 +85,7 @@ cargo mutants --no-config -p parquet \
   -f rust/parquet/src/basic.rs -f rust/parquet/src/compression.rs \
   -f rust/parquet/src/column/writer/mod.rs -f rust/parquet/src/file/writer.rs \
   --re 'PcodecLevel|PcodecCodec|with_pcodec_version|CodecOptionsBuilder::set_physical_type|CodecOptionsBuilder::build|create_codec|<impl From<CompressionCodec> for Compression>::from|<impl From<Compression> for CompressionCodec>::from|<impl FromStr for Compression>::from_str|write_metadata' \
-  -- --lib -- basic:: compression:: column::writer:: file::writer:: \
+  --cargo-arg=--lib -- -- basic:: compression:: column::writer:: file::writer:: \
   --skip test_byte_stream_split_extended_roundtrip --skip test_int96_interop \
   --skip test_rewrite_missing_column_index --skip test_rewrite_no_page_indexes
 ```
