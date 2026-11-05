@@ -60,9 +60,10 @@ def _expand(source: Source) -> Sequence[Source]:
 
 
 def _parquet_files(folder: str) -> list[str]:
-    """The .parquet files (any case: A.PARQUET too) below `folder`, sorted. Hidden files and directories (whose names start
-    with a dot: unfinished files of other writers, macOS `._` files) are skipped, as a glob skips
-    them, and symlinks to directories are not followed (symlinks to files are)."""
+    """The .parquet files (A.PARQUET too) below `folder`, sorted. Hidden files and directories
+    (whose names start with a dot: unfinished files of other writers, macOS `._` files) are
+    skipped, as a glob skips them, and symlinks to directories are not followed (symlinks to
+    files are)."""
     found: list[str] = []
     for top, folders, names in os.walk(folder):
         folders[:] = [f for f in folders if not f.startswith(".")]
