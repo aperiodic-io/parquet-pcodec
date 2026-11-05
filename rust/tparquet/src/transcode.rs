@@ -47,8 +47,9 @@ pub fn transcode<R: ChunkReader + 'static, W: Write + Send>(
     // the Arrow schema as written (without the key-value pairs the reader merges into it)
     let arrow_kv: Vec<KeyValue> = kv.iter().filter(|kv| kv.key == ARROW_SCHEMA_META_KEY).cloned().collect();
     let schema = Arc::new(parquet_to_arrow_schema(file.schema_descr(), Some(&arrow_kv))?);
-    let other_kv: Vec<KeyValue> =
-        kv.into_iter().filter(|kv| kv.key != ARROW_SCHEMA_META_KEY && kv.key != tparquet_core::KV_KEY).collect();
+    // (the parquet writer drops `parquet.pcodec.version` and adds it back if the output has
+    // PCODEC column chunks)
+    let other_kv: Vec<KeyValue> = kv.into_iter().filter(|kv| kv.key != ARROW_SCHEMA_META_KEY).collect();
 
     let mut options = match target {
         Target::Pcodec(o) => o.clone(),

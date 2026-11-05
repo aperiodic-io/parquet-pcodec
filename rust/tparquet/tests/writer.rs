@@ -351,3 +351,28 @@ fn codecs_report_the_codecs_of_the_properties() {
         assert_eq!(finished[3].codec, Compression::SNAPPY);
     }
 }
+
+#[test]
+fn the_footer_key_says_whether_the_file_has_pcodec() {
+    // key-value metadata copied from another file cannot make the key lie
+    use tparquet::parquet::file::metadata::KeyValue;
+    let batch = mixed(N, 14);
+    let kv = |v: &str| KeyValue::new("parquet.pcodec.version".to_string(), v.to_string());
+    let props = WriterProperties::builder()
+        .set_key_value_metadata(Some(vec![kv("0"), KeyValue::new("k".into(), "v".to_string()), kv("1")]))
+        .build();
+    let footer = |file: &bytes::Bytes| {
+        let r = tparquet::parquet::file::reader::SerializedFileReader::new(file.clone()).unwrap();
+        use tparquet::parquet::file::reader::FileReader;
+        let kv = r.metadata().file_metadata().key_value_metadata().cloned().unwrap_or_default();
+        kv.into_iter().filter(|kv| kv.key != "ARROW:schema").map(|kv| (kv.key, kv.value.unwrap())).collect::<Vec<_>>()
+    };
+    for (policy, want) in
+        [(Policy::Pcodec, vec![("k", "v"), ("parquet.pcodec.version", "1")]), (Policy::Base, vec![("k", "v")])]
+    {
+        let options = WriterOptions::default().with_policy(policy).with_properties(props.clone());
+        let (file, _) = write(std::slice::from_ref(&batch), options);
+        let want: Vec<(String, String)> = want.into_iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        assert_eq!(footer(&file), want, "{policy:?}");
+    }
+}
