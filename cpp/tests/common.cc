@@ -40,6 +40,19 @@ std::string Jsonl(const arrow::Table& table) {
   return out;
 }
 
+std::string FirstDiff(const std::string& got, const std::string& want) {
+  if (got == want) return "";
+  std::istringstream a(got), b(want);
+  std::string la, lb;
+  for (int line = 1;; ++line) {
+    const bool ha = static_cast<bool>(std::getline(a, la)), hb = static_cast<bool>(std::getline(b, lb));
+    if (!ha && !hb) return "the same lines, other line endings";
+    if (!ha || !hb || la != lb) {
+      return "line " + std::to_string(line) + "\n  got:  " + (ha ? la : "<none>") + "\n  want: " + (hb ? lb : "<none>");
+    }
+  }
+}
+
 TempDir::TempDir() {
   static std::mt19937_64 rng(std::random_device{}());
   path = std::filesystem::temp_directory_path() / ("tparquet-test-" + std::to_string(rng()));

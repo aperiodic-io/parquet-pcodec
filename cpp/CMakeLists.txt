@@ -80,7 +80,8 @@ if(TPARQUET_BUILD_TESTS)
   find_package(GTest REQUIRED)
   add_executable(tparquet-tests
                  tests/canonical_test.cc tests/codec_test.cc tests/conformance_test.cc
-                 tests/writer_test.cc tests/properties_test.cc tests/cli_test.cc tests/common.cc)
+                 tests/writer_test.cc tests/properties_test.cc tests/cli_test.cc tests/common.cc
+                 tests/table_gen.cc)
   target_compile_options(tparquet-tests PRIVATE ${TPARQUET_WARNINGS})
   target_link_libraries(tparquet-tests PRIVATE tparquet GTest::gtest GTest::gtest_main)
   target_compile_definitions(

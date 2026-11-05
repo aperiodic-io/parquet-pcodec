@@ -40,6 +40,13 @@ enum class Policy {
 arrow::Result<Policy> ParsePolicy(const std::string& name);
 const char* PolicyName(Policy policy);
 
+/// Arrow's default writer properties, with decimals of precision up to 18 stored as INT32 or
+/// INT64 (so that PCODEC can compress them, and as arrow-rs writes them).
+std::shared_ptr<parquet::WriterProperties> DefaultWriterProperties();
+/// Arrow's default Arrow writer properties, storing the Arrow schema in the footer (time
+/// zones, durations, dictionaries... read back as written).
+std::shared_ptr<parquet::ArrowWriterProperties> DefaultArrowWriterProperties();
+
 /// How a writer chooses codecs.
 struct WriteOptions {
   /// Policy of the eligible columns that `columns` does not name.
@@ -61,10 +68,9 @@ struct WriteOptions {
   /// Everything else (statistics, page size, created_by...). Its compression, encodings and
   /// dictionary settings are kept for the base columns; PCODEC columns always use PLAIN, no
   /// dictionary.
-  std::shared_ptr<parquet::WriterProperties> properties = parquet::default_writer_properties();
-  /// Arrow-specific writer properties (e.g. storing the Arrow schema in the footer).
-  std::shared_ptr<parquet::ArrowWriterProperties> arrow_properties =
-      parquet::default_arrow_writer_properties();
+  std::shared_ptr<parquet::WriterProperties> properties = DefaultWriterProperties();
+  /// Arrow-specific writer properties.
+  std::shared_ptr<parquet::ArrowWriterProperties> arrow_properties = DefaultArrowWriterProperties();
 };
 
 /// The codec written for one leaf column.

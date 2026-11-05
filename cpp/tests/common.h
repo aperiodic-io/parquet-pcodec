@@ -40,6 +40,8 @@ void WriteFile(const std::filesystem::path& path, const std::string& data);
 std::vector<std::filesystem::path> VectorFiles(const std::filesystem::path& dir = Testdata());
 /// The canonical JSON of `table`, one `\n`-terminated line per row.
 std::string Jsonl(const arrow::Table& table);
+/// "" if `got` == `want`, else the first line that differs (both sides).
+std::string FirstDiff(const std::string& got, const std::string& want);
 /// A fresh empty directory under the system temp dir, removed by the destructor.
 struct TempDir {
   TempDir();
