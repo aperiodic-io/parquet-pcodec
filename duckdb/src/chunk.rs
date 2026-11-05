@@ -143,6 +143,18 @@ fn decimal<V: VectorView>(v: &V, rows: &[Option<usize>], width: u8, scale: u8) -
     Ok(Arc::new(a))
 }
 
+/// DuckDB's `infinity` and `-infinity` of every timestamp unit.
+pub const INFINITY: i64 = i64::MAX;
+pub const NEG_INFINITY: i64 = -i64::MAX;
+
+/// A `TIMESTAMP_S` value as `TIMESTAMP_MS`; the infinities stay infinite.
+fn seconds_to_millis(s: i64) -> Result<i64, String> {
+    if s == INFINITY || s == NEG_INFINITY {
+        return Ok(s);
+    }
+    s.checked_mul(1000).ok_or_else(|| format!("TIMESTAMP_S value {s} does not fit in milliseconds"))
+}
+
 fn enum_index<V: VectorView>(v: &V, r: usize, values: usize) -> usize {
     unsafe {
         match enum_bytes(values) {
@@ -177,9 +189,7 @@ pub fn convert<V: VectorView>(v: &V, t: &SqlType, sel: &[Option<usize>]) -> Resu
         SqlType::Date => plain::<Date32Type, V>(v, rows)?,
         SqlType::Time => plain::<Time64MicrosecondType, V>(v, rows)?,
         SqlType::TimeNs => plain::<Time64NanosecondType, V>(v, rows)?,
-        SqlType::TimestampS => Arc::new(primitive::<TimestampMillisecondType, V>(v, rows, |s| {
-            s.checked_mul(1000).ok_or_else(|| format!("TIMESTAMP_S value {s} does not fit in milliseconds"))
-        })?),
+        SqlType::TimestampS => Arc::new(primitive::<TimestampMillisecondType, V>(v, rows, seconds_to_millis)?),
         SqlType::TimestampMs => plain::<TimestampMillisecondType, V>(v, rows)?,
         SqlType::Timestamp => plain::<TimestampMicrosecondType, V>(v, rows)?,
         SqlType::TimestampNs => plain::<TimestampNanosecondType, V>(v, rows)?,
@@ -491,10 +501,18 @@ pub(crate) mod tests {
             &convert(&Mem::of(&[2i64, -3]), &SqlType::TimestampTzNs, &sel).unwrap(),
             TimestampNanosecondArray::from(vec![2, -3]).with_timezone("UTC"),
         );
-        let e = convert(&Mem::of(&[i64::MAX, 0]), &SqlType::TimestampS, &sel).unwrap_err();
-        assert_eq!(e, format!("TIMESTAMP_S value {} does not fit in milliseconds", i64::MAX));
+        // infinity and -infinity are the same in every unit
+        let a = convert(&Mem::of(&[i64::MAX, -i64::MAX]), &SqlType::TimestampS, &sel).unwrap();
+        eq(&a, TimestampMillisecondArray::from(vec![i64::MAX, -i64::MAX]));
+        for s in [i64::MAX - 1, i64::MIN, i64::MAX / 1000 + 1, -i64::MAX + 1] {
+            let e = convert(&Mem::of(&[s, 0]), &SqlType::TimestampS, &sel).unwrap_err();
+            assert_eq!(e, format!("TIMESTAMP_S value {s} does not fit in milliseconds"));
+        }
+        let edge = i64::MAX / 1000;
+        let a = convert(&Mem::of(&[edge, -edge]), &SqlType::TimestampS, &sel).unwrap();
+        eq(&a, TimestampMillisecondArray::from(vec![edge * 1000, -edge * 1000]));
         // a NULL row is not converted
-        let a = convert(&Mem::of(&[i64::MAX, 1]).nulls(2, &[0]), &SqlType::TimestampS, &sel).unwrap();
+        let a = convert(&Mem::of(&[i64::MAX - 1, 1]).nulls(2, &[0]), &SqlType::TimestampS, &sel).unwrap();
         eq(&a, TimestampMillisecondArray::from(vec![None, Some(1000)]));
     }
 

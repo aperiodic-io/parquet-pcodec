@@ -240,3 +240,18 @@ def test_vectors_rewritten_by_duckdb_verify_against_duckdbs_own_writer(con, tmp_
         assert r.returncode == 0, r.stdout + r.stderr
     back = con.sql(f"SELECT * FROM read_tparquet('{out}')").to_arrow_table()
     assert lines(back, pq.read_schema(src)) == (FILES.parent / "expected" / f"{name}.jsonl").read_text()
+
+
+def test_infinite_seconds_timestamps_stay_infinite(con, tmp_path):
+    q = (
+        "SELECT * FROM (VALUES ('infinity'::TIMESTAMP_S), ('-infinity'::TIMESTAMP_S), (NULL), "
+        "('2025-01-01 00:00:01'::TIMESTAMP_S)) t(ts)"
+    )
+    path = copy(con, q, tmp_path / "inf.parquet")
+    assert rows(con, f"SELECT ts::VARCHAR, typeof(ts) FROM read_tparquet('{path}')") == [
+        ("infinity", "TIMESTAMP_MS"),
+        ("-infinity", "TIMESTAMP_MS"),
+        (None, "TIMESTAMP_MS"),
+        ("2025-01-01 00:00:01", "TIMESTAMP_MS"),
+    ]
+    assert rows(con, f"SELECT count(*) FROM read_tparquet('{path}') WHERE ts = 'infinity'::TIMESTAMP_MS") == [(1,)]
