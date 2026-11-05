@@ -216,28 +216,36 @@ impl<'a> Compact<'a> {
     /// Calls `field(self, id, type)` for each field of a struct; it returns whether it read
     /// the value, else the value is skipped.
     fn read_struct(&mut self, mut field: impl FnMut(&mut Self, i16, u8) -> Parse<bool>) -> Parse<()> {
+        self.nested(|p| {
+            let mut last: i16 = 0;
+            loop {
+                let b = p.byte()?;
+                if b == 0 {
+                    return Ok(());
+                }
+                let t = b & 0x0f;
+                let delta = i16::from(b >> 4);
+                let id = if delta == 0 {
+                    i16::try_from(p.zigzag()?).map_err(|_| "field id out of range")?
+                } else {
+                    last.checked_add(delta).ok_or("field id out of range")?
+                };
+                last = id;
+                if !field(p, id, t)? {
+                    p.skip(t)?;
+                }
+            }
+        })
+    }
+
+    /// Reads a struct, list, set or map with `f`, one level deeper: containers nest at most
+    /// `MAX_DEPTH` deep, so the recursion is bounded.
+    fn nested(&mut self, f: impl FnOnce(&mut Self) -> Parse<()>) -> Parse<()> {
         self.depth += 1;
         if self.depth > MAX_DEPTH {
             return Err("nested too deep".into());
         }
-        let mut last: i16 = 0;
-        loop {
-            let b = self.byte()?;
-            if b == 0 {
-                break;
-            }
-            let t = b & 0x0f;
-            let delta = i16::from(b >> 4);
-            let id = if delta == 0 {
-                i16::try_from(self.zigzag()?).map_err(|_| "field id out of range")?
-            } else {
-                last.checked_add(delta).ok_or("field id out of range")?
-            };
-            last = id;
-            if !field(self, id, t)? {
-                self.skip(t)?;
-            }
-        }
+        f(self)?;
         self.depth -= 1;
         Ok(())
     }
@@ -252,26 +260,26 @@ impl<'a> Compact<'a> {
                 let n = usize::try_from(self.varint()?).map_err(|_| "length out of range")?;
                 self.take(n)
             }
-            9 | 10 => {
-                let h = self.byte()?;
+            9 | 10 => self.nested(|p| {
+                let h = p.byte()?;
                 let n = match h >> 4 {
-                    15 => self.varint()?,
+                    15 => p.varint()?,
                     n => u64::from(n),
                 };
-                self.elements(h & 0x0f, n)
-            }
-            11 => {
-                let n = self.varint()?;
+                p.elements(h & 0x0f, n)
+            }),
+            11 => self.nested(|p| {
+                let n = p.varint()?;
                 if n == 0 {
                     return Ok(());
                 }
-                let kv = self.byte()?;
+                let kv = p.byte()?;
                 for _ in 0..n {
-                    self.element(kv >> 4)?;
-                    self.element(kv & 0x0f)?;
+                    p.element(kv >> 4)?;
+                    p.element(kv & 0x0f)?;
                 }
                 Ok(())
-            }
+            }),
             12 => self.read_struct(|_, _, _| Ok(false)),
             t => Err(format!("unknown field type {t}")),
         }
@@ -458,6 +466,40 @@ mod tests {
         ok.extend([0x1c; 31]);
         ok.extend([0; 32]);
         assert!(Compact::new(&ok).page_header().is_ok());
+    }
+
+    #[test]
+    fn nested_containers_are_bounded() {
+        // a list of lists of lists ... (a few bytes per level): the depth limit applies to
+        // lists, sets and maps as to structs, and the parser never overflows the stack
+        // field 4 holds `levels + 1` nested containers: lists or sets of one element, the
+        // innermost empty; or maps of one entry whose key is the next map and whose value an
+        // i32 (0), the innermost empty
+        let header = |levels: usize, container: u8| {
+            let mut b = vec![0x15, 0, 0x15, 0, 0x15, 0, 0x40 | container];
+            if container == 11 {
+                b.extend([1, 0xb5].repeat(levels));
+                b.push(0);
+                b.extend(vec![0; levels]);
+            } else {
+                b.extend(vec![0x10 | container; levels]);
+                b.push(0x05);
+            }
+            b.push(0);
+            b
+        };
+        for t in [9, 10, 11] {
+            let deep = header(1_000_000, t);
+            assert_eq!(Compact::new(&deep).page_header().unwrap_err(), "nested too deep", "{t}");
+            let ok = header(MAX_DEPTH - 2, t);
+            assert!(Compact::new(&ok).page_header().is_ok(), "{t}");
+        }
+        // a list of structs counts both
+        let mut b = vec![0x15, 0, 0x15, 0, 0x15, 0, 0x19];
+        for _ in 0..MAX_DEPTH {
+            b.extend([0x1c, 0x19]);
+        }
+        assert_eq!(Compact::new(&b).page_header().unwrap_err(), "nested too deep");
     }
 
     #[test]
