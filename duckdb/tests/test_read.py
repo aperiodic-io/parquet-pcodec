@@ -391,3 +391,58 @@ def test_bad_option_values(con):
         con.execute(f"SELECT * FROM read_tparquet('{FILES}/mixed.parquet', filename := 'yes please')")
     with pytest.raises(duckdb.BinderException):
         con.execute(f"SELECT * FROM read_tparquet('{FILES}/mixed.parquet', no_such_option := true)")
+
+
+# ---------------------------------------------------------------------------------------------
+# column names
+
+
+def describe(con, sql):
+    return [(r[0], r[1]) for r in con.execute(f"DESCRIBE {sql}").fetchall()]
+
+
+@pytest.mark.parametrize(
+    "names",
+    [["A", "a"], ["x", "x"], ["x", "x", "x_1", "X"], ["id", "ID", "Id", "iD"]],
+    ids=["case", "exact", "suffix-taken", "four"],
+)
+def test_duplicate_column_names_are_renamed_as_read_parquet_does(con, tmp_path, names):
+    p = tmp_path / "dup.parquet"
+    pq.write_table(pa.table([pa.array([i]) for i in range(len(names))], names=names), p)
+    assert describe(con, f"SELECT * FROM read_tparquet('{p}')") == describe(con, f"SELECT * FROM read_parquet('{p}')")
+    assert rows(con, f"SELECT * FROM read_tparquet('{p}')") == [tuple(range(len(names)))]
+
+
+def test_duplicate_struct_field_names_are_renamed_as_read_parquet_does(con, tmp_path):
+    p = tmp_path / "dup.parquet"
+    s = pa.StructArray.from_arrays([pa.array([1]), pa.array([2])], names=["a", "A"])
+    pq.write_table(pa.table({"s": s}), p)
+    assert describe(con, f"SELECT * FROM read_tparquet('{p}')") == describe(con, f"SELECT * FROM read_parquet('{p}')")
+    assert rows(con, f"SELECT s.a, s.A_1 FROM read_tparquet('{p}')") == [(1, 2)]
+
+
+def test_column_names_match_across_files_ignoring_case(con, tmp_path):
+    pq.write_table(pa.table({"Price": [1.0], "qty": [1]}), tmp_path / "a.parquet")
+    pq.write_table(pa.table({"price": [2.0], "QTY": [2]}), tmp_path / "b.parquet")
+    for opts in ["", ", union_by_name := true"]:
+        sql = f"SELECT * FROM read_tparquet('{tmp_path}/*.parquet'{opts})"
+        native = f"SELECT * FROM read_parquet('{tmp_path}/*.parquet'{opts})"
+        assert describe(con, sql) == describe(con, native) == [("Price", "DOUBLE"), ("qty", "BIGINT")]
+        assert sorted(rows(con, sql)) == [(1.0, 1), (2.0, 2)]
+
+
+def test_union_by_name_with_a_column_only_later_files_have_in_another_case(con, tmp_path):
+    pq.write_table(pa.table({"a": [1]}), tmp_path / "1.parquet")
+    pq.write_table(pa.table({"a": [2], "Extra": ["x"]}), tmp_path / "2.parquet")
+    pq.write_table(pa.table({"A": [3], "EXTRA": ["y"]}), tmp_path / "3.parquet")
+    sql = f"SELECT * FROM read_tparquet('{tmp_path}/*.parquet', union_by_name := true)"
+    assert describe(con, sql) == [("a", "BIGINT"), ("Extra", "VARCHAR")]
+    assert sorted(rows(con, sql)) == [(1, None), (2, "x"), (3, "y")]
+
+
+@pytest.mark.parametrize("option", ["filename", "file_row_number"])
+def test_an_extra_column_named_like_a_file_column_in_another_case_is_refused(con, tmp_path, option):
+    p = tmp_path / "f.parquet"
+    pq.write_table(pa.table({option.upper(): [1]}), p)
+    with pytest.raises(duckdb.BinderException, match=f'read_tparquet: the files already have a column "{option}"'):
+        con.execute(f"SELECT * FROM read_tparquet('{p}', {option} := true)")

@@ -9,7 +9,7 @@
 //! - [`Scan`] hands out row groups, one at a time, to the threads DuckDB runs, and each thread
 //!   reads its row group in batches of at most one DuckDB vector.
 
-use crate::types::{SqlType, normalize};
+use crate::types::{SqlType, deduplicate, normalize};
 use arrow_array::{ArrayRef, new_null_array};
 use arrow_schema::{DataType, SchemaRef};
 use parquet::arrow::ProjectionMask;
@@ -97,18 +97,26 @@ fn open_metadata(path: &Path) -> Result<ArrowReaderMetadata, String> {
         .map_err(|e| format!("cannot read {} as Parquet: {e}", path.display()))
 }
 
+/// The columns of a file, named as DuckDB names them ([`deduplicate`]).
 fn columns_of(path: &Path, schema: &SchemaRef) -> Result<Vec<Column>, String> {
+    let names = deduplicate(schema.fields().iter().map(|f| f.name().clone()).collect());
     schema
         .fields()
         .iter()
-        .map(|f| {
+        .zip(names)
+        .map(|(f, name)| {
             Ok(Column {
-                name: f.name().clone(),
+                name,
                 sql: SqlType::from_arrow(f).map_err(|e| format!("{}: {e}", path.display()))?,
                 arrow: f.data_type().clone(),
             })
         })
         .collect()
+}
+
+/// Whether two column names are the same name in DuckDB (which ignores case).
+fn same_name(a: &str, b: &str) -> bool {
+    a.eq_ignore_ascii_case(b)
 }
 
 /// The result of binding: the files, the result columns and the options.
@@ -138,7 +146,7 @@ impl Bound {
             for (i, path) in files.iter().enumerate().skip(1) {
                 let meta = open_metadata(path)?;
                 for c in columns_of(path, meta.schema())? {
-                    match columns.iter().find(|have| have.name == c.name) {
+                    match columns.iter().find(|have| same_name(&have.name, &c.name)) {
                         None => columns.push(c),
                         Some(have) if have.sql != c.sql => {
                             return Err(format!(
@@ -160,7 +168,7 @@ impl Bound {
             rows *= files.len() as u64;
         }
         for extra in [(options.filename, FILENAME), (options.file_row_number, FILE_ROW_NUMBER)] {
-            if extra.0 && columns.iter().any(|c| c.name == extra.1) {
+            if extra.0 && columns.iter().any(|c| same_name(&c.name, extra.1)) {
                 return Err(format!("the files already have a column \"{}\"", extra.1));
             }
         }
@@ -227,7 +235,7 @@ impl OpenFile {
                 .iter()
                 .map(|&c| {
                     let want = &bound.columns[c];
-                    match file_columns.iter().position(|f| f.name == want.name) {
+                    match file_columns.iter().position(|f| same_name(&f.name, &want.name)) {
                         Some(i) if file_columns[i].sql != want.sql => Err(format!(
                             "column \"{}\" is {} in {}, but {} was bound",
                             want.name,
@@ -241,7 +249,7 @@ impl OpenFile {
                 .collect::<Result<Vec<_>, String>>()?
         } else {
             let same = file_columns.len() == bound.columns.len()
-                && file_columns.iter().zip(&bound.columns).all(|(a, b)| a.name == b.name && a.sql == b.sql);
+                && file_columns.iter().zip(&bound.columns).all(|(a, b)| same_name(&a.name, &b.name) && a.sql == b.sql);
             if !same {
                 let describe =
                     |cs: &[Column]| cs.iter().map(|c| format!("{} {}", c.name, c.sql)).collect::<Vec<_>>().join(", ");
@@ -690,6 +698,46 @@ mod tests {
 
         let e = Bound::bind(vec![a.clone(), c.clone()], opts).unwrap_err();
         assert_eq!(e, format!("column \"id\" is BIGINT in {} but INTEGER in {}", a.display(), c.display()));
+    }
+
+    fn one(name: &str, values: Vec<i64>) -> RecordBatch {
+        RecordBatch::try_from_iter([(name, Arc::new(Int64Array::from(values)) as ArrayRef)]).unwrap()
+    }
+
+    #[test]
+    fn names_are_deduplicated_and_matched_ignoring_case() {
+        let dir = tempfile::tempdir().unwrap();
+        let dup = RecordBatch::try_from_iter([
+            ("x", Arc::new(Int64Array::from(vec![1])) as ArrayRef),
+            ("X", Arc::new(Int64Array::from(vec![2])) as ArrayRef),
+        ])
+        .unwrap();
+        let d = write(dir.path(), "dup.parquet", &dup, 10);
+        assert_eq!(bound_names(&Bound::bind(vec![d.clone()], ReadOptions::default()).unwrap()), strings(&["x", "X_1"]));
+
+        let a = write(dir.path(), "a.parquet", &one("Price", vec![1]), 10);
+        let b = write(dir.path(), "b.parquet", &one("price", vec![2]), 10);
+        for union_by_name in [false, true] {
+            let opts = ReadOptions { union_by_name, ..Default::default() };
+            let bound = Arc::new(Bound::bind(vec![a.clone(), b.clone()], opts).unwrap());
+            assert_eq!(bound_names(&bound), strings(&["Price"]));
+            let scan = Scan::new(bound.clone(), &bound.slots(&[0]), 2048);
+            assert_eq!(ids(&all_rows(&scan), 0), vec![Some(1), Some(2)], "{union_by_name}");
+        }
+        // another name is still another column
+        let c = write(dir.path(), "c.parquet", &one("cost", vec![3]), 10);
+        let opts = ReadOptions { union_by_name: true, ..Default::default() };
+        let bound = Bound::bind(vec![a.clone(), c.clone()], opts).unwrap();
+        assert_eq!(bound_names(&bound), strings(&["Price", "cost"]));
+        let bound = Arc::new(Bound::bind(vec![a.clone(), c.clone()], ReadOptions::default()).unwrap());
+        let scan = Scan::new(bound.clone(), &bound.slots(&[0]), 2048);
+        let mut local = Local::default();
+        scan.next(&mut local).unwrap();
+        assert!(scan.next(&mut local).unwrap_err().contains("the files must have the same schema"));
+
+        let f = write(dir.path(), "f.parquet", &one("FileName", vec![1]), 10);
+        let e = Bound::bind(vec![f], ReadOptions { filename: true, ..Default::default() }).unwrap_err();
+        assert_eq!(e, "the files already have a column \"filename\"");
     }
 
     #[test]

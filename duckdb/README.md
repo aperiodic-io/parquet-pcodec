@@ -72,6 +72,11 @@ globs. Named parameters:
 Without `union_by_name` every file must have the schema of the first file (the same column
 names and DuckDB types, in order), or the scan stops with an error naming both files.
 
+**Column names** are case-insensitive, as everywhere in DuckDB: `Price` in one file and `price`
+in another are the same column (named as the first file names it). A file whose columns (or
+struct fields) repeat a name, `x` and `X`, gets the names `read_parquet` gives them: `x`,
+`X_1`.
+
 **Projection pushdown.** Only the columns the query uses are read (`EXPLAIN` shows
 `Projections:`); `count(*)` reads no column at all. **Filters** are applied by DuckDB after the
 scan: the C API does not hand table functions their filters, so there is no row-group skipping

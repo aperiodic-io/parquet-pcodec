@@ -126,6 +126,32 @@ impl fmt::Display for SqlType {
     }
 }
 
+/// The names DuckDB gives columns (or struct fields) named `names`: names are case-insensitive
+/// there, so a repeated name gets `_1`, `_2`, ... (the first suffix that is free), as
+/// `QueryResult::DeduplicateColumns` does for `read_parquet`.
+pub fn deduplicate(names: Vec<String>) -> Vec<String> {
+    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut out = Vec::with_capacity(names.len());
+    for name in names {
+        let low = name.to_ascii_lowercase();
+        let Some(&count) = seen.get(&low) else {
+            seen.insert(low, 1);
+            out.push(name);
+            continue;
+        };
+        let mut count = count;
+        let mut renamed = format!("{name}_{count}");
+        while seen.contains_key(&renamed.to_ascii_lowercase()) {
+            count += 1;
+            renamed = format!("{name}_{count}");
+        }
+        seen.insert(low, count);
+        seen.insert(renamed.to_ascii_lowercase(), 1);
+        out.push(renamed);
+    }
+    out
+}
+
 /// Largest DuckDB decimal width.
 pub const MAX_DECIMAL_WIDTH: u8 = 38;
 
@@ -187,13 +213,12 @@ impl SqlType {
                 let n = usize::try_from(*n).map_err(|_| format!("invalid fixed-size list length {n}"))?;
                 Self::Array(Box::new(Self::from_arrow_type(f.data_type())?), n)
             }
-            DataType::Struct(fields) => Self::Struct(
-                fields.iter().map(|f| Ok((f.name().clone(), Self::from_arrow_type(f.data_type())?))).collect::<Result<
-                    _,
-                    String,
-                >>(
-                )?,
-            ),
+            DataType::Struct(fields) => {
+                let names = deduplicate(fields.iter().map(|f| f.name().clone()).collect());
+                let types =
+                    fields.iter().map(|f| Self::from_arrow_type(f.data_type())).collect::<Result<Vec<_>, _>>()?;
+                Self::Struct(names.into_iter().zip(types).collect())
+            }
             DataType::Map(entries, _) => match entries.data_type() {
                 DataType::Struct(kv) if kv.len() == 2 => Self::Map(
                     Box::new(Self::from_arrow_type(kv[0].data_type())?),
@@ -389,6 +414,27 @@ mod tests {
         assert_eq!(ty(DataType::UInt16), SqlType::USmallInt);
         assert_eq!(ty(DataType::UInt32), SqlType::UInteger);
         assert_eq!(ty(DataType::UInt64), SqlType::UBigInt);
+    }
+
+    fn names(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn repeated_names_get_the_suffixes_duckdb_gives_them() {
+        assert_eq!(deduplicate(names(&["a", "b"])), names(&["a", "b"]));
+        assert_eq!(deduplicate(names(&["A", "a"])), names(&["A", "a_1"]));
+        assert_eq!(deduplicate(names(&["x", "x", "x"])), names(&["x", "x_1", "x_2"]));
+        // a suffix the file already uses is skipped, case-insensitively
+        assert_eq!(deduplicate(names(&["x", "x", "x_1", "X"])), names(&["x", "x_1", "x_1_1", "X_2"]));
+        assert_eq!(deduplicate(names(&["id", "ID", "Id", "iD"])), names(&["id", "ID_1", "Id_2", "iD_3"]));
+        assert_eq!(deduplicate(names(&["x_1", "x", "x", "X_1"])), names(&["x_1", "x", "x_2", "X_1_1"]));
+        assert_eq!(deduplicate(vec![]), Vec::<String>::new());
+        let t = DataType::Struct(Fields::from(vec![
+            Field::new("a", DataType::Int8, true),
+            Field::new("A", DataType::Utf8, true),
+        ]));
+        assert_eq!(ty(t), SqlType::Struct(vec![("a".into(), SqlType::TinyInt), ("A_1".into(), SqlType::Varchar)]));
     }
 
     #[test]
