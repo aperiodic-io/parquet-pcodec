@@ -1850,10 +1850,10 @@ index 0000000000000000000000000000000000000000..1a30a1dbb0d961db226daffa488257f6
 +log4j.appender.stderr.layout.ConversionPattern=%d %p %c: %m%n
 diff --git fork/upstream-tests/pom.xml fork/upstream-tests/pom.xml
 new file mode 100644
-index 0000000000000000000000000000000000000000..f475fedd7444153866a10ff9d15f4f074b0c5773
+index 0000000000000000000000000000000000000000..82781e08d75754db0a0bce6be1d493ada80c2183
 --- /dev/null
 +++ fork/upstream-tests/pom.xml
-@@ -0,0 +1,189 @@
+@@ -0,0 +1,195 @@
 +<?xml version="1.0" encoding="UTF-8"?>
 +<!-- Upstream parquet-java's own test suite (its published parquet-hadoop -tests.jar), run against
 +     the parquet-java named by parquet.under.test: the fork (default) or upstream 1.17.0.
@@ -2032,6 +2032,12 @@ index 0000000000000000000000000000000000000000..f475fedd7444153866a10ff9d15f4f07
 +          <!-- some upstream tests need data or services this suite does not have: compare.py
 +               compares outcomes instead of requiring success -->
 +          <testFailureIgnore>true</testFailureIgnore>
++          <excludes>
++            <!-- runs a writer in a child JVM, which gets upstream's DEBUG log4j configuration
++                 (not log4j-quiet.properties) and did not finish in 20 minutes here; excluded
++                 from both runs, so the comparison stays like for like -->
++            <exclude>**/TestParquetWriterError.java</exclude>
++          </excludes>
 +          <reportsDirectory>${project.build.directory}/surefire-reports-${parquet.under.test}</reportsDirectory>
 +          <forkedProcessTimeoutInSeconds>3600</forkedProcessTimeoutInSeconds>
 +          <!-- upstream runs its suite with this heap -->

@@ -107,7 +107,10 @@ or, for a binary distribution (Spark's `jars/`), replace the three jars and add 
   `TestPcodecShadedJar`.
 - The conformance vectors (`testdata/`) are read through the fork by `java/tparquet`.
 - Upstream's own suite, from its published `-tests.jar` files, runs against the fork in
-  `parquet-java/upstream-tests` (`make -C java fork-upstream-tests`).
+  `parquet-java/upstream-tests` (`make -C java fork-upstream-tests`): once against upstream
+  1.17.0 and once against the fork, and `compare.py` requires the same outcome for every test.
+  `TestParquetWriterError` is left out of both runs: it writes in a child JVM that gets
+  upstream's DEBUG logging configuration and did not finish in 20 minutes here.
 - `java/acceptance-upstream`: unmodified parquet-java 1.17.0 refuses every PCODEC vector.
 
 ## Mutation testing

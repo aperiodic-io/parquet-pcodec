@@ -176,6 +176,12 @@
           <!-- some upstream tests need data or services this suite does not have: compare.py
                compares outcomes instead of requiring success -->
           <testFailureIgnore>true</testFailureIgnore>
+          <excludes>
+            <!-- runs a writer in a child JVM, which gets upstream's DEBUG log4j configuration
+                 (not log4j-quiet.properties) and did not finish in 20 minutes here; excluded
+                 from both runs, so the comparison stays like for like -->
+            <exclude>**/TestParquetWriterError.java</exclude>
+          </excludes>
           <reportsDirectory>${project.build.directory}/surefire-reports-${parquet.under.test}</reportsDirectory>
           <forkedProcessTimeoutInSeconds>3600</forkedProcessTimeoutInSeconds>
           <!-- upstream runs its suite with this heap -->
