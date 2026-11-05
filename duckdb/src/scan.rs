@@ -172,6 +172,10 @@ impl Bound {
                 return Err(format!("the files already have a column \"{}\"", extra.1));
             }
         }
+        if columns.is_empty() && !options.filename && !options.file_row_number {
+            // DuckDB takes a table function without result columns for an internal error
+            return Err(format!("{} has no columns", first.display()));
+        }
         let exact_rows = options.union_by_name || files.len() == 1;
         Ok(Self { files, columns, options, metadata, estimated_rows: rows, exact_rows })
     }
@@ -547,6 +551,23 @@ mod tests {
         assert_eq!(e, "the files already have a column \"filename\"");
         let e = Bound::bind(vec![f], ReadOptions { file_row_number: true, ..Default::default() }).unwrap_err();
         assert_eq!(e, "the files already have a column \"file_row_number\"");
+    }
+
+    #[test]
+    fn a_file_without_columns_needs_an_extra_column() {
+        let dir = tempfile::tempdir().unwrap();
+        let empty = RecordBatch::new_empty(Arc::new(Schema::empty()));
+        let f = write(dir.path(), "f.parquet", &empty, 10);
+        let e = Bound::bind(vec![f.clone()], ReadOptions::default()).unwrap_err();
+        assert_eq!(e, format!("{} has no columns", f.display()));
+        let e = Bound::bind(vec![f.clone(), f.clone()], ReadOptions { union_by_name: true, ..Default::default() });
+        assert!(e.is_err());
+        for opts in [
+            ReadOptions { filename: true, ..Default::default() },
+            ReadOptions { file_row_number: true, ..Default::default() },
+        ] {
+            assert_eq!(Bound::bind(vec![f.clone()], opts).unwrap().result_columns().len(), 1);
+        }
     }
 
     #[test]

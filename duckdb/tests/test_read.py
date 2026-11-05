@@ -446,3 +446,12 @@ def test_an_extra_column_named_like_a_file_column_in_another_case_is_refused(con
     pq.write_table(pa.table({option.upper(): [1]}), p)
     with pytest.raises(duckdb.BinderException, match=f'read_tparquet: the files already have a column "{option}"'):
         con.execute(f"SELECT * FROM read_tparquet('{p}', {option} := true)")
+
+
+def test_a_file_without_columns_is_refused_clearly(con, tmp_path):
+    p = tmp_path / "nocol.parquet"
+    pq.write_table(pa.table({}), p)
+    with pytest.raises(duckdb.BinderException, match=f"read_tparquet: {p} has no columns"):
+        con.execute(f"SELECT * FROM read_tparquet('{p}')")
+    # not an internal error: the database is still usable, and the extra columns are columns
+    assert rows(con, f"SELECT count(*) FROM read_tparquet('{p}', filename := true)") == [(0,)]
