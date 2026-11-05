@@ -237,3 +237,137 @@ fn the_temporary_file_never_replaces_the_input() {
         std::fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
     assert_eq!(names.len(), 5, "{names:?}");
 }
+
+#[test]
+fn help_version_and_usage() {
+    cli()
+        .arg("--help")
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("encode"))
+        .stdout(predicate::str::contains("verify"));
+    cli().arg("--version").assert().code(0).stdout(predicate::str::starts_with("tparquet "));
+    for cmd in ["encode", "decode", "inspect", "verify"] {
+        cli().arg(cmd).arg("--help").assert().code(0);
+        // a missing argument is a usage error
+        cli().arg(cmd).assert().code(2).stdout("").stderr(predicate::str::contains("Usage"));
+    }
+    cli().assert().code(2);
+    cli().args(["encode", "a", "b", "--level", "-1"]).assert().code(2);
+    cli().args(["encode", "a", "b", "--nope"]).assert().code(2).stderr(predicate::str::contains("unexpected argument"));
+    cli().args(["verify", "a"]).assert().code(2);
+}
+
+#[test]
+fn verify_exit_codes_and_messages() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = standard(dir.path(), "a.parquet", 0.0);
+    let same = standard(dir.path(), "same.parquet", 0.0);
+    cli().arg("verify").arg(&a).arg(&same).assert().code(0).stdout("identical\n").stderr("");
+    // fewer rows
+    let short = dir.path().join("short.parquet");
+    let b = batch(10, 0.0);
+    let mut w =
+        tparquet::parquet::arrow::ArrowWriter::try_new(std::fs::File::create(&short).unwrap(), b.schema(), None)
+            .unwrap();
+    w.write(&b).unwrap();
+    w.close().unwrap();
+    cli().arg("verify").arg(&a).arg(&short).assert().code(1).stdout("row counts differ: 3000 vs 10\n");
+    cli().arg("verify").arg(&short).arg(&a).assert().code(1).stdout("row counts differ: 10 vs 3000\n");
+    // another schema
+    let other = dir.path().join("other.parquet");
+    let b = RecordBatch::try_from_iter([("ts", Arc::new(Float64Array::from(vec![1.0])) as ArrayRef)]).unwrap();
+    let mut w =
+        tparquet::parquet::arrow::ArrowWriter::try_new(std::fs::File::create(&other).unwrap(), b.schema(), None)
+            .unwrap();
+    w.write(&b).unwrap();
+    w.close().unwrap();
+    cli()
+        .arg("verify")
+        .arg(&a)
+        .arg(&other)
+        .assert()
+        .code(1)
+        .stdout(predicate::str::starts_with("schemas differ:\n  a: "));
+    // a directory is an error, not a difference
+    cli().arg("verify").arg(&a).arg(dir.path()).assert().code(2).stdout("");
+    cli().arg("inspect").arg(dir.path()).assert().code(2);
+}
+
+#[test]
+fn every_vector_encodes_decodes_and_verifies() {
+    let dir = tempfile::tempdir().unwrap();
+    let files = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/files");
+    let mut n = 0;
+    for e in std::fs::read_dir(&files).unwrap() {
+        let path = e.unwrap().path();
+        if path.extension().is_none_or(|x| x != "parquet") {
+            continue;
+        }
+        n += 1;
+        let dec = dir.path().join("dec.parquet");
+        let enc = dir.path().join("enc.parquet");
+        cli().arg("decode").arg(&path).arg(&dec).assert().success();
+        let all_codecs = |p: &Path| -> Vec<String> {
+            let r = inspect_json(p);
+            let cols = r["columns"].as_array().unwrap().clone();
+            cols.iter()
+                .flat_map(|c| c["codecs"].as_array().unwrap().clone())
+                .map(|c| c.as_str().unwrap().to_string())
+                .collect()
+        };
+        assert!(all_codecs(&dec).iter().all(|c| c != "PCODEC"), "{}", path.display());
+        assert_eq!(inspect_json(&dec)["pcodec_version"], serde_json::Value::Null);
+        cli().arg("verify").arg(&path).arg(&dec).assert().code(0);
+        cli().arg("encode").arg(&dec).arg(&enc).args(["--policy", "pcodec"]).assert().success();
+        cli().arg("verify").arg(&path).arg(&enc).assert().code(0);
+        cli().arg("verify").arg(&enc).arg(&dec).assert().code(0);
+        let report = inspect_json(&enc);
+        let original = inspect_json(&path);
+        assert_eq!(report["rows"], original["rows"]);
+        cli().arg("inspect").arg(&path).assert().success();
+    }
+    assert_eq!(n, 13);
+    assert_no_temporary_files(dir.path());
+}
+
+#[test]
+fn encode_column_options_on_nested_paths() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/files/nested_struct.parquet");
+    let out = dir.path().join("out.parquet");
+    let paths: Vec<String> = inspect_json(&input)["columns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["path"].as_str().unwrap().to_string())
+        .collect();
+    let leaf = paths.iter().find(|p| p.contains('.')).unwrap().clone();
+    let top = leaf.split('.').next().unwrap().to_string();
+    // the subtree to base, then one leaf back to pcodec (the longer name wins, in any order)
+    for args in [
+        vec!["--policy", "pcodec", "--column", &format!("{top}=base"), "--column", &format!("{leaf}=pcodec")],
+        vec!["--policy", "pcodec", "--column", &format!("{leaf}=pcodec"), "--column", &format!("{top}=base")],
+    ] {
+        cli().arg("encode").arg(&input).arg(&out).args(&args).assert().success();
+        let report = inspect_json(&out);
+        for c in report["columns"].as_array().unwrap() {
+            let path = c["path"].as_str().unwrap();
+            if path == leaf {
+                assert_eq!(c["codecs"][0], "PCODEC");
+            } else if path.starts_with(&format!("{top}.")) {
+                assert_ne!(c["codecs"][0], "PCODEC", "{path}");
+            }
+        }
+        cli().arg("verify").arg(&input).arg(&out).assert().code(0);
+    }
+    // the last of two policies for the same name wins
+    cli()
+        .arg("encode")
+        .arg(&input)
+        .arg(&out)
+        .args(["--policy", "base", "--column", &format!("{leaf}=pcodec"), "--column", &format!("{leaf}=base")])
+        .assert()
+        .success();
+    assert!(codecs(&out).iter().all(|c| c != "PCODEC"));
+}
