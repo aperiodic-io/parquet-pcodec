@@ -36,10 +36,11 @@ intended change, which must also be listed below.
 | `src/column/writer/mod.rs` | `GenericColumnWriter::new` | `CodecOptionsBuilder::default().set_physical_type(descr.physical_type())` | data pages and dictionary pages get the type hint |
 | `src/file/writer.rs` | `SerializedFileWriter::write_metadata` | calls `with_pcodec_version` on the key-value metadata | spec section 2 |
 | `src/file/writer.rs` | new `with_pcodec_version` | drops the `parquet.pcodec.version` pairs of the key-value metadata given by the caller, then adds `parquet.pcodec.version = "1"` when a column chunk uses PCODEC | spec section 2; the writer owns the key, so metadata copied from another file cannot give a stale value, a duplicate, or the key in a file without PCODEC |
+| `src/arrow/array_reader/fixed_len_byte_array.rs` | `FixedLenByteArrayReader::consume_batch` | reads an `INTERVAL` column as `Interval(MonthDayNano)` when the Arrow schema hint asks for it (upstream: `NYI`): months, days, and the unsigned milliseconds in nanoseconds | upstream reads such a column as `DayTime` unless the file's own Arrow schema says otherwise, dropping the months of every file other writers (DuckDB, Spark) wrote; the DuckDB extension asks for `MonthDayNano` |
 | `tests/arrow_writer/mod.rs` | | `mod pcodec;` | the fork's Arrow tests |
 | `tests/arrow_writer/pcodec.rs` | new | Arrow round trips with PCODEC | see Tests |
 
-Unit tests added: `basic::tests::test_pcodec_compression`; `compression::tests::{test_codec_pcodec,
+Unit tests added: `arrow::array_reader::fixed_len_byte_array::tests::test_interval_month_day_nano`; `basic::tests::test_pcodec_compression`; `compression::tests::{test_codec_pcodec,
 test_codec_pcodec_physical_type, test_codec_pcodec_requires_size,
 test_codec_options_physical_type}`; `column::writer::tests::test_column_writer_pcodec_physical_type`;
 `file::writer::tests::test_pcodec_version_metadata` (with its helper `pcodec_kv_metadata`)
