@@ -10,3 +10,13 @@ Copyright 2016-2026 The Apache Software Foundation
 
 This product includes software developed at
 The Apache Software Foundation (http://www.apache.org/).
+
+java/parquet-java is a modified copy of the parquet-format-structures, parquet-common and
+parquet-hadoop modules of Apache Parquet Java 1.17.0 (https://github.com/apache/parquet-java),
+licensed under the Apache License 2.0. Its changes are listed in java/parquet-java/FORK.md.
+
+Apache Parquet Java
+Copyright 2014-2026 The Apache Software Foundation
+
+cpp/arrow/FORK.patch is a patch to Apache Arrow C++ 26.0.1 (https://github.com/apache/arrow),
+licensed under the Apache License 2.0; its changes are listed in cpp/arrow/FORK.md.
