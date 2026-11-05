@@ -161,3 +161,17 @@ def test_main_run_with_nothing_measured(
     )
     assert cli.main(["run", "--data", str(tmp_path)]) == 1
     assert capsys.readouterr().err.endswith("nothing measured\n")
+
+
+def test_the_default_cache_is_bench_data(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert pathlib.Path(__file__).resolve().parents[1] / "data" == cli.DEFAULT_DATA
+    trades(tmp_path / "x" / "t.parquet")
+    monkeypatch.setattr(cli, "DEFAULT_DATA", tmp_path)
+    monkeypatch.setattr(
+        catalog, "SOURCES", [catalog.Source("X", "BTC trades", "trades", "x/t.parquet", "parquet", Cached())]
+    )
+    monkeypatch.delenv("TPQ_BENCH_DATA")
+    assert cli.main(["list"]) == 0
+    assert capsys.readouterr().out == "trades  x/t.parquet  cached\n"
