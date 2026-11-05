@@ -1,0 +1,91 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package io.trino.parquet.writer;
+
+import io.airlift.compress.v3.Compressor;
+import io.airlift.compress.v3.lz4.Lz4Compressor;
+import io.airlift.compress.v3.snappy.SnappyCompressor;
+import io.airlift.compress.v3.zstd.ZstdCompressor;
+import io.airlift.slice.Slices;
+import org.apache.parquet.format.CompressionCodec;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.lang.foreign.MemorySegment;
+import java.nio.ByteBuffer;
+import java.nio.channels.Channels;
+import java.util.zip.GZIPOutputStream;
+
+import static io.trino.parquet.writer.ParquetDataOutput.createDataOutput;
+import static java.util.Objects.requireNonNull;
+
+interface ParquetCompressor
+{
+    ParquetDataOutput compress(ByteBuffer input)
+            throws IOException;
+
+    static ParquetCompressor getCompressor(CompressionCodec codec)
+    {
+        return switch (codec) {
+            case GZIP -> new GzipCompressor();
+            case SNAPPY -> new AirLiftCompressor(SnappyCompressor.create());
+            case ZSTD -> new AirLiftCompressor(ZstdCompressor.create());
+            case LZ4 -> new AirLiftCompressor(Lz4Compressor.create());
+            case UNCOMPRESSED -> null;
+            case LZO, LZ4_RAW, BROTLI -> {
+                // TODO Support LZO and LZ4_RAW compression
+                // Note: LZ4 compression scheme has been deprecated by parquet-format in favor of LZ4_RAW
+                // When using airlift LZO or LZ4 compressor, decompressing page in reader throws exception.
+                throw new RuntimeException("Unsupported codec: " + codec);
+            }
+        };
+    }
+
+    class GzipCompressor
+            implements ParquetCompressor
+    {
+        @Override
+        public ParquetDataOutput compress(ByteBuffer input)
+                throws IOException
+        {
+            ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+            try (GZIPOutputStream outputStream = new GZIPOutputStream(byteArrayOutputStream)) {
+                Channels.newChannel(outputStream).write(input);
+            }
+            return createDataOutput(byteArrayOutputStream);
+        }
+    }
+
+    class AirLiftCompressor
+            implements ParquetCompressor
+    {
+        private final Compressor compressor;
+
+        AirLiftCompressor(Compressor compressor)
+        {
+            this.compressor = requireNonNull(compressor, "compressor is null");
+        }
+
+        @Override
+        public ParquetDataOutput compress(ByteBuffer input)
+                throws IOException
+        {
+            int minCompressionBufferSize = compressor.maxCompressedLength(input.remaining());
+            byte[] compressionBuffer = new byte[minCompressionBufferSize];
+            // TODO compressedDataSize > bytes.length?
+            int compressedDataSize = compressor.compress(MemorySegment.ofBuffer(input), MemorySegment.ofArray(compressionBuffer));
+            return createDataOutput(Slices.wrappedBuffer(compressionBuffer, 0, compressedDataSize));
+        }
+    }
+}
