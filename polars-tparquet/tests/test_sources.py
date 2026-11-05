@@ -200,3 +200,58 @@ def test_a_glob_reads_the_files_it_matches_not_directories(write: Write, tmp_pat
     (tmp_path / "e" / "f").mkdir(parents=True)
     with pytest.raises(FileNotFoundError, match=r"^no file matches .*e/\*$"):
         pt.scan_tparquet(str(tmp_path / "e" / "*"))
+
+
+def _files_read(source: object) -> list[str]:
+    out = pt.scan_tparquet(source, include_file_paths="file").select("file").collect()  # type: ignore[arg-type]
+    return [os.path.relpath(p) for p in out["file"].unique(maintain_order=True)]
+
+
+def test_a_directory_skips_hidden_files_and_directories(
+    write: Write, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    write("d/a.parquet", ticks(3))
+    (tmp_path / "d" / "._a.parquet").write_bytes(b"\x00\x05\x16\x07AppleDouble")  # what macOS leaves on USB disks
+    write("d/.partial.parquet", ticks(4))  # what a writer elsewhere has not finished
+    write("d/.hidden/b.parquet", ticks(5))
+    write("d/e/.git/c.parquet", ticks(6))
+    write("d/e/f.parquet", ticks(7))
+    assert _files_read("d") == ["d/a.parquet", "d/e/f.parquet"]
+    # as a glob does
+    assert _files_read("d/**/*.parquet") == ["d/a.parquet", "d/e/f.parquet"]
+    # a hidden directory named is read: only what lies hidden below it is skipped
+    assert _files_read("d/.hidden") == ["d/.hidden/b.parquet"]
+    write(".cache/data/g.parquet", ticks(1))
+    assert _files_read(tmp_path / ".cache" / "data") == [".cache/data/g.parquet"]
+    assert _files_read(["d/.partial.parquet"]) == ["d/.partial.parquet"]
+
+
+def test_a_directory_reads_parquet_files_whatever_the_case_of_the_suffix(
+    write: Write, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    for name in ("d/A.PARQUET", "d/b.Parquet", "d/c.parquet", "d/x/d.pArQuEt"):
+        write(name, ticks(2))
+    (tmp_path / "d" / "notes.parquet.txt").write_text("not data")
+    (tmp_path / "d" / "parquet").write_text("not data")
+    assert _files_read("d") == ["d/A.PARQUET", "d/b.Parquet", "d/c.parquet", "d/x/d.pArQuEt"]
+    (tmp_path / "e").mkdir()
+    (tmp_path / "e" / "notes.txt").write_text("not data")
+    with pytest.raises(FileNotFoundError, match=r"^no \.parquet file in e$"):
+        pt.scan_tparquet("e")
+
+
+def test_a_directory_follows_symlinked_files_not_directories(
+    write: Write, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    write("data/a.parquet", ticks(3))
+    write("d/b.parquet", ticks(4))
+    (tmp_path / "d" / "link.parquet").symlink_to(tmp_path / "data" / "a.parquet")
+    (tmp_path / "d" / "sub").symlink_to(tmp_path / "data", target_is_directory=True)
+    (tmp_path / "d" / "loop").symlink_to(tmp_path / "d", target_is_directory=True)
+    (tmp_path / "d" / "broken.parquet").symlink_to(tmp_path / "missing.parquet")
+    assert _files_read("d") == ["d/b.parquet", "d/link.parquet"]
+    # a symlinked directory named is read
+    assert _files_read("d/sub") == ["d/sub/a.parquet"]

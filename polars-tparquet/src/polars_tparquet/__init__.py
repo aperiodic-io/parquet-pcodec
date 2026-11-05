@@ -19,7 +19,6 @@ import contextlib
 import errno
 import glob
 import os
-import pathlib
 import uuid
 from collections.abc import Iterator, Mapping, Sequence
 from typing import Union
@@ -53,11 +52,25 @@ def _expand(source: Source) -> Sequence[Source]:
             raise FileNotFoundError(f"no file matches {name}")
         return matches
     if os.path.isdir(name):
-        below = sorted(str(p) for p in pathlib.Path(name).rglob("*.parquet") if p.is_file())
+        below = _parquet_files(name)
         if not below:
             raise FileNotFoundError(f"no .parquet file in {name}")
         return below
     return [name]
+
+
+def _parquet_files(folder: str) -> list[str]:
+    """The .parquet files (any case: A.PARQUET too) below `folder`, sorted. Hidden files and directories (whose names start
+    with a dot: unfinished files of other writers, macOS `._` files) are skipped, as a glob skips
+    them, and symlinks to directories are not followed (symlinks to files are)."""
+    found: list[str] = []
+    for top, folders, names in os.walk(folder):
+        folders[:] = [f for f in folders if not f.startswith(".")]
+        for n in names:
+            path = os.path.join(top, n)
+            if not n.startswith(".") and n.lower().endswith(".parquet") and os.path.isfile(path):
+                found.append(path)
+    return sorted(found)
 
 
 def _files(source: Sources) -> list[Source]:
