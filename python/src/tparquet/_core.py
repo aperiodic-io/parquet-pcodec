@@ -318,7 +318,6 @@ class Writer:
         row_group_size: int | None = None,
     ) -> None:
         target = _sink(sink)
-        self._path = target if isinstance(target, str) else None
         capsule = _schema_capsule(schema)
         self._writer = _lib.Writer(target, capsule, _options(policy, columns, level, base, row_group_size))
 
@@ -340,10 +339,9 @@ class Writer:
         return self._writer.close()
 
     def abort(self) -> None:
-        """Abandons the file without a footer, removing it when the writer created it."""
+        """Abandons the file without a footer, removing it when the writer created it; does
+        nothing once the writer is closed or aborted."""
         self._writer.abort()
-        if self._path is not None:
-            os.remove(self._path)
 
     @property
     def codecs(self) -> dict[str, str] | None:
@@ -400,7 +398,11 @@ def write_table(
     if second is None:
         return _lib.write_stream(target, first, options)
     writer = _lib.Writer(target, first, options)
-    writer.write_batch(first, second)
+    try:
+        writer.write_batch(first, second)
+    except BaseException:
+        writer.abort()
+        raise
     return writer.close()
 
 

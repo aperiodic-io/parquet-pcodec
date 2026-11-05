@@ -156,6 +156,11 @@ impl File {
         self.source.reader()
     }
 
+    /// The Arrow schema of the file.
+    pub fn schema_ref(&self) -> SchemaRef {
+        self.metadata.schema().clone()
+    }
+
     /// For the top-level `columns` (all by default): their root indices in file order, where
     /// each requested column is among those, and the schema of the requested columns in the
     /// requested order. The reader's own schema lacks the file's schema metadata: this one is
