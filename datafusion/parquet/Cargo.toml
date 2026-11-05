@@ -67,6 +67,7 @@ default = [
     "zstd",
     "base64",
     "simdutf8",
+    "pcodec",
 ]
 encryption = ["dep:ring"]
 experimental = ["variant_experimental"]
@@ -83,6 +84,7 @@ object_store = [
     "dep:object_store",
     "async",
 ]
+pcodec = ["dep:tparquet-core"]
 simdutf8 = ["dep:simdutf8"]
 test_common = ["arrow/test_utils"]
 variant_experimental = [
@@ -471,6 +473,10 @@ default-features = false
 version = "59.3.2"
 optional = true
 
+[dependencies.tparquet-core]
+path = "../../rust/core"
+optional = true
+
 [dependencies.parquet-variant]
 version = "59.3.2"
 optional = true
@@ -625,6 +631,9 @@ features = [
     "sync",
 ]
 default-features = false
+
+[dev-dependencies.tparquet-core]
+path = "../../rust/core"
 
 [dev-dependencies.zstd]
 version = "0.13"

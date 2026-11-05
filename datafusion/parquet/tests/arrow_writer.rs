@@ -17,6 +17,9 @@
 
 //! Tests for [`ArrowWriter`]
 
+#[path = "arrow_writer/pcodec.rs"]
+mod pcodec;
+
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::fs::File;
