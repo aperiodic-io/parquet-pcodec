@@ -300,3 +300,16 @@ def test_a_text_mode_file_is_refused_with_a_type_error(write: Write) -> None:
     path = write("a.parquet", ticks(3))
     with open(path) as text, pytest.raises(TypeError, match="bytes"):
         pt.scan_tparquet(text)  # type: ignore[arg-type]
+
+
+def test_a_file_name_that_is_not_utf_8(write: Write, tmp_path: pathlib.Path) -> None:
+    data = write("a.parquet", ticks(3)).read_bytes()
+    raw = os.fsencode(tmp_path / "d") + b"/caf\xe9.parquet"
+    os.mkdir(os.fsencode(tmp_path / "d"))
+    with open(raw, "wb") as f:
+        f.write(data)
+    for source in (raw, os.fsdecode(raw), tmp_path / "d", str(tmp_path / "d" / "*.parquet")):
+        assert_frame_equal(pt.scan_tparquet(source).collect(), ticks(3))
+    # a Polars string is UTF-8: the path column holds the name with a replacement character
+    out = pt.scan_tparquet(raw, include_file_paths="file").collect()
+    assert out["file"].to_list() == [str(tmp_path / "d" / "caf�.parquet")] * 3

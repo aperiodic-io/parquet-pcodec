@@ -168,7 +168,9 @@ def scan_tparquet(
                 raise ValueError("include_file_paths needs file paths, not file objects")
             if include_file_paths in schema:
                 raise pl.exceptions.DuplicateError(f"{_name(f)} already has a column {include_file_paths!r}")
-            lf = lf.with_columns(pl.lit(_name(f)).alias(include_file_paths))
+            # a Polars string is UTF-8: a byte of the name that is not becomes one U+FFFD
+            shown = os.fsencode(_name(f)).decode("utf-8", "replace")
+            lf = lf.with_columns(pl.lit(shown).alias(include_file_paths))
         frames.append(lf)
     return pl.concat(frames)
 
