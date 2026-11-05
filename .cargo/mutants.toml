@@ -7,7 +7,7 @@ exclude_re = [
     # Ties in Auto (spec section 6): `<` vs `<=` only changes which of two candidates of the
     # same size is written (a column chunk, or the whole first batch); both hold the same data
     # and the same number of bytes, and the spec leaves ties to the writer (equivalent mutants).
-    'rust/tparquet/src/writer\.rs:.*replace < with <= in Writer<W>::open',
+    'rust/tparquet/src/writer\.rs:.*replace < with <= in Writer<W>::choose',
     # A row group boundary that falls exactly at the end of a batch: with `<` it is flushed
     # before the next batch's rows (or by close at the end), with `<=` right away; the file is
     # the same either way (equivalent mutant).

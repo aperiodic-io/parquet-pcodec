@@ -376,3 +376,33 @@ fn the_footer_key_says_whether_the_file_has_pcodec() {
         assert_eq!(footer(&file), want, "{policy:?}");
     }
 }
+
+#[test]
+fn a_rejected_first_batch_leaves_the_writer_usable() {
+    // as with every other batch, and with the forced policies: the batch is refused, the
+    // file goes on
+    let good = mixed(N, 15);
+    let wrong = RecordBatch::try_from_iter([
+        ("ts", Arc::new(Int32Array::from(vec![1])) as ArrayRef),
+        ("price", Arc::new(Float64Array::from(vec![1.0]))),
+        ("flag", Arc::new(Int64Array::from(vec![1]))),
+        ("name", Arc::new(StringArray::from(vec!["x"]))),
+    ])
+    .unwrap();
+    for policy in [Policy::Auto, Policy::Pcodec, Policy::Base] {
+        let mut out = Vec::new();
+        let mut w = Writer::try_new(&mut out, good.schema(), WriterOptions::default().with_policy(policy)).unwrap();
+        let err = w.write(&wrong).unwrap_err().to_string();
+        assert!(err.contains("Incompatible type. Field 'ts' has type Timestamp"), "{policy:?}: {err}");
+        if policy == Policy::Auto {
+            assert!(w.codecs().is_none());
+        }
+        w.write(&good).unwrap();
+        let (metadata, chosen) = w.finish().unwrap();
+        assert_eq!(metadata.file_metadata().num_rows(), N as i64);
+        if policy == Policy::Auto {
+            assert_eq!(chosen[0].codec, Compression::PCODEC(Default::default()));
+        }
+        assert_eq!(lines(&bytes::Bytes::from(out)), batch_lines(std::slice::from_ref(&good)));
+    }
+}
