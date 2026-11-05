@@ -151,3 +151,18 @@ def test_a_missing_file_in_a_list_is_named(write: Write, tmp_path: pathlib.Path)
     a = write("a.parquet", ticks(3))
     with pytest.raises(FileNotFoundError, match=r"missing\.parquet"):
         pt.scan_tparquet([a, tmp_path / "missing.parquet"])
+
+
+def test_a_relative_path_is_the_file_it_named_when_scanned(
+    write: Write, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write("a/f.parquet", ticks(3))
+    write("b/f.parquet", ticks(5))
+    monkeypatch.chdir(tmp_path / "a")
+    scans = [pt.scan_tparquet(s, include_file_paths="file") for s in ("f.parquet", ".", "*.parquet", ["./f.parquet"])]
+    monkeypatch.chdir(tmp_path / "b")  # tparquet opens the file again for every read
+    for lf in scans:
+        out = lf.collect()
+        assert_frame_equal(out.drop("file"), ticks(3))
+        # the path stays relative, as given
+        assert [os.path.normpath(p) for p in out["file"]] == ["f.parquet"] * 3

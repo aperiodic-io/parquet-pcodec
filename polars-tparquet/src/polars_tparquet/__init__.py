@@ -110,7 +110,9 @@ def scan_tparquet(
     frames: list[pl.LazyFrame] = []
     first: tuple[str, pl.Schema] | None = None
     for f in _files(source):
-        lf = scan_parquet(f, batch_size=batch_size)
+        # every path is a str here; tparquet opens it again for every read, so a relative one is
+        # made absolute: a chdir before the query runs does not change the file
+        lf = scan_parquet(os.path.abspath(f) if isinstance(f, str) else f, batch_size=batch_size)
         schema = lf.collect_schema()
         if first is None:
             first = (_name(f), schema)
