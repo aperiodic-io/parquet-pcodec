@@ -169,7 +169,8 @@ def scan_tparquet(
             if include_file_paths in schema:
                 raise pl.exceptions.DuplicateError(f"{_name(f)} already has a column {include_file_paths!r}")
             # a Polars string is UTF-8: a byte of the name that is not becomes one U+FFFD
-            shown = os.fsencode(_name(f)).decode("utf-8", "replace")
+            # ("UTF-8", a mutant, names the same codec as "utf-8": no test can tell them apart)
+            shown = os.fsencode(_name(f)).decode("utf-8", "replace")  # pragma: no mutate
             lf = lf.with_columns(pl.lit(shown).alias(include_file_paths))
         frames.append(lf)
     return pl.concat(frames)
