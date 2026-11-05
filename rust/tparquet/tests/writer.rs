@@ -294,3 +294,33 @@ fn auto_counts_the_cost_of_v2_pages() {
     assert_eq!(auto.len(), base.len());
     assert_eq!(lines(&auto), batch_lines(&[batch]));
 }
+
+#[test]
+fn column_names_with_dots() {
+    // a top-level field `a.b` is not inside a struct `a`; a struct `s` with a child `x` and a
+    // field `s.x` both have the dotted path `s.x`, which names both
+    let ints = |k: i64| Arc::new(Int64Array::from_iter_values((0..N as i64).map(|i| i * k))) as ArrayRef;
+    let s = StructArray::from(vec![(Arc::new(Field::new("x", DataType::Int64, false)), ints(2))]);
+    let batch = RecordBatch::try_from_iter([
+        ("a", ints(1)),
+        ("a.b", ints(3)),
+        ("s", Arc::new(s) as ArrayRef),
+        ("s.x", ints(4)),
+    ])
+    .unwrap();
+    let pcodec = || WriterOptions::default().with_policy(Policy::Pcodec);
+    let (file, _) = write(std::slice::from_ref(&batch), pcodec().with_column("a", Policy::Base));
+    assert_eq!(codecs(&file), pairs(&[("a", "ZSTD"), ("a.b", "PCODEC"), ("s.x", "PCODEC"), ("s.x", "PCODEC")]));
+    let (file, _) = write(std::slice::from_ref(&batch), pcodec().with_column("a.b", Policy::Base));
+    assert_eq!(codecs(&file), pairs(&[("a", "PCODEC"), ("a.b", "ZSTD"), ("s.x", "PCODEC"), ("s.x", "PCODEC")]));
+    let (file, _) = write(std::slice::from_ref(&batch), pcodec().with_column("s", Policy::Base));
+    assert_eq!(codecs(&file), pairs(&[("a", "PCODEC"), ("a.b", "PCODEC"), ("s.x", "ZSTD"), ("s.x", "PCODEC")]));
+    let (file, _) = write(std::slice::from_ref(&batch), pcodec().with_column("s.x", Policy::Base));
+    assert_eq!(codecs(&file), pairs(&[("a", "PCODEC"), ("a.b", "PCODEC"), ("s.x", "ZSTD"), ("s.x", "ZSTD")]));
+    // `a.` and `.b` name nothing
+    for name in ["a.", ".b", "a.b.c"] {
+        let err = Writer::try_new(Vec::new(), batch.schema(), pcodec().with_column(name, Policy::Base)).err().unwrap();
+        assert_eq!(err.to_string(), format!("no column named {name:?}"));
+    }
+    assert_eq!(lines(&file), batch_lines(&[batch]));
+}

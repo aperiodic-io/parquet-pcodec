@@ -17,7 +17,8 @@ pub struct WriterOptions {
     /// Policy of the eligible columns that `columns` does not name.
     pub policy: Policy,
     /// Per-column policies: a top-level field name, or a dotted leaf path such as
-    /// `book.levels.list.element`. The longest name that covers a leaf wins.
+    /// `book.levels.list.item` (`list.element` with `coerce_types`). The longest name that
+    /// covers a leaf wins; a name is matched against whole field names, which may hold dots.
     pub columns: Vec<(String, Policy)>,
     /// pcodec compression level of the PCODEC columns.
     pub level: PcodecLevel,
@@ -129,11 +130,11 @@ impl<W: Write + Send> Writer<W> {
             .map(|c| Leaf {
                 path: c.path().clone(),
                 policy: eligible(c.physical_type())
-                    .then(|| resolve(&c.path().string(), &options.columns, options.policy)),
+                    .then(|| resolve(c.path().parts(), &options.columns, options.policy)),
             })
             .collect();
         if let Some((name, _)) =
-            options.columns.iter().find(|(name, _)| !leaves.iter().any(|l| covers(name, &l.path.string())))
+            options.columns.iter().find(|(name, _)| !leaves.iter().any(|l| covers(name, l.path.parts())))
         {
             return Err(invalid(format!("no column named {name:?}")));
         }
