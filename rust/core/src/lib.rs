@@ -119,9 +119,17 @@ pub enum Error {
     UnknownDtype(u8),
     BadExponent(u8),
     BadException,
-    SizeMismatch { expected: usize, actual: usize },
-    NotMultipleOfWidth { len: usize, width: usize },
+    SizeMismatch {
+        expected: usize,
+        actual: usize,
+    },
+    NotMultipleOfWidth {
+        len: usize,
+        width: usize,
+    },
     InvalidLevel(u8),
+    /// The expected size given to [`decompress`] cannot be allocated.
+    AllocationFailed(usize),
     Pco(String),
     Zstd(String),
 }
@@ -141,6 +149,7 @@ impl fmt::Display for Error {
                 write!(f, "expected size {len} is not a multiple of the value width {width}")
             }
             Self::InvalidLevel(l) => write!(f, "compression level {l} above {MAX_LEVEL}"),
+            Self::AllocationFailed(n) => write!(f, "cannot allocate the expected size of {n} bytes"),
             Self::Pco(e) => write!(f, "pcodec: {e}"),
             Self::Zstd(e) => write!(f, "zstd: {e}"),
         }
@@ -256,8 +265,14 @@ pub fn mode_of(payload: &[u8]) -> Result<Mode, Error> {
 }
 
 /// Decodes a payload that must produce exactly `expected_len` bytes.
+///
+/// `expected_len` is untrusted too (a page header): a size that cannot be allocated is
+/// [`Error::AllocationFailed`], after the payload header has been checked.
 pub fn decompress(payload: &[u8], expected_len: usize) -> Result<Vec<u8>, Error> {
-    let mut out = vec![0; expected_len];
+    mode_of(payload)?;
+    let mut out = Vec::new();
+    out.try_reserve_exact(expected_len).map_err(|_| Error::AllocationFailed(expected_len))?;
+    out.resize(expected_len, 0);
     decompress_into(payload, &mut out)?;
     Ok(out)
 }
