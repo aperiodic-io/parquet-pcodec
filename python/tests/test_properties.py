@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime
 import decimal
 import io
+import itertools
 from typing import Any
 
 import pyarrow as pa
@@ -214,7 +215,8 @@ def values_of(t: pa.DataType, nullable: bool = True) -> st.SearchStrategy[Any]:
         signed = pa.types.is_signed_integer(t)
         v = st.one_of(ints(bits, signed), st.integers(0, 9))
     elif pa.types.is_floating(t):
-        v = st.one_of(st.floats(width=t.bit_width), st.sampled_from([0.0, -0.0, 0.5]))
+        width: Any = t.bit_width
+        v = st.one_of(st.floats(width=width), st.sampled_from([0.0, -0.0, 0.5]))
     elif pa.types.is_boolean(t):
         v = st.booleans()
     elif pa.types.is_string(t) or pa.types.is_large_string(t) or pa.types.is_string_view(t):
@@ -299,7 +301,7 @@ def test_generated_schemas_through_a_writer(
     buf = io.BytesIO()
     bounds = sorted({0, table.num_rows, *(c for c in cuts if c <= table.num_rows)})
     with ppc.Writer(buf, table.schema, **options) as w:
-        for start, end in zip(bounds, bounds[1:]):
+        for start, end in itertools.pairwise(bounds):
             w.write(table.slice(start, end - start))
             w.write(table.slice(start, 0))
         if cuts and cuts[0] % 2:
