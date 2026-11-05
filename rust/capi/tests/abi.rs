@@ -184,8 +184,10 @@ fn overlapping_buffers_are_refused() {
         assert_eq!(pcp_decompress(p, 10, p.add(10), 8), PCP_OK);
         assert_eq!(pcp_compress(p, 10, -1, -1, 0, p.add(10), 12, &mut written), PCP_OK);
         assert_eq!(pcp_compress(p.add(12), 10, -1, -1, 0, p, 12, &mut written), PCP_OK);
-        // an empty buffer overlaps nothing
+        // an empty buffer overlaps nothing, even inside the other one
         assert_eq!(pcp_decompress(p, 2, p, 0), PCP_OK);
+        assert_eq!(pcp_decompress(p, 10, p.add(1), 0), PCP_ERR_SIZE, "RAW of 8 bytes into 0");
+        assert_eq!(pcp_decompress(p.add(3), 0, p, 8), PCP_ERR_CORRUPT, "an empty payload");
     }
 }
 

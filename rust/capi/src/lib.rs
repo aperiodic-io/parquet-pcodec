@@ -58,7 +58,7 @@ fn check_buffer(p: *const u8, len: usize) -> Result<(), (i32, String)> {
     if p.is_null() && len > 0 {
         return Err(arg("NULL pointer with a non-zero length"));
     }
-    if len > isize::MAX as usize {
+    if isize::try_from(len).is_err() {
         return Err(arg(&format!("length {len} above isize::MAX")));
     }
     Ok(())
