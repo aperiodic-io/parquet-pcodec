@@ -19,6 +19,7 @@ import contextlib
 import errno
 import glob
 import os
+import shutil
 import uuid
 from collections.abc import Iterator, Mapping, Sequence
 from typing import Union
@@ -111,9 +112,15 @@ def _replacing(target: Sink) -> Iterator[Sink]:
     folder, name = os.path.split(path)
     if not os.path.isdir(folder):
         raise FileNotFoundError(errno.ENOENT, "no such directory", folder)
+    # replacing needs the right to write the directory only: a file that may not be written is
+    # refused, as writing it in place would be
+    if os.path.exists(path) and not os.access(path, os.W_OK):
+        raise PermissionError(errno.EACCES, "Permission denied", path)
     temporary = os.path.join(folder, f".{name}.{uuid.uuid4().hex}.tmp")
     try:
         yield temporary
+        with contextlib.suppress(FileNotFoundError):  # a file replaced keeps its permissions
+            shutil.copymode(path, temporary)
         os.replace(temporary, path)
     except BaseException:
         with contextlib.suppress(FileNotFoundError):

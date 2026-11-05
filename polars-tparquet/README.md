@@ -54,8 +54,10 @@ dtype `Object` is refused (`ComputeError`), as Polars' own writer refuses it.
 batch by batch (`LazyFrame.collect_batches`), so a result larger than memory can be written. A
 path is written as a hidden temporary file beside it (`.out.parquet.<random>.tmp`), which replaces
 it once complete: nothing sees a half-written file, a query that fails (or is interrupted) leaves
-the target as it was, and a query may write over a file it reads. A target that is a symlink keeps
-linking to the file it names, which is replaced. A file object is written in place.
+the target as it was, and a query may write over a file it reads. The file replaced keeps its
+permission bits, and one the user may not write is refused (`PermissionError`), as writing it in
+place would be; a target that is a symlink keeps linking to the file it names, which is replaced.
+A file object is written in place.
 
 The options: with `policy="auto"` each INT32/INT64/FLOAT/DOUBLE column gets whichever of PCODEC
 and the base codec is smaller on the first batch with rows; `"pcodec"` and `"base"` force one.

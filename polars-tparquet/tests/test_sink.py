@@ -315,3 +315,37 @@ def test_a_scan_made_before_its_file_was_replaced_reads_what_it_scanned(tmp_path
     lf = pt.scan_tparquet(path)
     lf.filter(pl.col("qty") > 10).tparquet.sink(path)
     assert_frame_equal(lf.collect(), ticks(1000))
+
+
+@pytest.mark.parametrize("how", ["write", "sink"])
+def test_a_replaced_file_keeps_its_permissions(tmp_path: pathlib.Path, how: str) -> None:
+    path = tmp_path / "t.parquet"
+    ticks(3).tparquet.write(path)
+    path.chmod(0o640)
+    write = ticks(10).tparquet.write if how == "write" else ticks(10).lazy().tparquet.sink
+    write(path)
+    assert path.stat().st_mode & 0o777 == 0o640
+    assert_frame_equal(pt.read_tparquet(path), ticks(10))
+    new = tmp_path / "new.parquet"
+    ticks(1).tparquet.write(new)
+    umask = os.umask(0)
+    os.umask(umask)
+    assert new.stat().st_mode & 0o777 == 0o666 & ~umask
+
+
+@pytest.mark.parametrize("how", ["write", "sink"])
+def test_a_file_that_may_not_be_written_is_not_replaced(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, how: str
+) -> None:
+    path = tmp_path / "t.parquet"
+    ticks(3).tparquet.write(path)
+    before = path.read_bytes()
+    access = os.access
+    # root may write any file: pretend this one is read-only to the user
+    monkeypatch.setattr(os, "access", lambda p, mode: mode != os.W_OK and access(p, mode))
+    write = ticks(10).tparquet.write if how == "write" else ticks(10).lazy().tparquet.sink
+    with pytest.raises(PermissionError, match=re.escape(str(path))):
+        write(path)
+    assert path.read_bytes() == before
+    assert os.listdir(tmp_path) == ["t.parquet"]
+    ticks(10).tparquet.write(tmp_path / "other.parquet")  # a new file needs no such right
