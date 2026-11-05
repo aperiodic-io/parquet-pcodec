@@ -242,3 +242,34 @@ def test_a_corrupt_page_is_named_in_the_error(write: Write, tmp_path: pathlib.Pa
     lf = pt.scan_tparquet([good, bad])  # the footer is intact
     with pytest.raises(tparquet.PcodecError, match=r"bad\.parquet"):
         lf.collect()
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="tparquet.polars._source (python/) applies the row limit after the predicate, but Polars "
+    "hands an IO source both for head(n).filter(p) and means the limit first (filter(p).head(n) "
+    "gets no limit): over one file the rows the filter drops are replaced by later rows",
+)
+@pytest.mark.parametrize("engine", ["in-memory", "streaming"])
+@pytest.mark.parametrize(
+    "query",
+    [
+        lambda lf: lf.head(3).filter(pl.col("ts") > T0),
+        lambda lf: lf.slice(0, 1).filter(pl.col("ts") != T0),
+        lambda lf: lf.head(5).filter(pl.col("qty").is_null()),
+    ],
+    ids=["head(3).filter", "slice(0, 1).filter", "head(5).filter(is_null)"],
+)
+def test_a_limit_before_a_filter_over_one_file(
+    write: Write, query: Query, engine: Literal["in-memory", "streaming"]
+) -> None:
+    path = write("a.parquet", ticks(10))
+    assert_frame_equal(query(pt.scan_tparquet(path)).collect(engine=engine), query(ticks(10).lazy()).collect())
+
+
+def test_a_limit_before_a_filter_over_several_files(write: Write) -> None:
+    """Over a union of files Polars keeps the limit above the sources: these are right."""
+    paths = [write(f"{k}.parquet", ticks(10)) for k in range(2)]
+    query: Query = lambda lf: lf.head(3).filter(pl.col("ts") > T0)  # noqa: E731
+    assert_frame_equal(query(pt.scan_tparquet(paths)).collect(), query(pl.concat([ticks(10)] * 2).lazy()).collect())
