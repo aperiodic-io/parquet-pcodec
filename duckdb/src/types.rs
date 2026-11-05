@@ -131,7 +131,8 @@ impl fmt::Display for SqlType {
 /// `QueryResult::DeduplicateColumns` does for `read_parquet`.
 pub fn deduplicate(names: Vec<String>) -> Vec<String> {
     let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-    let mut out = Vec::with_capacity(names.len());
+    let total = names.len();
+    let mut out = Vec::with_capacity(total);
     for name in names {
         let low = name.to_ascii_lowercase();
         let Some(&count) = seen.get(&low) else {
@@ -139,13 +140,12 @@ pub fn deduplicate(names: Vec<String>) -> Vec<String> {
             out.push(name);
             continue;
         };
-        let mut count = count;
-        let mut renamed = format!("{name}_{count}");
-        while seen.contains_key(&renamed.to_ascii_lowercase()) {
-            count += 1;
-            renamed = format!("{name}_{count}");
-        }
-        seen.insert(low, count);
+        // the first free suffix from `count` on: one of the next `total` is free, as each name
+        // before this one took one name
+        let free = |n: &usize| !seen.contains_key(&format!("{name}_{n}").to_ascii_lowercase());
+        let suffix = (count..).take(total).find(free).unwrap_or(count);
+        let renamed = format!("{name}_{suffix}");
+        seen.insert(low, suffix);
         seen.insert(renamed.to_ascii_lowercase(), 1);
         out.push(renamed);
     }
