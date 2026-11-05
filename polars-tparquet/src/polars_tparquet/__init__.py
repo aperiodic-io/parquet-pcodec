@@ -15,10 +15,13 @@ that are not PCODEC are read too.
 
 from __future__ import annotations
 
+import contextlib
+import errno
 import glob
 import os
 import pathlib
-from collections.abc import Mapping, Sequence
+import uuid
+from collections.abc import Iterator, Mapping, Sequence
 from typing import Union
 
 import polars as pl
@@ -65,6 +68,29 @@ def _files(source: Sources) -> list[Source]:
 
 def _name(source: Source) -> str:
     return os.fsdecode(source) if _is_path(source) else repr(source)  # type: ignore[arg-type]
+
+
+@contextlib.contextmanager
+def _replacing(target: Sink) -> Iterator[Sink]:
+    """Where to write `target`. A file object is written in place. A path is written as a hidden
+    temporary file beside it (beside the file it links to), which replaces it once complete and
+    is removed if writing fails: the target is never seen half written, a failure leaves it as it
+    was, and a query can write over a file it reads."""
+    if not _is_path(target):
+        yield target
+        return
+    path = os.path.realpath(os.fsdecode(target))  # type: ignore[arg-type]
+    folder, name = os.path.split(path)
+    if not os.path.isdir(folder):
+        raise FileNotFoundError(errno.ENOENT, "no such directory", folder)
+    temporary = os.path.join(folder, f".{name}.{uuid.uuid4().hex}.tmp")
+    try:
+        yield temporary
+        os.replace(temporary, path)
+    except BaseException:
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(temporary)
+        raise
 
 
 def scan_tparquet(
@@ -177,24 +203,22 @@ class LazyFrameNamespace:
         else the engine's), never holding all of it; returns the codec of every leaf column.
 
         The options are those of `DataFrame.tparquet.write`; with `policy="auto"` the codecs are
-        chosen on the first batch with rows. If the query fails, a file the sink created is
-        removed.
+        chosen on the first batch with rows. A path is written as a hidden temporary file beside
+        it, which replaces it once complete: if the query fails, the target is left as it was,
+        and a query may write over a file it reads.
         """
         if chunk_size is not None and chunk_size <= 0:
             raise ValueError(f"chunk_size must be positive, got {chunk_size}")
-        writer = Writer(
-            target,
-            self._lf.collect_schema(),
-            policy=policy,
-            columns=columns,
-            level=level,
-            base=base,
-            row_group_size=row_group_size,
-        )
-        try:
+        schema = self._lf.collect_schema()
+        # the writer is closed on a normal exit and aborted on an exception
+        with (
+            _replacing(target) as sink,
+            Writer(
+                sink, schema, policy=policy, columns=columns, level=level, base=base, row_group_size=row_group_size
+            ) as writer,
+        ):
             for batch in self._lf.collect_batches(chunk_size=chunk_size):
                 writer.write(batch)
-        except BaseException:
-            writer.abort()
-            raise
-        return writer.close()
+        codecs = writer.codecs
+        assert codecs is not None  # closed: the codecs are chosen
+        return codecs

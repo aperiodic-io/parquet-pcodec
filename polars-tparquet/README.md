@@ -48,8 +48,11 @@ is `scan_tparquet(...)` with the columns (in the order given) and row limit appl
 writes a DataFrame and returns the codec of every leaf column.
 
 `lf.tparquet.sink(target, *, ..., chunk_size=None)` runs a lazy query and writes its result
-batch by batch (`LazyFrame.collect_batches`), so a result larger than memory can be written. If
-the query fails, a file the sink created is removed.
+batch by batch (`LazyFrame.collect_batches`), so a result larger than memory can be written. A
+path is written as a hidden temporary file beside it (`.out.parquet.<random>.tmp`), which replaces
+it once complete: nothing sees a half-written file, a query that fails (or is interrupted) leaves
+the target as it was, and a query may write over a file it reads. A target that is a symlink keeps
+linking to the file it names, which is replaced. A file object is written in place.
 
 The options: with `policy="auto"` each INT32/INT64/FLOAT/DOUBLE column gets whichever of PCODEC
 and the base codec is smaller on the first batch with rows; `"pcodec"` and `"base"` force one.
