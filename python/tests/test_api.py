@@ -749,3 +749,45 @@ def test_page_errors_name_the_file(tmp_path: pathlib.Path) -> None:
     with pytest.raises(ppc.PcodecError) as e:
         ppc.read_table(io.BytesIO(bytes(data)))
     assert str(bad) not in str(e.value)
+
+
+@pytest.mark.parametrize("base", ["zstd(", "zstd(3", "zstd(3x", "gzip(é", "zstd)(", "("])
+def test_malformed_base_codecs_are_pcodec_errors(tmp_path: pathlib.Path, numbers: pa.Table, base: str) -> None:
+    # the parquet crate's parser panics on some of these (a PanicException is not an Exception)
+    message = re.escape(f"base codec {base!r}: expected NAME or NAME(LEVEL)".replace("'", '"'))
+    with pytest.raises(ppc.PcodecError, match=f"^{message}$"):
+        ppc.write_table(numbers, tmp_path / "x.parquet", base=base)
+    with pytest.raises(ppc.PcodecError, match=f"^{message}$"):
+        ppc.transcode(vector("standard_control"), tmp_path / "y.parquet", target="standard", base=base)
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    "base",
+    [
+        "snappy",
+        "gzip(1)",
+        "gzip(9)",
+        "brotli(0)",
+        "brotli(11)",
+        "lz4",
+        "lz4_raw",
+        "zstd(1)",
+        "zstd(22)",
+        "uncompressed",
+        "SNAPPY",
+        "ZSTD(3)",
+    ],
+)
+def test_every_base_codec_is_written(numbers: pa.Table, base: str) -> None:
+    buf = io.BytesIO()
+    choice = ppc.write_table(numbers, buf, policy="base", base=base)
+    assert set(choice.values()) == {base.split("(")[0].upper()}
+    assert ppc.read_table(io.BytesIO(buf.getvalue())).equals(numbers)
+    assert pq.read_table(io.BytesIO(buf.getvalue())).equals(numbers)
+
+
+def test_lzo_is_refused(tmp_path: pathlib.Path, numbers: pa.Table) -> None:
+    with pytest.raises(ppc.PcodecError, match=r"^the base codec cannot be LZO: no Parquet writer implements it$"):
+        ppc.write_table(numbers, tmp_path / "x.parquet", base="lzo")
+    assert list(tmp_path.iterdir()) == []

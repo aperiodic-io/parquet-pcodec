@@ -18,13 +18,9 @@ pub struct Options {
     pub row_group_size: Option<i64>,
 }
 
-/// Parses a base codec such as `zstd(3)` or `snappy`; PCODEC is not one.
+/// Parses a base codec such as `zstd(3)` or `snappy` (`tparquet::parse_base`).
 pub fn base_codec(s: &str) -> PyResult<Compression> {
-    match s.parse::<Compression>() {
-        Ok(Compression::PCODEC(_)) => Err(invalid("the base codec cannot be PCODEC")),
-        Ok(c) => Ok(c),
-        Err(e) => Err(invalid(format!("base codec {s:?}: {e}"))),
-    }
+    tparquet::parse_base(s).map_err(from_pcodec)
 }
 
 impl Options {
