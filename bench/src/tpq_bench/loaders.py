@@ -127,7 +127,7 @@ def _midnight_ns(day: dt.date) -> int:
     """New York midnight of `day`, ns since the epoch; refuses a day whose UTC offset changes."""
     zone = zoneinfo.ZoneInfo(NEW_YORK)
     start = dt.datetime.combine(day, dt.time(0), zone)
-    end = dt.datetime.combine(day + dt.timedelta(days=1), dt.time(0), zone)
+    end = dt.datetime.combine(day + dt.timedelta(days=1), dt.time(), zone)
     if start.utcoffset() != end.utcoffset():
         raise ValueError(f"{day}: New York's clock changes that day; the loader assumes one UTC offset")
     return int(start.timestamp()) * 10**9

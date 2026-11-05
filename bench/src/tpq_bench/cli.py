@@ -83,14 +83,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     args.data.mkdir(parents=True, exist_ok=True)
     if args.command == "fetch":
-        failed = False
+        missing = []
         for s in sources:
             try:
                 fetch.ensure(s, args.data)
             except fetch.Unavailable as e:
                 _say(f"not fetched: {s.provider}: {s.data}: {e}")
-                failed = True
-        return 1 if failed else 0
+                missing.append(s)
+        return 1 if missing else 0
 
     sources += [catalog.dbn_file(p, dbn_schema(p)) for p in args.dbn]
     entries, _ = run(sources, args.data)

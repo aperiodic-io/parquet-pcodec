@@ -27,9 +27,10 @@ def test_run_measures_the_cached_sources_and_skips_the_unavailable(
 ) -> None:
     data = tmp_path / "data"
     trades(data / "x" / "t.parquet")
+    # the unavailable one first: the run goes on after it
     sources = [
-        catalog.Source("X", "BTC trades", "trades", "x/t.parquet", "parquet", catalog.Local()),
         catalog.Source("Y", "ES trades", "trades", "y/t.dbn", "dbn", catalog.Local(), needs="Y_KEY"),
+        catalog.Source("X", "BTC trades", "trades", "x/t.parquet", "parquet", catalog.Local()),
     ]
     entries, skipped = cli.run(sources, data)
     assert [(e.provider, e.data, e.m.rows) for e in entries] == [("X", "BTC trades", 5000)]
@@ -77,7 +78,9 @@ def test_main_list(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]) -
     ]
 
 
-def test_dbn_files_are_added(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_dbn_files_are_added(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     monkeypatch.setattr(catalog, "SOURCES", [])
     f = tmp_path / "glbx.mbp-10.dbn.zst"
 
@@ -96,6 +99,7 @@ def test_dbn_files_are_added(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyP
     f.write_bytes(b"")
     # nothing measured (the run is faked): exit status 1
     assert cli.main(["run", "--data", str(tmp_path), "--dbn", str(f)]) == 1
+    assert capsys.readouterr().err == "nothing measured\n"
     assert [(s.group, s.key) for s in seen[0]] == [("l2", str(f.resolve()))]
 
 
@@ -156,3 +160,9 @@ def test_main_list_shows_what_is_cached(
     monkeypatch.setenv("TPQ_BENCH_DATA", str(tmp_path))
     assert cli.main(["list"]) == 0
     assert capsys.readouterr().out.splitlines() == ["trades  x/t.parquet  cached", "quotes  x/q.parquet  missing"]
+
+
+def test_unknown_command(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit):
+        cli.main(["publish"])
+    assert "invalid choice: 'publish'" in capsys.readouterr().err

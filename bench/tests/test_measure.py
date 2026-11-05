@@ -87,7 +87,7 @@ def test_measure_removes_its_files(tmp_path: pathlib.Path) -> None:
 
 
 def test_measure_of_an_empty_source_fails(tmp_path: pathlib.Path) -> None:
-    with pytest.raises(ValueError, match="no rows"):
+    with pytest.raises(ValueError, match=r"^the source has no rows$"):
         measure.measure(reader(ticks(0)), tmp_path)
 
 
@@ -171,3 +171,10 @@ def test_the_tuned_file_is_zstd_level_9() -> None:
     assert tuned == written(9)
     assert tuned != written(10)
     assert tuned != written()
+
+
+def test_files_that_differ_are_an_error(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(tpq, "verify", lambda a, b: "row 3, column price" if "tuned" in str(b) else None)
+    with pytest.raises(AssertionError, match=r"^the tuned file differs from the ZSTD\(9\) file: row 3, column price$"):
+        measure.measure(reader(ticks(100)), tmp_path)
+    assert list(tmp_path.iterdir()) == []

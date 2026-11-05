@@ -114,4 +114,4 @@ def to_json(entries: Sequence[Entry]) -> str:
                 "tuned_encodings": encodings,
             }
         )
-    return json.dumps(rows, indent=2, ensure_ascii=False) + "\n"
+    return json.dumps(rows, indent=2, ensure_ascii=False) + "\n"  # pragma: no mutate (None is False)

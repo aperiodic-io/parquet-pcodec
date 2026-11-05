@@ -148,7 +148,7 @@ def measure(
     )
     auto = tpq.Writer(paths["tparquet"], reader.schema)
     tuned: pq.ParquetWriter | None = None
-    encodings: dict[str, str] = {}
+    encodings: dict[str, str]  # chosen on the first batch
     rows = 0
     write = dict.fromkeys(paths, 0.0)
 
