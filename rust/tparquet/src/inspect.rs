@@ -582,13 +582,13 @@ mod tests {
         assert_eq!(r.pages["DATA_PAGE"], 1);
         assert_eq!(r.modes["RAW"], 1);
         for (offset, len) in [(0, n + 1), (1, n), (-1, 2), (0, -1), (i64::MAX, 1)] {
-            let err = scan_pages(&page, &chunk(offset, len), &mut report("x"), &mut u64::MAX).unwrap_err();
+            let err = scan_pages(&page, &chunk(offset, len), &mut report("x"), &mut { u64::MAX }).unwrap_err();
             assert_eq!(err.to_string(), "column x: bad column chunk offsets", "{offset} {len}");
         }
         // a page that runs past its chunk, a broken header
-        let err = scan_pages(&page, &chunk(0, n - 1), &mut report("x"), &mut u64::MAX).unwrap_err();
+        let err = scan_pages(&page, &chunk(0, n - 1), &mut report("x"), &mut { u64::MAX }).unwrap_err();
         assert_eq!(err.to_string(), "column x: page runs past the column chunk");
-        let err = scan_pages(&page, &chunk(1, n - 1), &mut report("x"), &mut u64::MAX).unwrap_err();
+        let err = scan_pages(&page, &chunk(1, n - 1), &mut report("x"), &mut { u64::MAX }).unwrap_err();
         assert!(err.to_string().starts_with("column x: page header: "), "{err}");
     }
 
