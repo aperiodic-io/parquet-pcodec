@@ -30,10 +30,14 @@ fork-upstream-tests: install
 	$(MVN) -P fork-upstream-tests -pl $(UPSTREAM) test
 	python3 $(UPSTREAM)/compare.py $(UPSTREAM)/target/surefire-reports-1.17.0 $(UPSTREAM)/target/surefire-reports-1.17.0-tparquet
 
-# PIT on the Java code (every mutant killed; each module's pom says what it mutates and why)
+# PIT on the Java code (every mutant killed; each module's pom says what it mutates and why).
+# One module at a time, so that each sees the others as the installed jars: in a reactor that
+# stops before `package`, parquet-format-structures is its unshaded target/classes, which
+# parquet-hadoop (compiled against the shaded jar, as upstream's is) cannot link against
+PIT_MODULES := tparquet-jni parquet-java/parquet-format-structures parquet-java/parquet-common \
+  parquet-java/parquet-hadoop tparquet
 mutants: install
-	$(MVN) -pl tparquet-jni,parquet-java/parquet-format-structures,parquet-java/parquet-common,parquet-java/parquet-hadoop,tparquet \
-	  test-compile org.pitest:pitest-maven:mutationCoverage
+	for m in $(PIT_MODULES); do $(MVN) -pl $$m test-compile org.pitest:pitest-maven:mutationCoverage || exit 1; done
 
 # cargo mutants on rust/jni, judged by the Java suite (rust/jni/tests/java_suite.rs)
 jni-mutants: install
