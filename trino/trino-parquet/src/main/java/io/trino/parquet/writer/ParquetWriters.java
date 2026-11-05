@@ -332,9 +332,13 @@ final class ParquetWriters
             int fieldRepetitionLevel = type.getMaxRepetitionLevel(path);
             ColumnDescriptor columnDescriptor = new ColumnDescriptor(path, primitive, fieldRepetitionLevel, fieldDefinitionLevel);
             Optional<BloomFilter> bloomFilter = createBloomFilter(bloomFilterColumns, maxBloomFilterSize, bloomFilterFpp, columnDescriptor, trinoType);
+            // tparquet fork: PLAIN without a dictionary for the columns PCODEC models (spec/FORMAT.md section 3)
+            ValuesWriter valuesWriter = PcodecColumns.plainValues(compressionCodec, columnDescriptor)
+                    ? valuesWriterFactory.newPlainValuesWriter(bloomFilter)
+                    : valuesWriterFactory.newValuesWriter(columnDescriptor, bloomFilter);
             return new PrimitiveColumnWriter(
                     columnDescriptor,
-                    getValueWriter(valuesWriterFactory.newValuesWriter(columnDescriptor, bloomFilter), trinoType, columnDescriptor.getPrimitiveType(), parquetTimeZone),
+                    getValueWriter(valuesWriter, trinoType, columnDescriptor.getPrimitiveType(), parquetTimeZone),
                     newDefinitionLevelWriter(columnDescriptor, maxPageSize),
                     newRepetitionLevelWriter(columnDescriptor, maxPageSize),
                     compressionCodec,

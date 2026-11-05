@@ -1,0 +1,1405 @@
+diff --git fork/pom.xml fork/pom.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..0ae3d5561b14c7cad095a554d0e76d66eef4878b
+--- /dev/null
++++ fork/pom.xml
+@@ -0,0 +1,200 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!-- Fork of io.trino:trino-parquet 484 (FORK.md): the published pom's dependencies (versions from
++     trino-root 484, imported by the parent), plus tparquet-jni for the codec. -->
++<project xmlns="http://maven.apache.org/POM/4.0.0"
++         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
++         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
++  <modelVersion>4.0.0</modelVersion>
++  <parent>
++    <groupId>io.aperiodic.tparquet</groupId>
++    <artifactId>tparquet-trino-parent</artifactId>
++    <version>0.1.0-SNAPSHOT</version>
++  </parent>
++
++  <groupId>io.trino</groupId>
++  <artifactId>trino-parquet</artifactId>
++  <version>${trino.fork.version}</version>
++  <name>trino-parquet (tparquet fork)</name>
++  <description>Trino 484's Parquet reader and writer with the PCODEC codec (trino/trino-parquet/FORK.md)</description>
++
++  <dependencies>
++    <!-- tparquet fork: the PCODEC codec -->
++    <dependency>
++      <groupId>io.aperiodic.tparquet</groupId>
++      <artifactId>tparquet-jni</artifactId>
++    </dependency>
++
++    <!-- upstream's dependencies, as its published pom lists them -->
++    <dependency>
++      <groupId>com.fasterxml.jackson.core</groupId>
++      <artifactId>jackson-core</artifactId>
++    </dependency>
++    <dependency>
++      <groupId>com.google.errorprone</groupId>
++      <artifactId>error_prone_annotations</artifactId>
++      <optional>true</optional>
++    </dependency>
++    <dependency>
++      <groupId>com.google.guava</groupId>
++      <artifactId>guava</artifactId>
++    </dependency>
++    <dependency>
++      <groupId>io.airlift</groupId>
++      <artifactId>aircompressor-v3</artifactId>
++    </dependency>
++    <dependency>
++      <groupId>io.airlift</groupId>
++      <artifactId>log</artifactId>
++    </dependency>
++    <dependency>
++      <groupId>io.airlift</groupId>
++      <artifactId>slice</artifactId>
++    </dependency>
++    <dependency>
++      <groupId>io.airlift</groupId>
++      <artifactId>units</artifactId>
++    </dependency>
++    <dependency>
++      <groupId>io.trino</groupId>
++      <artifactId>trino-cache</artifactId>
++    </dependency>
++    <dependency>
++      <groupId>io.trino</groupId>
++      <artifactId>trino-json</artifactId>
++    </dependency>
++    <dependency>
++      <groupId>io.trino</groupId>
++      <artifactId>trino-memory-context</artifactId>
++    </dependency>
++    <dependency>
++      <groupId>io.trino</groupId>
++      <artifactId>trino-plugin-toolkit</artifactId>
++    </dependency>
++    <dependency>
++      <groupId>it.unimi.dsi</groupId>
++      <artifactId>fastutil</artifactId>
++    </dependency>
++    <dependency>
++      <groupId>jakarta.annotation</groupId>
++      <artifactId>jakarta.annotation-api</artifactId>
++    </dependency>
++    <dependency>
++      <groupId>joda-time</groupId>
++      <artifactId>joda-time</artifactId>
++    </dependency>
++    <dependency>
++      <groupId>org.apache.parquet</groupId>
++      <artifactId>parquet-column</artifactId>
++    </dependency>
++    <dependency>
++      <groupId>org.apache.parquet</groupId>
++      <artifactId>parquet-common</artifactId>
++    </dependency>
++    <dependency>
++      <groupId>org.apache.parquet</groupId>
++      <artifactId>parquet-encoding</artifactId>
++    </dependency>
++    <dependency>
++      <groupId>org.apache.parquet</groupId>
++      <artifactId>parquet-format-structures</artifactId>
++    </dependency>
++    <dependency>
++      <groupId>io.trino</groupId>
++      <artifactId>trino-filesystem</artifactId>
++      <scope>provided</scope>
++    </dependency>
++    <dependency>
++      <groupId>io.trino</groupId>
++      <artifactId>trino-spi</artifactId>
++      <scope>provided</scope>
++    </dependency>
++    <dependency>
++      <groupId>org.jetbrains</groupId>
++      <artifactId>annotations</artifactId>
++      <scope>provided</scope>
++    </dependency>
++
++    <!-- the fork's tests -->
++    <dependency>
++      <groupId>org.junit.jupiter</groupId>
++      <artifactId>junit-jupiter</artifactId>
++      <scope>test</scope>
++    </dependency>
++    <dependency>
++      <groupId>net.jqwik</groupId>
++      <artifactId>jqwik</artifactId>
++      <scope>test</scope>
++    </dependency>
++    <dependency>
++      <groupId>org.assertj</groupId>
++      <artifactId>assertj-core</artifactId>
++      <scope>test</scope>
++    </dependency>
++    <dependency>
++      <groupId>com.fasterxml.jackson.core</groupId>
++      <artifactId>jackson-databind</artifactId>
++      <scope>test</scope>
++    </dependency>
++  </dependencies>
++
++  <build>
++    <plugins>
++      <!-- PIT on the fork's code: its two classes (PcodecPages, PcodecColumns and its compressor),
++           ParquetCompressor.getCompressor and ParquetCompressionUtils.decompress (whose switches
++           gained a PCODEC arm), TrinoValuesWriterFactory.newPlainValuesWriter and
++           ParquetWriter's FileFooter.createFileMetadata (changed for the footer key). The other
++           methods of those classes are upstream's and excluded here. The remaining changes are
++           single calls whose value is used, which PIT's default mutators do not change:
++           PrimitiveColumnWriter's getCompressor(codec, column) (TestPcodecParquetWriter, the
++           payload modes) and ParquetWriters' plainValues choice (TestPcodecParquetWriter, the
++           encodings). -->
++      <plugin>
++        <groupId>org.pitest</groupId>
++        <artifactId>pitest-maven</artifactId>
++        <configuration>
++          <targetClasses>
++            <param>io.trino.parquet.PcodecPages</param>
++            <param>io.trino.parquet.ParquetCompressionUtils</param>
++            <param>io.trino.parquet.writer.PcodecColumns*</param>
++            <param>io.trino.parquet.writer.ParquetCompressor</param>
++            <param>io.trino.parquet.writer.valuewriter.TrinoValuesWriterFactory</param>
++            <param>io.trino.parquet.writer.ParquetWriter$FileFooter</param>
++          </targetClasses>
++          <targetTests>
++            <param>io.trino.parquet.*</param>
++          </targetTests>
++          <!-- upstream's guards (checkState in FileFooter.createFileMetadata): invariants of the
++               writer that its public API cannot break, so no test can see them removed; the
++               fork's code has no Preconditions calls -->
++          <avoidCallsTo>
++            <avoidCallsTo>com.google.common.base.Preconditions</avoidCallsTo>
++          </avoidCallsTo>
++          <excludedMethods>
++            <!-- ParquetCompressionUtils: upstream's codecs -->
++            <param>decompressSnappy</param>
++            <param>decompressZstd</param>
++            <param>decompressGzip</param>
++            <param>decompressLz4</param>
++            <param>decompressLZO</param>
++            <param>decompressFramed</param>
++            <!-- TrinoValuesWriterFactory: upstream's writers -->
++            <param>newValuesWriter</param>
++            <param>getFixedLenByteArrayValuesWriter</param>
++            <param>getBinaryValuesWriter</param>
++            <param>getInt32ValuesWriter</param>
++            <param>getInt64ValuesWriter</param>
++            <param>getInt96ValuesWriter</param>
++            <param>getDoubleValuesWriter</param>
++            <param>getFloatValuesWriter</param>
++            <param>getEncodingForDataPage</param>
++            <param>getEncodingForDictionaryPage</param>
++            <param>dictionaryWriter</param>
++            <param>dictWriterWithFallBack</param>
++            <!-- FileFooter: upstream's -->
++            <param>addRowGroup</param>
++          </excludedMethods>
++        </configuration>
++      </plugin>
++    </plugins>
++  </build>
++</project>
+diff --git upstream/src/main/java/io/trino/parquet/ParquetCompressionUtils.java fork/src/main/java/io/trino/parquet/ParquetCompressionUtils.java
+index 8729578a0fb726a85f4d3515eee584810dfe802f..026e4f16b3592ba5896719f1bdc00dc3bd3b9e9b 100644
+--- upstream/src/main/java/io/trino/parquet/ParquetCompressionUtils.java
++++ fork/src/main/java/io/trino/parquet/ParquetCompressionUtils.java
+@@ -44,7 +44,8 @@ public final class ParquetCompressionUtils
+     {
+         requireNonNull(input, "input is null");
+ 
+-        if (input.length() == 0) {
++        // tparquet fork: a PCODEC payload is never empty (spec/FORMAT.md section 4)
++        if (input.length() == 0 && codec != CompressionCodec.PCODEC) {
+             return EMPTY_SLICE;
+         }
+ 
+@@ -55,6 +56,8 @@ public final class ParquetCompressionUtils
+             case LZO -> decompressLZO(input, uncompressedSize);
+             case LZ4 -> decompressLz4(input, uncompressedSize);
+             case ZSTD -> decompressZstd(input, uncompressedSize);
++            // tparquet fork
++            case PCODEC -> PcodecPages.decompress(dataSourceId, input, uncompressedSize);
+             case BROTLI, LZ4_RAW -> throw new ParquetCorruptionException(dataSourceId, "Codec not supported in Parquet: %s", codec);
+         };
+     }
+diff --git fork/src/main/java/io/trino/parquet/PcodecPages.java fork/src/main/java/io/trino/parquet/PcodecPages.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..1fb6e1ea1231688885fd888b56f37dd5f7ccbced
+--- /dev/null
++++ fork/src/main/java/io/trino/parquet/PcodecPages.java
+@@ -0,0 +1,55 @@
++/*
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package io.trino.parquet;
++
++import io.airlift.slice.Slice;
++import io.aperiodic.tparquet.Pcodec;
++import io.aperiodic.tparquet.PcodecException;
++
++import static io.airlift.slice.Slices.EMPTY_SLICE;
++import static io.airlift.slice.Slices.wrappedBuffer;
++
++/**
++ * tparquet fork (trino/trino-parquet/FORK.md): new file. Decompresses the pages of PCODEC column
++ * chunks (spec/FORMAT.md, sections 3 and 4) for {@link ParquetCompressionUtils#decompress}.
++ */
++final class PcodecPages
++{
++    private PcodecPages() {}
++
++    /**
++     * Decodes a PCODEC payload to exactly {@code uncompressedSize} bytes. Payloads are untrusted: a
++     * malformed one, or one that decodes to another size, is a {@link ParquetCorruptionException},
++     * as is a negative size. As the reference reader does, a page with nothing to decode (a V2 page
++     * of nulls) is not decoded; an empty payload with bytes expected is malformed.
++     */
++    static Slice decompress(ParquetDataSourceId dataSourceId, Slice input, int uncompressedSize)
++            throws ParquetCorruptionException
++    {
++        if (uncompressedSize < 0) {
++            throw new ParquetCorruptionException(dataSourceId, "Invalid PCODEC page: negative uncompressed size %s", uncompressedSize);
++        }
++        if (uncompressedSize == 0) {
++            return EMPTY_SLICE;
++        }
++        byte[] output = new byte[uncompressedSize];
++        try {
++            Pcodec.decompress(input.byteArray(), input.byteArrayOffset(), input.length(), output, 0, uncompressedSize);
++        }
++        catch (PcodecException e) {
++            throw new ParquetCorruptionException(e, dataSourceId, "Invalid PCODEC page: %s", e.getMessage());
++        }
++        return wrappedBuffer(output);
++    }
++}
+diff --git upstream/src/main/java/io/trino/parquet/writer/ParquetCompressor.java fork/src/main/java/io/trino/parquet/writer/ParquetCompressor.java
+index 176829ce337d8029185c18360003220fc083b063..f256bc606eeb46bc796cef7554da42c1d4873236 100644
+--- upstream/src/main/java/io/trino/parquet/writer/ParquetCompressor.java
++++ fork/src/main/java/io/trino/parquet/writer/ParquetCompressor.java
+@@ -18,6 +18,7 @@ import io.airlift.compress.v3.lz4.Lz4Compressor;
+ import io.airlift.compress.v3.snappy.SnappyCompressor;
+ import io.airlift.compress.v3.zstd.ZstdCompressor;
+ import io.airlift.slice.Slices;
++import org.apache.parquet.column.ColumnDescriptor;
+ import org.apache.parquet.format.CompressionCodec;
+ 
+ import java.io.ByteArrayOutputStream;
+@@ -35,7 +36,8 @@ interface ParquetCompressor
+     ParquetDataOutput compress(ByteBuffer input)
+             throws IOException;
+ 
+-    static ParquetCompressor getCompressor(CompressionCodec codec)
++    // tparquet fork: the column, for PCODEC's type hint
++    static ParquetCompressor getCompressor(CompressionCodec codec, ColumnDescriptor column)
+     {
+         return switch (codec) {
+             case GZIP -> new GzipCompressor();
+@@ -43,6 +45,8 @@ interface ParquetCompressor
+             case ZSTD -> new AirLiftCompressor(ZstdCompressor.create());
+             case LZ4 -> new AirLiftCompressor(Lz4Compressor.create());
+             case UNCOMPRESSED -> null;
++            // tparquet fork
++            case PCODEC -> new PcodecColumns.PcodecCompressor(PcodecColumns.hint(column));
+             case LZO, LZ4_RAW, BROTLI -> {
+                 // TODO Support LZO and LZ4_RAW compression
+                 // Note: LZ4 compression scheme has been deprecated by parquet-format in favor of LZ4_RAW
+diff --git upstream/src/main/java/io/trino/parquet/writer/ParquetWriter.java fork/src/main/java/io/trino/parquet/writer/ParquetWriter.java
+index a7b49d55dbac981de3803a3dcba08e97edcd361c..2c4b86f12f988cf176d788412a4ebfd86a6eec84 100644
+--- upstream/src/main/java/io/trino/parquet/writer/ParquetWriter.java
++++ fork/src/main/java/io/trino/parquet/writer/ParquetWriter.java
+@@ -501,9 +501,15 @@ public class ParquetWriter
+                     totalRows,
+                     ImmutableList.copyOf(rowGroups));
+             fileMetaData.setCreated_by(createdBy);
++            ImmutableList.Builder<KeyValue> keyValues = ImmutableList.builder();
+             // Added based on org.apache.hadoop.hive.ql.io.parquet.write.DataWritableWriteSupport
+-            parquetTimeZone.ifPresent(dateTimeZone -> fileMetaData.setKey_value_metadata(
+-                    ImmutableList.of(new KeyValue("writer.time.zone").setValue(dateTimeZone.getID()))));
++            parquetTimeZone.ifPresent(dateTimeZone -> keyValues.add(new KeyValue("writer.time.zone").setValue(dateTimeZone.getID())));
++            // tparquet fork: parquet.pcodec.version (spec/FORMAT.md section 2)
++            PcodecColumns.footerKeyValue(rowGroups).ifPresent(keyValues::add);
++            List<KeyValue> keyValueMetadata = keyValues.build();
++            if (!keyValueMetadata.isEmpty()) {
++                fileMetaData.setKey_value_metadata(keyValueMetadata);
++            }
+             return fileMetaData;
+         }
+     }
+diff --git upstream/src/main/java/io/trino/parquet/writer/ParquetWriters.java fork/src/main/java/io/trino/parquet/writer/ParquetWriters.java
+index e49414a73da5697cc134561902a6f4ccd2663759..0d498b7b388966babc79cbb5126dea04ca38e47c 100644
+--- upstream/src/main/java/io/trino/parquet/writer/ParquetWriters.java
++++ fork/src/main/java/io/trino/parquet/writer/ParquetWriters.java
+@@ -332,9 +332,13 @@ final class ParquetWriters
+             int fieldRepetitionLevel = type.getMaxRepetitionLevel(path);
+             ColumnDescriptor columnDescriptor = new ColumnDescriptor(path, primitive, fieldRepetitionLevel, fieldDefinitionLevel);
+             Optional<BloomFilter> bloomFilter = createBloomFilter(bloomFilterColumns, maxBloomFilterSize, bloomFilterFpp, columnDescriptor, trinoType);
++            // tparquet fork: PLAIN without a dictionary for the columns PCODEC models (spec/FORMAT.md section 3)
++            ValuesWriter valuesWriter = PcodecColumns.plainValues(compressionCodec, columnDescriptor)
++                    ? valuesWriterFactory.newPlainValuesWriter(bloomFilter)
++                    : valuesWriterFactory.newValuesWriter(columnDescriptor, bloomFilter);
+             return new PrimitiveColumnWriter(
+                     columnDescriptor,
+-                    getValueWriter(valuesWriterFactory.newValuesWriter(columnDescriptor, bloomFilter), trinoType, columnDescriptor.getPrimitiveType(), parquetTimeZone),
++                    getValueWriter(valuesWriter, trinoType, columnDescriptor.getPrimitiveType(), parquetTimeZone),
+                     newDefinitionLevelWriter(columnDescriptor, maxPageSize),
+                     newRepetitionLevelWriter(columnDescriptor, maxPageSize),
+                     compressionCodec,
+diff --git fork/src/main/java/io/trino/parquet/writer/PcodecColumns.java fork/src/main/java/io/trino/parquet/writer/PcodecColumns.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..261d205f07f1744fecc3f6ca4bed4e3c5b0fb70b
+--- /dev/null
++++ fork/src/main/java/io/trino/parquet/writer/PcodecColumns.java
+@@ -0,0 +1,97 @@
++/*
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package io.trino.parquet.writer;
++
++import io.aperiodic.tparquet.Pcodec;
++import io.aperiodic.tparquet.PhysicalType;
++import jakarta.annotation.Nullable;
++import org.apache.parquet.column.ColumnDescriptor;
++import org.apache.parquet.format.CompressionCodec;
++import org.apache.parquet.format.KeyValue;
++import org.apache.parquet.format.RowGroup;
++
++import java.nio.ByteBuffer;
++import java.util.List;
++import java.util.Optional;
++
++import static io.airlift.slice.Slices.wrappedBuffer;
++import static io.trino.parquet.writer.ParquetDataOutput.createDataOutput;
++
++/**
++ * tparquet fork (trino/trino-parquet/FORK.md): new file. PCODEC in Trino's writer, as spec/FORMAT.md
++ * sections 2 and 3 recommend, within what Trino's writer does (DATA_PAGE pages, one codec per
++ * file): the columns whose pages are arrays of numbers get PLAIN values without a dictionary and
++ * their physical type as the type hint; the others keep Trino's encodings, and their payloads are
++ * the codec's ZSTD fallback (valid files, spec section 4).
++ */
++final class PcodecColumns
++{
++    private PcodecColumns() {}
++
++    /**
++     * The type hint of a column's pages: its physical type when the pages are arrays of numbers,
++     * an INT32, INT64, FLOAT or DOUBLE column without definition or repetition levels (a DATA_PAGE
++     * starts with its levels); {@code null} for the others.
++     */
++    @Nullable
++    static PhysicalType hint(ColumnDescriptor column)
++    {
++        if (column.getMaxDefinitionLevel() != 0 || column.getMaxRepetitionLevel() != 0) {
++            return null;
++        }
++        return PhysicalType.fromName(column.getPrimitiveType().getPrimitiveTypeName().name());
++    }
++
++    /** Whether the column's values are written PLAIN without a dictionary: a PCODEC column with a type hint. */
++    static boolean plainValues(CompressionCodec codec, ColumnDescriptor column)
++    {
++        return codec == CompressionCodec.PCODEC && hint(column) != null;
++    }
++
++    /** {@code parquet.pcodec.version = "1"} for a file with a PCODEC column chunk (spec section 2). */
++    static Optional<KeyValue> footerKeyValue(List<RowGroup> rowGroups)
++    {
++        boolean pcodec = rowGroups.stream()
++                .flatMap(rowGroup -> rowGroup.getColumns().stream())
++                .anyMatch(column -> column.getMeta_data().getCodec() == CompressionCodec.PCODEC);
++        return pcodec ? Optional.of(new KeyValue(Pcodec.KV_KEY).setValue(Pcodec.KV_VALUE)) : Optional.empty();
++    }
++
++    /** PCODEC at the default level, trying DECIMAL for floats. */
++    static final class PcodecCompressor
++            implements ParquetCompressor
++    {
++        @Nullable
++        private final PhysicalType hint;
++
++        PcodecCompressor(@Nullable PhysicalType hint)
++        {
++            this.hint = hint;
++        }
++
++        @Nullable
++        PhysicalType hint()
++        {
++            return hint;
++        }
++
++        @Override
++        public ParquetDataOutput compress(ByteBuffer input)
++        {
++            byte[] page = new byte[input.remaining()];
++            input.get(page);
++            return createDataOutput(wrappedBuffer(Pcodec.compress(page, 0, page.length, hint, Pcodec.DEFAULT_LEVEL, true)));
++        }
++    }
++}
+diff --git upstream/src/main/java/io/trino/parquet/writer/PrimitiveColumnWriter.java fork/src/main/java/io/trino/parquet/writer/PrimitiveColumnWriter.java
+index 93f618185c4c90150f39ca0d66cb505203087ef3..eb28b499fc5d76b24cb399c434f03f7dd2c16662 100644
+--- upstream/src/main/java/io/trino/parquet/writer/PrimitiveColumnWriter.java
++++ fork/src/main/java/io/trino/parquet/writer/PrimitiveColumnWriter.java
+@@ -135,7 +135,8 @@ public class PrimitiveColumnWriter
+         this.repetitionLevelWriter = requireNonNull(repetitionLevelWriter, "repetitionLevelWriter is null");
+         this.primitiveValueWriter = requireNonNull(primitiveValueWriter, "primitiveValueWriter is null");
+         this.compressionCodec = requireNonNull(compressionCodec, "compressionCodec is null");
+-        this.compressor = getCompressor(compressionCodec);
++        // tparquet fork: the column, for PCODEC's type hint
++        this.compressor = getCompressor(compressionCodec, columnDescriptor);
+         this.pageSizeThreshold = pageSizeThreshold;
+         this.pageValueCountLimit = pageValueCountLimit;
+         this.columnStatistics = createStatistics(columnDescriptor.getPrimitiveType());
+diff --git upstream/src/main/java/io/trino/parquet/writer/valuewriter/TrinoValuesWriterFactory.java fork/src/main/java/io/trino/parquet/writer/valuewriter/TrinoValuesWriterFactory.java
+index dab3a8fe41a55a5a9f3072459a38cdef47b3537a..7c6cbb03d1b82984c68eb66fc2e1a3ec1a733bed 100644
+--- upstream/src/main/java/io/trino/parquet/writer/valuewriter/TrinoValuesWriterFactory.java
++++ fork/src/main/java/io/trino/parquet/writer/valuewriter/TrinoValuesWriterFactory.java
+@@ -56,6 +56,12 @@ public class TrinoValuesWriterFactory
+         };
+     }
+ 
++    // tparquet fork: PLAIN values without a dictionary, for the numeric columns of a PCODEC file
++    public ValuesWriter newPlainValuesWriter(Optional<BloomFilter> bloomFilter)
++    {
++        return createBloomFilterValuesWriter(new PlainValuesWriter(INITIAL_SLAB_SIZE), bloomFilter);
++    }
++
+     private ValuesWriter getFixedLenByteArrayValuesWriter(ColumnDescriptor path, Optional<BloomFilter> bloomFilter)
+     {
+         // dictionary encoding was not enabled in PARQUET 1.0
+diff --git fork/src/test/java/io/trino/parquet/MemoryParquetDataSource.java fork/src/test/java/io/trino/parquet/MemoryParquetDataSource.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..457147fe4e82adbdb295369c6d09a909a1fd9788
+--- /dev/null
++++ fork/src/test/java/io/trino/parquet/MemoryParquetDataSource.java
+@@ -0,0 +1,25 @@
++/*
++ * tparquet fork (trino/trino-parquet/FORK.md): new file.
++ */
++package io.trino.parquet;
++
++import static java.lang.Math.toIntExact;
++
++/** A Parquet file in memory, for the fork's tests. */
++public final class MemoryParquetDataSource
++        extends AbstractParquetDataSource
++{
++    private final byte[] data;
++
++    public MemoryParquetDataSource(byte[] data)
++    {
++        super(new ParquetDataSourceId("memory"), data.length, ParquetReaderOptions.defaultOptions());
++        this.data = data;
++    }
++
++    @Override
++    protected void readInternal(long position, byte[] buffer, int bufferOffset, int bufferLength)
++    {
++        System.arraycopy(data, toIntExact(position), buffer, bufferOffset, bufferLength);
++    }
++}
+diff --git fork/src/test/java/io/trino/parquet/PcodecTestdata.java fork/src/test/java/io/trino/parquet/PcodecTestdata.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..f2289f7bfd068ab6764ca22b0cea86f6ea71f840
+--- /dev/null
++++ fork/src/test/java/io/trino/parquet/PcodecTestdata.java
+@@ -0,0 +1,71 @@
++/*
++ * tparquet fork (trino/trino-parquet/FORK.md): new file.
++ */
++package io.trino.parquet;
++
++import com.fasterxml.jackson.databind.JsonNode;
++import com.fasterxml.jackson.databind.ObjectMapper;
++
++import java.io.IOException;
++import java.io.UncheckedIOException;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.util.ArrayList;
++import java.util.List;
++
++/** The payload vectors of {@code testdata/payloads} (system property {@code tparquet.testdata}). */
++public final class PcodecTestdata
++{
++    private PcodecTestdata() {}
++
++    public static Path dir()
++    {
++        String d = System.getProperty("tparquet.testdata");
++        return Path.of(d == null ? "../../testdata" : d);
++    }
++
++    /** One entry of {@code payloads/manifest.json}; {@code decoded} and {@code mode} are null for an invalid one. */
++    public record Payload(String name, byte[] payload, int expectedLen, boolean valid, byte[] decoded, String mode, String hint, String error)
++    {
++        @Override
++        public String toString()
++        {
++            return name;
++        }
++    }
++
++    public static List<Payload> payloads()
++    {
++        Path dir = dir().resolve("payloads");
++        try {
++            JsonNode manifest = new ObjectMapper().readTree(dir.resolve("manifest.json").toFile());
++            List<Payload> out = new ArrayList<>();
++            for (JsonNode v : manifest.get("vectors")) {
++                boolean valid = v.get("valid").asBoolean();
++                out.add(new Payload(
++                        v.get("name").asText(),
++                        Files.readAllBytes(dir.resolve(v.get("payload").asText())),
++                        v.get("expected_len").asInt(),
++                        valid,
++                        valid ? Files.readAllBytes(dir.resolve(v.get("decoded").asText())) : null,
++                        valid ? v.get("mode").asText() : null,
++                        valid && !v.get("hint").isNull() ? v.get("hint").asText() : null,
++                        valid ? null : v.get("error").asText()));
++            }
++            return out;
++        }
++        catch (IOException e) {
++            throw new UncheckedIOException(e);
++        }
++    }
++
++    public static List<Payload> valid()
++    {
++        return payloads().stream().filter(Payload::valid).toList();
++    }
++
++    public static List<Payload> invalid()
++    {
++        return payloads().stream().filter(p -> !p.valid()).toList();
++    }
++}
+diff --git fork/src/test/java/io/trino/parquet/TestPcodecDecompression.java fork/src/test/java/io/trino/parquet/TestPcodecDecompression.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..c74bdd0c5bd3c002bd8d3604b942176ffb1019ca
+--- /dev/null
++++ fork/src/test/java/io/trino/parquet/TestPcodecDecompression.java
+@@ -0,0 +1,201 @@
++/*
++ * tparquet fork (trino/trino-parquet/FORK.md): new file.
++ */
++package io.trino.parquet;
++
++import io.airlift.compress.v3.snappy.SnappyCompressor;
++import io.airlift.compress.v3.zstd.ZstdCompressor;
++import io.airlift.slice.Slice;
++import io.airlift.slice.Slices;
++import io.aperiodic.tparquet.Pcodec;
++import io.aperiodic.tparquet.PcodecException;
++import io.aperiodic.tparquet.PhysicalType;
++import io.trino.parquet.PcodecTestdata.Payload;
++import org.apache.parquet.format.CompressionCodec;
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.params.ParameterizedTest;
++import org.junit.jupiter.params.provider.MethodSource;
++
++import java.io.IOException;
++import java.util.Arrays;
++import java.util.List;
++import java.util.Random;
++
++import static io.trino.parquet.ParquetCompressionUtils.decompress;
++import static org.apache.parquet.format.CompressionCodec.PCODEC;
++import static org.assertj.core.api.Assertions.assertThat;
++import static org.assertj.core.api.Assertions.assertThatThrownBy;
++
++/** The tparquet fork: ParquetCompressionUtils.decompress for PCODEC (spec/FORMAT.md sections 3 and 4). */
++class TestPcodecDecompression
++{
++    private static final ParquetDataSourceId ID = new ParquetDataSourceId("file:///test.parquet");
++
++    static List<Payload> valid()
++    {
++        return PcodecTestdata.valid();
++    }
++
++    static List<Payload> invalid()
++    {
++        return PcodecTestdata.invalid();
++    }
++
++    /** The invalid vectors that expect bytes: a Parquet page with nothing to decode is not decoded (below). */
++    static List<Payload> invalidWithExpectedBytes()
++    {
++        return invalid().stream().filter(p -> p.expectedLen() > 0).toList();
++    }
++
++    @Test
++    void everyPayloadVectorIsHere()
++    {
++        assertThat(valid()).hasSizeGreaterThanOrEqualTo(14);
++        assertThat(invalidWithExpectedBytes()).hasSizeGreaterThanOrEqualTo(19);
++        assertThat(valid().stream().map(Payload::mode).distinct()).containsExactlyInAnyOrder("RAW", "PCO", "DECIMAL", "ZSTD");
++    }
++
++    @ParameterizedTest(name = "{0}")
++    @MethodSource("valid")
++    void decodesEveryValidPayloadVector(Payload p)
++            throws IOException
++    {
++        Slice out = decompress(ID, PCODEC, Slices.wrappedBuffer(p.payload()), p.expectedLen());
++        assertThat(out.length()).isEqualTo(p.expectedLen());
++        assertThat(out.getBytes()).isEqualTo(p.decoded());
++    }
++
++    @ParameterizedTest(name = "{0}")
++    @MethodSource("invalidWithExpectedBytes")
++    void refusesEveryInvalidPayloadVector(Payload p)
++    {
++        assertThatThrownBy(() -> decompress(ID, PCODEC, Slices.wrappedBuffer(p.payload()), p.expectedLen()))
++                .isInstanceOf(ParquetCorruptionException.class)
++                .hasMessageStartingWith("Malformed Parquet file. Invalid PCODEC page: ")
++                // the reference decoder's message, and the file
++                .hasMessageContaining(p.error())
++                .hasMessageEndingWith("[" + ID + "]")
++                .hasCauseInstanceOf(PcodecException.class);
++    }
++
++    @ParameterizedTest(name = "{0}")
++    @MethodSource("valid")
++    void refusesAnyOtherExpectedSize(Payload p)
++    {
++        for (int size : new int[] {p.expectedLen() + 1, p.expectedLen() + 8, p.expectedLen() - 1}) {
++            if (size <= 0) {
++                continue;
++            }
++            assertThatThrownBy(() -> decompress(ID, PCODEC, Slices.wrappedBuffer(p.payload()), size))
++                    .as("%s with expected size %s", p.name(), size)
++                    .isInstanceOf(ParquetCorruptionException.class)
++                    .hasMessageContaining("Invalid PCODEC page");
++        }
++    }
++
++    @Test
++    void aNegativeExpectedSizeIsCorruption()
++    {
++        Payload p = valid().get(1);
++        assertThatThrownBy(() -> decompress(ID, PCODEC, Slices.wrappedBuffer(p.payload()), -1))
++                .isInstanceOf(ParquetCorruptionException.class)
++                .hasMessage("Malformed Parquet file. Invalid PCODEC page: negative uncompressed size -1 [" + ID + "]");
++    }
++
++    @Test
++    void anEmptyPageWithBytesExpectedIsCorruption()
++    {
++        // Trino returns an empty slice for empty input of the other codecs; PCODEC payloads are never empty
++        assertThatThrownBy(() -> decompress(ID, PCODEC, Slices.EMPTY_SLICE, 16))
++                .isInstanceOf(ParquetCorruptionException.class)
++                .hasMessageContaining("pcodec payload: truncated");
++    }
++
++    @Test
++    void aPageWithNothingExpectedIsNotDecoded()
++            throws IOException
++    {
++        // as the reference reader: an empty values section (a V2 page of nulls) is not decoded,
++        // whatever its compressed bytes
++        for (Payload p : invalid()) {
++            if (p.expectedLen() == 0) {
++                assertThat(decompress(ID, PCODEC, Slices.wrappedBuffer(p.payload()), 0).length()).as(p.name()).isZero();
++            }
++        }
++        assertThat(decompress(ID, PCODEC, Slices.EMPTY_SLICE, 0).length()).isZero();
++    }
++
++    @Test
++    void decodesASliceOfALargerArray()
++            throws IOException
++    {
++        Payload p = valid().stream().filter(v -> v.mode().equals("PCO")).findFirst().orElseThrow();
++        byte[] padded = new byte[p.payload().length + 37];
++        Arrays.fill(padded, (byte) 0x5a);
++        System.arraycopy(p.payload(), 0, padded, 13, p.payload().length);
++        Slice slice = Slices.wrappedBuffer(padded, 13, p.payload().length);
++        assertThat(decompress(ID, PCODEC, slice, p.expectedLen()).getBytes()).isEqualTo(p.decoded());
++    }
++
++    @Test
++    void roundTripsWhatTheCodecWrites()
++            throws IOException
++    {
++        Random random = new Random(20547);
++        for (PhysicalType hint : new PhysicalType[] {null, PhysicalType.INT32, PhysicalType.INT64, PhysicalType.FLOAT, PhysicalType.DOUBLE}) {
++            for (int n : new int[] {1, 7, 8, 1000, 65536}) {
++                byte[] data = new byte[n];
++                random.nextBytes(data);
++                Slice out = decompress(ID, PCODEC, Slices.wrappedBuffer(Pcodec.compress(data, hint)), n);
++                assertThat(out.getBytes()).as("%s %s", hint, n).isEqualTo(data);
++            }
++        }
++    }
++
++    /** Hadoop's LZ4 framing: per block of {@code block} bytes, its size and one compressed chunk, both lengths big-endian. */
++    private static byte[] lz4Framed(byte[] data, int block)
++    {
++        io.airlift.compress.v3.lz4.Lz4Compressor lz4 = io.airlift.compress.v3.lz4.Lz4Compressor.create();
++        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
++        for (int off = 0; off < data.length; off += block) {
++            int n = Math.min(block, data.length - off);
++            byte[] chunk = new byte[lz4.maxCompressedLength(n)];
++            int len = lz4.compress(data, off, n, chunk, 0, chunk.length);
++            out.writeBytes(java.nio.ByteBuffer.allocate(8).putInt(n).putInt(len).array());
++            out.write(chunk, 0, len);
++        }
++        return out.toByteArray();
++    }
++
++    @Test
++    void theOtherCodecsAreUnchanged()
++            throws IOException
++    {
++        byte[] data = new byte[4096];
++        new Random(1).nextBytes(data);
++        ZstdCompressor zstd = ZstdCompressor.create();
++        byte[] compressed = new byte[zstd.maxCompressedLength(data.length)];
++        int len = zstd.compress(data, 0, data.length, compressed, 0, compressed.length);
++        assertThat(decompress(ID, CompressionCodec.ZSTD, Slices.wrappedBuffer(compressed, 0, len), data.length).getBytes()).isEqualTo(data);
++        // at an offset of a larger array
++        byte[] padded = new byte[len + 11];
++        System.arraycopy(compressed, 0, padded, 5, len);
++        assertThat(decompress(ID, CompressionCodec.ZSTD, Slices.wrappedBuffer(padded, 5, len), data.length).getBytes()).isEqualTo(data);
++        SnappyCompressor snappy = SnappyCompressor.create();
++        byte[] snappyCompressed = new byte[snappy.maxCompressedLength(data.length)];
++        int snappyLen = snappy.compress(data, 0, data.length, snappyCompressed, 0, snappyCompressed.length);
++        assertThat(decompress(ID, CompressionCodec.SNAPPY, Slices.wrappedBuffer(snappyCompressed, 0, snappyLen), data.length).getBytes()).isEqualTo(data);
++        assertThatThrownBy(() -> decompress(ID, CompressionCodec.SNAPPY, Slices.wrappedBuffer(snappyCompressed, 0, snappyLen), data.length + 1))
++                .hasMessageContaining("Invalid uncompressedSize for SNAPPY input");
++        assertThat(decompress(ID, CompressionCodec.UNCOMPRESSED, Slices.wrappedBuffer(data), data.length).getBytes()).isEqualTo(data);
++        // empty input of a standard codec is still an empty slice, as upstream
++        assertThat(decompress(ID, CompressionCodec.ZSTD, Slices.EMPTY_SLICE, 16).length()).isZero();
++        // Hadoop-framed LZ4 with two blocks: the second decodes at an offset of the output
++        assertThat(decompress(ID, CompressionCodec.LZ4, Slices.wrappedBuffer(lz4Framed(data, 1000)), data.length).getBytes()).isEqualTo(data);
++        for (CompressionCodec codec : new CompressionCodec[] {CompressionCodec.BROTLI, CompressionCodec.LZ4_RAW}) {
++            assertThatThrownBy(() -> decompress(ID, codec, Slices.wrappedBuffer(data), data.length))
++                    .isInstanceOf(ParquetCorruptionException.class)
++                    .hasMessageContaining("Codec not supported in Parquet: " + codec);
++        }
++    }
++}
+diff --git fork/src/test/java/io/trino/parquet/TestPcodecDecompressionProperties.java fork/src/test/java/io/trino/parquet/TestPcodecDecompressionProperties.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..7be7726f7d7e90210b6f48e49a3ba366fc3c8c91
+--- /dev/null
++++ fork/src/test/java/io/trino/parquet/TestPcodecDecompressionProperties.java
+@@ -0,0 +1,85 @@
++/*
++ * tparquet fork (trino/trino-parquet/FORK.md): new file.
++ */
++package io.trino.parquet;
++
++import io.airlift.slice.Slice;
++import io.airlift.slice.Slices;
++import io.trino.parquet.PcodecTestdata.Payload;
++import net.jqwik.api.Arbitraries;
++import net.jqwik.api.Arbitrary;
++import net.jqwik.api.ForAll;
++import net.jqwik.api.Property;
++import net.jqwik.api.Provide;
++import net.jqwik.api.constraints.IntRange;
++import net.jqwik.api.constraints.Size;
++
++import java.util.List;
++
++import static io.trino.parquet.ParquetCompressionUtils.decompress;
++import static org.apache.parquet.format.CompressionCodec.PCODEC;
++import static org.assertj.core.api.Assertions.assertThat;
++
++/**
++ * Payloads are untrusted (spec section 7): whatever the bytes, decompress returns exactly the
++ * expected size or throws a ParquetCorruptionException, never anything else.
++ */
++class TestPcodecDecompressionProperties
++{
++    private static final ParquetDataSourceId ID = new ParquetDataSourceId("property");
++    private static final List<Payload> VALID = PcodecTestdata.valid();
++
++    /** The result of a decompress call: the output's length, or -1 for a ParquetCorruptionException. */
++    private static int outcome(byte[] payload, int expected)
++    {
++        try {
++            Slice out = decompress(ID, PCODEC, Slices.wrappedBuffer(payload), expected);
++            return out.length();
++        }
++        catch (ParquetCorruptionException e) {
++            assertThat(e).hasMessageContaining("Invalid PCODEC page");
++            return -1;
++        }
++        catch (Exception e) {
++            throw new AssertionError("not a ParquetCorruptionException: " + e, e);
++        }
++    }
++
++    @Property(tries = 2000)
++    void randomBytes(@ForAll @Size(max = 300) byte[] payload, @ForAll @IntRange(min = 1, max = 1 << 16) int expected)
++    {
++        assertThat(outcome(payload, expected)).isIn(-1, expected);
++    }
++
++    @Property(tries = 2000)
++    void randomBodiesBehindAValidHeader(@ForAll @IntRange(min = 0, max = 3) int mode, @ForAll @IntRange(min = 1, max = 5) int dtype,
++            @ForAll @Size(max = 200) byte[] body, @ForAll @IntRange(min = 1, max = 4096) int expected)
++    {
++        byte[] payload = new byte[body.length + 3];
++        payload[0] = 1;
++        payload[1] = (byte) mode;
++        payload[2] = (byte) dtype;
++        System.arraycopy(body, 0, payload, 3, body.length);
++        assertThat(outcome(payload, expected)).isIn(-1, expected);
++    }
++
++    @Provide
++    Arbitrary<Payload> validPayload()
++    {
++        return Arbitraries.of(VALID).filter(p -> p.expectedLen() > 0);
++    }
++
++    @Property(tries = 3000)
++    void damagedValidPayloads(@ForAll("validPayload") Payload p, @ForAll @IntRange(min = 0, max = 1 << 20) int at, @ForAll byte xor,
++            @ForAll @IntRange(min = 0, max = 3) int cut)
++    {
++        byte[] damaged = p.payload().clone();
++        int i = at % damaged.length;
++        damaged[i] ^= (byte) (xor == 0 ? 1 : xor);
++        if (cut > 0) {
++            damaged = java.util.Arrays.copyOf(damaged, Math.max(0, damaged.length - cut * (1 + at % 7)));
++        }
++        int got = outcome(damaged, p.expectedLen());
++        assertThat(got).isIn(-1, p.expectedLen());
++    }
++}
+diff --git fork/src/test/java/io/trino/parquet/writer/TestPcodecCompressor.java fork/src/test/java/io/trino/parquet/writer/TestPcodecCompressor.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..ae9a22fe1dcf7c34dcb9c02028a8959a52c26d1f
+--- /dev/null
++++ fork/src/test/java/io/trino/parquet/writer/TestPcodecCompressor.java
+@@ -0,0 +1,186 @@
++/*
++ * tparquet fork (trino/trino-parquet/FORK.md): new file.
++ */
++package io.trino.parquet.writer;
++
++import io.aperiodic.tparquet.Mode;
++import io.aperiodic.tparquet.Pcodec;
++import io.aperiodic.tparquet.PhysicalType;
++import io.airlift.slice.DynamicSliceOutput;
++import org.apache.parquet.column.ColumnDescriptor;
++import org.apache.parquet.format.ColumnMetaData;
++import org.apache.parquet.format.CompressionCodec;
++import org.apache.parquet.format.KeyValue;
++import org.apache.parquet.schema.PrimitiveType;
++import org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName;
++import org.apache.parquet.schema.Type.Repetition;
++import org.apache.parquet.schema.Types;
++import org.junit.jupiter.api.Test;
++
++import java.io.IOException;
++import java.nio.ByteBuffer;
++import java.nio.ByteOrder;
++import java.util.ArrayList;
++import java.util.List;
++import java.util.Random;
++
++import static io.trino.parquet.writer.ParquetCompressor.getCompressor;
++import static io.trino.parquet.writer.PcodecColumns.hint;
++import static org.assertj.core.api.Assertions.assertThat;
++import static org.assertj.core.api.Assertions.assertThatThrownBy;
++
++/** The tparquet fork: ParquetCompressor for PCODEC, with the column's physical type as the hint. */
++class TestPcodecCompressor
++{
++    private static ColumnDescriptor column(PrimitiveTypeName type, Repetition repetition)
++    {
++        PrimitiveType p = Types.primitive(type, repetition).length(type == PrimitiveTypeName.FIXED_LEN_BYTE_ARRAY ? 16 : 0).named("c");
++        int definition = repetition == Repetition.REQUIRED ? 0 : 1;
++        int repeat = repetition == Repetition.REPEATED ? 1 : 0;
++        return new ColumnDescriptor(new String[] {"c"}, p, repeat, definition);
++    }
++
++    private static byte[] bytes(ParquetDataOutput out)
++    {
++        DynamicSliceOutput sink = new DynamicSliceOutput(out.size());
++        out.writeData(sink);
++        return sink.slice().getBytes();
++    }
++
++    private static ByteBuffer longs(int n)
++    {
++        ByteBuffer b = ByteBuffer.allocate(n * 8).order(ByteOrder.LITTLE_ENDIAN);
++        long v = 1_735_689_600_000L;
++        for (int i = 0; i < n; i++) {
++            v += 1000 + (i % 7);
++            b.putLong(v);
++        }
++        return b.flip();
++    }
++
++    @Test
++    void theHintIsThePhysicalTypeOfARequiredFlatNumericColumn()
++    {
++        assertThat(hint(column(PrimitiveTypeName.INT32, Repetition.REQUIRED))).isSameAs(PhysicalType.INT32);
++        assertThat(hint(column(PrimitiveTypeName.INT64, Repetition.REQUIRED))).isSameAs(PhysicalType.INT64);
++        assertThat(hint(column(PrimitiveTypeName.FLOAT, Repetition.REQUIRED))).isSameAs(PhysicalType.FLOAT);
++        assertThat(hint(column(PrimitiveTypeName.DOUBLE, Repetition.REQUIRED))).isSameAs(PhysicalType.DOUBLE);
++    }
++
++    @Test
++    void noHintWhereThePageIsNotAnArrayOfNumbers()
++    {
++        // V1 pages of optional or repeated columns start with their levels (spec section 3)
++        for (Repetition r : new Repetition[] {Repetition.OPTIONAL, Repetition.REPEATED}) {
++            for (PrimitiveTypeName t : new PrimitiveTypeName[] {PrimitiveTypeName.INT32, PrimitiveTypeName.INT64, PrimitiveTypeName.FLOAT, PrimitiveTypeName.DOUBLE}) {
++                assertThat(hint(column(t, r))).as("%s %s", r, t).isNull();
++            }
++        }
++        // types PCODEC does not model
++        for (PrimitiveTypeName t : new PrimitiveTypeName[] {PrimitiveTypeName.BOOLEAN, PrimitiveTypeName.INT96, PrimitiveTypeName.BINARY, PrimitiveTypeName.FIXED_LEN_BYTE_ARRAY}) {
++            assertThat(hint(column(t, Repetition.REQUIRED))).as("%s", t).isNull();
++        }
++        // a required leaf inside an optional group has a definition level
++        PrimitiveType leaf = Types.required(PrimitiveTypeName.INT64).named("c");
++        assertThat(hint(new ColumnDescriptor(new String[] {"g", "c"}, leaf, 0, 1))).isNull();
++    }
++
++    @Test
++    void compressesWithTheHint()
++            throws IOException
++    {
++        ByteBuffer input = longs(10_000);
++        byte[] expected = new byte[input.remaining()];
++        input.duplicate().get(expected);
++        byte[] payload = bytes(getCompressor(CompressionCodec.PCODEC, column(PrimitiveTypeName.INT64, Repetition.REQUIRED)).compress(input));
++        assertThat(Pcodec.mode(payload)).isSameAs(Mode.PCO);
++        assertThat(payload.length).isLessThan(expected.length / 8);
++        assertThat(Pcodec.decompress(payload, expected.length)).isEqualTo(expected);
++    }
++
++    @Test
++    void withoutAHintThePayloadIsTheZstdFallback()
++            throws IOException
++    {
++        ByteBuffer input = longs(10_000);
++        byte[] expected = new byte[input.remaining()];
++        input.duplicate().get(expected);
++        byte[] payload = bytes(getCompressor(CompressionCodec.PCODEC, column(PrimitiveTypeName.INT64, Repetition.OPTIONAL)).compress(input));
++        assertThat(Pcodec.mode(payload)).isSameAs(Mode.ZSTD);
++        assertThat(Pcodec.decompress(payload, expected.length)).isEqualTo(expected);
++    }
++
++    @Test
++    void compressesTheRemainingBytesOfAnyBuffer()
++            throws IOException
++    {
++        byte[] data = new byte[4099];
++        new Random(7).nextBytes(data);
++        ParquetCompressor compressor = getCompressor(CompressionCodec.PCODEC, column(PrimitiveTypeName.INT32, Repetition.REQUIRED));
++        // a heap buffer at an offset, and a direct one
++        ByteBuffer heap = ByteBuffer.wrap(data, 3, 4096).slice();
++        ByteBuffer direct = ByteBuffer.allocateDirect(4096).put(ByteBuffer.wrap(data, 3, 4096)).flip();
++        byte[] expected = java.util.Arrays.copyOfRange(data, 3, 4099);
++        assertThat(Pcodec.decompress(bytes(compressor.compress(heap)), 4096)).isEqualTo(expected);
++        assertThat(Pcodec.decompress(bytes(compressor.compress(direct)), 4096)).isEqualTo(expected);
++        // an empty page
++        assertThat(Pcodec.mode(bytes(compressor.compress(ByteBuffer.allocate(0))))).isSameAs(Mode.RAW);
++    }
++
++    @Test
++    void theCompressorOfAColumnHasItsHint()
++    {
++        assertThat(getCompressor(CompressionCodec.PCODEC, column(PrimitiveTypeName.DOUBLE, Repetition.REQUIRED)))
++                .isInstanceOfSatisfying(PcodecColumns.PcodecCompressor.class, c -> assertThat(c.hint()).isSameAs(PhysicalType.DOUBLE));
++        assertThat(getCompressor(CompressionCodec.PCODEC, column(PrimitiveTypeName.BINARY, Repetition.REQUIRED)))
++                .isInstanceOfSatisfying(PcodecColumns.PcodecCompressor.class, c -> assertThat(c.hint()).isNull());
++    }
++
++    @Test
++    void plainValuesForTheModeledColumnsOfAPcodecFile()
++    {
++        assertThat(PcodecColumns.plainValues(CompressionCodec.PCODEC, column(PrimitiveTypeName.INT64, Repetition.REQUIRED))).isTrue();
++        assertThat(PcodecColumns.plainValues(CompressionCodec.PCODEC, column(PrimitiveTypeName.INT64, Repetition.OPTIONAL))).isFalse();
++        assertThat(PcodecColumns.plainValues(CompressionCodec.PCODEC, column(PrimitiveTypeName.BINARY, Repetition.REQUIRED))).isFalse();
++        for (CompressionCodec codec : CompressionCodec.values()) {
++            if (codec != CompressionCodec.PCODEC) {
++                assertThat(PcodecColumns.plainValues(codec, column(PrimitiveTypeName.INT64, Repetition.REQUIRED))).as("%s", codec).isFalse();
++            }
++        }
++    }
++
++    private static org.apache.parquet.format.RowGroup rowGroup(CompressionCodec... codecs)
++    {
++        List<org.apache.parquet.format.ColumnChunk> chunks = new ArrayList<>();
++        for (CompressionCodec codec : codecs) {
++            org.apache.parquet.format.ColumnChunk chunk = new org.apache.parquet.format.ColumnChunk(0);
++            chunk.setMeta_data(new ColumnMetaData(org.apache.parquet.format.Type.INT64, List.of(), List.of("c"), codec, 1, 8, 8, 4));
++            chunks.add(chunk);
++        }
++        return new org.apache.parquet.format.RowGroup(chunks, 8, 1);
++    }
++
++    @Test
++    void theFooterKeyMarksAFileWithAPcodecChunk()
++    {
++        KeyValue key = new KeyValue(Pcodec.KV_KEY).setValue(Pcodec.KV_VALUE);
++        assertThat(PcodecColumns.footerKeyValue(List.of(rowGroup(CompressionCodec.ZSTD), rowGroup(CompressionCodec.SNAPPY, CompressionCodec.PCODEC)))).contains(key);
++        assertThat(PcodecColumns.footerKeyValue(List.of(rowGroup(CompressionCodec.PCODEC)))).contains(key);
++        assertThat(PcodecColumns.footerKeyValue(List.of(rowGroup(CompressionCodec.ZSTD, CompressionCodec.UNCOMPRESSED)))).isEmpty();
++        assertThat(PcodecColumns.footerKeyValue(List.of())).isEmpty();
++    }
++
++    @Test
++    void theOtherCodecsAreUnchanged()
++    {
++        ColumnDescriptor c = column(PrimitiveTypeName.INT64, Repetition.REQUIRED);
++        assertThat(getCompressor(CompressionCodec.UNCOMPRESSED, c)).isNull();
++        for (CompressionCodec codec : new CompressionCodec[] {CompressionCodec.ZSTD, CompressionCodec.SNAPPY, CompressionCodec.LZ4}) {
++            assertThat(getCompressor(codec, c)).as("%s", codec).isInstanceOf(ParquetCompressor.AirLiftCompressor.class);
++        }
++        assertThat(getCompressor(CompressionCodec.GZIP, c)).isInstanceOf(ParquetCompressor.GzipCompressor.class);
++        for (CompressionCodec codec : new CompressionCodec[] {CompressionCodec.LZO, CompressionCodec.LZ4_RAW, CompressionCodec.BROTLI}) {
++            assertThatThrownBy(() -> getCompressor(codec, c)).hasMessage("Unsupported codec: " + codec);
++        }
++    }
++}
+diff --git fork/src/test/java/io/trino/parquet/writer/TestPcodecParquetWriter.java fork/src/test/java/io/trino/parquet/writer/TestPcodecParquetWriter.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..1b73cd30fb714963a463caec3b106f5d6090ceed
+--- /dev/null
++++ fork/src/test/java/io/trino/parquet/writer/TestPcodecParquetWriter.java
+@@ -0,0 +1,305 @@
++/*
++ * tparquet fork (trino/trino-parquet/FORK.md): new file.
++ */
++package io.trino.parquet.writer;
++
++import io.aperiodic.tparquet.Mode;
++import io.aperiodic.tparquet.Pcodec;
++import io.airlift.units.DataSize;
++import io.trino.parquet.MemoryParquetDataSource;
++import io.trino.parquet.ParquetCorruptionException;
++import io.trino.parquet.ParquetWriteValidation.ParquetWriteValidationBuilder;
++import io.trino.parquet.metadata.BlockMetadata;
++import io.trino.parquet.metadata.ColumnChunkMetadata;
++import io.trino.parquet.metadata.ParquetMetadata;
++import io.trino.parquet.reader.MetadataReader;
++import io.trino.spi.Page;
++import io.trino.spi.block.Block;
++import io.trino.spi.block.BlockBuilder;
++import io.trino.spi.type.Type;
++import org.apache.parquet.column.Encoding;
++import org.apache.parquet.format.CompressionCodec;
++import org.apache.parquet.format.PageHeader;
++import org.apache.parquet.format.PageType;
++import org.apache.parquet.format.Util;
++import org.apache.parquet.hadoop.metadata.CompressionCodecName;
++import org.apache.parquet.schema.MessageType;
++import org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName;
++import org.apache.parquet.schema.Types;
++import org.joda.time.DateTimeZone;
++import org.junit.jupiter.api.Test;
++
++import java.io.ByteArrayInputStream;
++import java.io.ByteArrayOutputStream;
++import java.io.IOException;
++import java.util.ArrayList;
++import java.util.Arrays;
++import java.util.HashMap;
++import java.util.List;
++import java.util.Map;
++import java.util.Optional;
++
++import static io.airlift.slice.Slices.utf8Slice;
++import static io.trino.spi.type.BigintType.BIGINT;
++import static io.trino.spi.type.BooleanType.BOOLEAN;
++import static io.trino.spi.type.DoubleType.DOUBLE;
++import static io.trino.spi.type.IntegerType.INTEGER;
++import static io.trino.spi.type.RealType.REAL;
++import static io.trino.spi.type.VarcharType.VARCHAR;
++import static org.apache.parquet.schema.LogicalTypeAnnotation.stringType;
++import static org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName.BINARY;
++import static org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName.FLOAT;
++import static org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName.INT32;
++import static org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName.INT64;
++import static org.assertj.core.api.Assertions.assertThat;
++import static org.assertj.core.api.Assertions.assertThatThrownBy;
++
++/**
++ * The tparquet fork: Trino's own writer with PCODEC. The required numeric columns (whose V1 pages
++ * are arrays of numbers) get PLAIN values without a dictionary and their physical type as the
++ * hint (spec section 3); the other columns keep Trino's encodings and get the ZSTD fallback.
++ */
++class TestPcodecParquetWriter
++{
++    private static final MessageType SCHEMA = Types.buildMessage()
++            .required(INT64).named("ts")
++            .required(INT32).named("qty")
++            .required(PrimitiveTypeName.DOUBLE).named("price")
++            .required(FLOAT).named("ratio")
++            .optional(INT64).named("maybe")
++            .optional(PrimitiveTypeName.DOUBLE).named("maybe_price")
++            .required(BINARY).as(stringType()).named("symbol")
++            .required(PrimitiveTypeName.BOOLEAN).named("buy")
++            .named("trades");
++    private static final List<String> NAMES = List.of("ts", "qty", "price", "ratio", "maybe", "maybe_price", "symbol", "buy");
++    private static final List<Type> TYPES = List.of(BIGINT, INTEGER, DOUBLE, REAL, BIGINT, DOUBLE, VARCHAR, BOOLEAN);
++    private static final List<String> MODELED = List.of("ts", "qty", "price", "ratio");
++    private static final int ROWS = 25_000;
++
++    private static Page page(int offset, int rows)
++    {
++        BlockBuilder[] b = new BlockBuilder[TYPES.size()];
++        for (int c = 0; c < b.length; c++) {
++            b[c] = TYPES.get(c).createBlockBuilder(null, rows);
++        }
++        String[] symbols = {"AAPL", "MSFT", "NVDA"};
++        for (int i = offset; i < offset + rows; i++) {
++            BIGINT.writeLong(b[0], 1_735_689_600_000L + i * 250L + (i % 3));
++            INTEGER.writeLong(b[1], 100 + (i % 50));
++            DOUBLE.writeDouble(b[2], 1000 + (i % 400) / 100.0);
++            REAL.writeLong(b[3], Float.floatToRawIntBits((i % 64) / 8.0f));
++            if (i % 5 == 0) {
++                b[4].appendNull();
++                b[5].appendNull();
++            }
++            else {
++                // few distinct values: Trino keeps their dictionary
++                BIGINT.writeLong(b[4], i % 10);
++                DOUBLE.writeDouble(b[5], (i % 10) / 4.0);
++            }
++            VARCHAR.writeSlice(b[6], utf8Slice(symbols[i % 3]));
++            BOOLEAN.writeBoolean(b[7], i % 2 == 0);
++        }
++        return new Page(Arrays.stream(b).map(BlockBuilder::build).toArray(Block[]::new));
++    }
++
++    private record Written(byte[] bytes, ParquetWriter writer) {}
++
++    private static Written write(CompressionCodec codec)
++            throws IOException
++    {
++        Map<List<String>, Type> primitiveTypes = new HashMap<>();
++        for (int i = 0; i < NAMES.size(); i++) {
++            primitiveTypes.put(List.of(NAMES.get(i)), TYPES.get(i));
++        }
++        ByteArrayOutputStream out = new ByteArrayOutputStream();
++        ParquetWriter writer = new ParquetWriter(
++                out,
++                SCHEMA,
++                primitiveTypes,
++                ParquetWriterOptions.builder()
++                        .setMaxPageValueCount(4000)
++                        .setMaxRowGroupRowCount(10_000)
++                        .setMaxPageSize(DataSize.ofBytes(1 << 20))
++                        .build(),
++                codec,
++                "484",
++                Optional.of(DateTimeZone.UTC),
++                Optional.of(new ParquetWriteValidationBuilder(TYPES, NAMES)));
++        for (int offset = 0; offset < ROWS; offset += 5000) {
++            writer.write(page(offset, 5000));
++        }
++        writer.close();
++        return new Written(out.toByteArray(), writer);
++    }
++
++    private static ParquetMetadata footer(byte[] file)
++            throws IOException
++    {
++        return MetadataReader.readFooter(new MemoryParquetDataSource(file), Optional.empty());
++    }
++
++    /** The payloads of a column chunk's pages, with their page types and where they are in the file. */
++    private record PagePayload(PageType type, byte[] payload, int uncompressedSize, int offset) {}
++
++    private static List<PagePayload> pages(byte[] file, ColumnChunkMetadata chunk)
++            throws IOException
++    {
++        long start = chunk.getDictionaryPageOffset() > 0 ? Math.min(chunk.getDictionaryPageOffset(), chunk.getFirstDataPageOffset()) : chunk.getFirstDataPageOffset();
++        ByteArrayInputStream in = new ByteArrayInputStream(file, (int) start, (int) chunk.getTotalSize());
++        List<PagePayload> out = new ArrayList<>();
++        while (in.available() > 0) {
++            PageHeader h = Util.readPageHeader(in);
++            int offset = (int) (start + chunk.getTotalSize()) - in.available();
++            byte[] payload = in.readNBytes(h.getCompressed_page_size());
++            out.add(new PagePayload(h.getType(), payload, h.getUncompressed_page_size(), offset));
++        }
++        return out;
++    }
++
++    @Test
++    void everyColumnChunkIsPcodecAndTheFooterSaysSo()
++            throws IOException
++    {
++        Written w = write(CompressionCodec.PCODEC);
++        ParquetMetadata footer = footer(w.bytes());
++        assertThat(footer.getBlocks()).hasSize(3);
++        for (BlockMetadata block : footer.getBlocks()) {
++            assertThat(block.columns()).hasSize(NAMES.size());
++            for (ColumnChunkMetadata c : block.columns()) {
++                assertThat(c.getCodec()).isSameAs(CompressionCodecName.PCODEC);
++            }
++        }
++        assertThat(footer.getFileMetaData().getKeyValueMetaData())
++                .containsEntry(Pcodec.KV_KEY, Pcodec.KV_VALUE)
++                // the key Trino writes already stays
++                .containsEntry("writer.time.zone", "UTC");
++        assertThat(w.writer().getFileMetaData().getKey_value_metadata()).hasSize(2);
++    }
++
++    @Test
++    void theModeledColumnsArePlainNumbersCompressedWithTheirType()
++            throws IOException
++    {
++        Written w = write(CompressionCodec.PCODEC);
++        for (BlockMetadata block : footer(w.bytes()).getBlocks()) {
++            for (ColumnChunkMetadata c : block.columns()) {
++                String name = c.getPath().toDotString();
++                List<PagePayload> pages = pages(w.bytes(), c);
++                if (MODELED.contains(name)) {
++                    assertThat(c.getEncodings()).as(name).doesNotContain(Encoding.PLAIN_DICTIONARY, Encoding.RLE_DICTIONARY).contains(Encoding.PLAIN);
++                    assertThat(c.hasDictionaryPage()).as(name).isFalse();
++                    for (PagePayload p : pages) {
++                        assertThat(p.type()).isSameAs(PageType.DATA_PAGE);
++                        Mode mode = Pcodec.mode(p.payload());
++                        assertThat(mode).as(name).isIn(Mode.PCO, Mode.DECIMAL);
++                        if (name.equals("price")) {
++                            assertThat(mode).as(name).isSameAs(Mode.DECIMAL);
++                        }
++                        assertThat(Pcodec.decompress(p.payload(), p.uncompressedSize())).hasSize(p.uncompressedSize());
++                    }
++                }
++                else {
++                    for (PagePayload p : pages) {
++                        assertThat(Pcodec.mode(p.payload())).as(name).isIn(Mode.ZSTD, Mode.RAW);
++                    }
++                    if (name.startsWith("maybe") || name.equals("symbol")) {
++                        // Trino's encodings: a dictionary
++                        assertThat(c.hasDictionaryPage()).as(name).isTrue();
++                    }
++                }
++            }
++        }
++    }
++
++    @Test
++    void trinoReadsBackWhatItWrote()
++            throws IOException
++    {
++        Written w = write(CompressionCodec.PCODEC);
++        // the writer's validation reads the file through ParquetReader and compares every value's checksum
++        w.writer().validate(new MemoryParquetDataSource(w.bytes()));
++    }
++
++    @Test
++    void theOtherCodecsWriteAsUpstream()
++            throws IOException
++    {
++        Written w = write(CompressionCodec.ZSTD);
++        ParquetMetadata footer = footer(w.bytes());
++        assertThat(footer.getFileMetaData().getKeyValueMetaData()).doesNotContainKey(Pcodec.KV_KEY).containsEntry("writer.time.zone", "UTC");
++        ColumnChunkMetadata qty = footer.getBlocks().get(0).columns().get(1);
++        assertThat(qty.getCodec()).isSameAs(CompressionCodecName.ZSTD);
++        // numbers keep Trino's dictionary encoding
++        assertThat(qty.hasDictionaryPage()).isTrue();
++        w.writer().validate(new MemoryParquetDataSource(w.bytes()));
++    }
++
++    @Test
++    void aMalformedPayloadIsACorruptionError()
++            throws IOException
++    {
++        Written w = write(CompressionCodec.PCODEC);
++        ColumnChunkMetadata ts = footer(w.bytes()).getBlocks().get(1).columns().get(0);
++        PagePayload page = pages(w.bytes(), ts).get(1);
++        assertThat(w.bytes()[page.offset()]).isEqualTo((byte) 1);
++        for (int version : new int[] {0, 2, 0xff}) {
++            byte[] damaged = w.bytes().clone();
++            damaged[page.offset()] = (byte) version;
++            // PageReader wraps the page's ParquetCorruptionException ("Could not decompress page", upstream)
++            assertThatThrownBy(() -> w.writer().validate(new MemoryParquetDataSource(damaged)))
++                    .satisfies(e -> assertThat(corruption(e)).hasMessageContaining("Invalid PCODEC page: pcodec payload: unsupported version " + version));
++        }
++        byte[] damaged = w.bytes().clone();
++        damaged[page.offset() + 1] = 9;
++        assertThatThrownBy(() -> w.writer().validate(new MemoryParquetDataSource(damaged)))
++                .satisfies(e -> assertThat(corruption(e)).hasMessageContaining("Invalid PCODEC page: pcodec payload: unknown mode 9"));
++    }
++
++    @Test
++    void aDamagedPayloadIsAnErrorEvenWhereItStillDecodes()
++            throws IOException
++    {
++        // a payload has no checksum: damage inside the pcodec stream can decode to other numbers,
++        // which Trino's validation catches (as it would for any codec); it is never a crash
++        Written w = write(CompressionCodec.PCODEC);
++        ColumnChunkMetadata ts = footer(w.bytes()).getBlocks().get(1).columns().get(0);
++        for (PagePayload page : pages(w.bytes(), ts)) {
++            for (int i = 2; i < page.payload().length; i += Math.max(1, page.payload().length / 16)) {
++                byte[] damaged = w.bytes().clone();
++                damaged[page.offset() + i] ^= 0x5a;
++                assertThatThrownBy(() -> w.writer().validate(new MemoryParquetDataSource(damaged)))
++                        .as("byte %s of a page", i)
++                        .satisfies(e -> assertThat(corruption(e)).isNotNull());
++            }
++        }
++    }
++
++    /** The ParquetCorruptionException in {@code e}'s cause chain, or null. */
++    private static ParquetCorruptionException corruption(Throwable e)
++    {
++        for (Throwable t = e; t != null; t = t.getCause()) {
++            if (t instanceof ParquetCorruptionException c) {
++                return c;
++            }
++        }
++        return null;
++    }
++
++    @Test
++    void aFileWithoutColumnChunksHasNoKey()
++            throws IOException
++    {
++        // spec section 2: the key marks files with a PCODEC column chunk (as the Rust writer does)
++        ByteArrayOutputStream out = new ByteArrayOutputStream();
++        Map<List<String>, Type> primitiveTypes = new HashMap<>();
++        for (int i = 0; i < NAMES.size(); i++) {
++            primitiveTypes.put(List.of(NAMES.get(i)), TYPES.get(i));
++        }
++        ParquetWriter writer = new ParquetWriter(out, SCHEMA, primitiveTypes, ParquetWriterOptions.builder().build(),
++                CompressionCodec.PCODEC, "484", Optional.empty(), Optional.empty());
++        writer.close();
++        assertThat(footer(out.toByteArray()).getFileMetaData().getKeyValueMetaData()).doesNotContainKey(Pcodec.KV_KEY);
++        assertThat(writer.getFileMetaData().getKey_value_metadata()).isNull();
++    }
++}

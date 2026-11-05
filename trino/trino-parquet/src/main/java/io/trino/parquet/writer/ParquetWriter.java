@@ -501,9 +501,15 @@ public class ParquetWriter
                     totalRows,
                     ImmutableList.copyOf(rowGroups));
             fileMetaData.setCreated_by(createdBy);
+            ImmutableList.Builder<KeyValue> keyValues = ImmutableList.builder();
             // Added based on org.apache.hadoop.hive.ql.io.parquet.write.DataWritableWriteSupport
-            parquetTimeZone.ifPresent(dateTimeZone -> fileMetaData.setKey_value_metadata(
-                    ImmutableList.of(new KeyValue("writer.time.zone").setValue(dateTimeZone.getID()))));
+            parquetTimeZone.ifPresent(dateTimeZone -> keyValues.add(new KeyValue("writer.time.zone").setValue(dateTimeZone.getID())));
+            // tparquet fork: parquet.pcodec.version (spec/FORMAT.md section 2)
+            PcodecColumns.footerKeyValue(rowGroups).ifPresent(keyValues::add);
+            List<KeyValue> keyValueMetadata = keyValues.build();
+            if (!keyValueMetadata.isEmpty()) {
+                fileMetaData.setKey_value_metadata(keyValueMetadata);
+            }
             return fileMetaData;
         }
     }

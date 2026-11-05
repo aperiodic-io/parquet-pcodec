@@ -44,7 +44,8 @@ public final class ParquetCompressionUtils
     {
         requireNonNull(input, "input is null");
 
-        if (input.length() == 0) {
+        // tparquet fork: a PCODEC payload is never empty (spec/FORMAT.md section 4)
+        if (input.length() == 0 && codec != CompressionCodec.PCODEC) {
             return EMPTY_SLICE;
         }
 
@@ -55,6 +56,8 @@ public final class ParquetCompressionUtils
             case LZO -> decompressLZO(input, uncompressedSize);
             case LZ4 -> decompressLz4(input, uncompressedSize);
             case ZSTD -> decompressZstd(input, uncompressedSize);
+            // tparquet fork
+            case PCODEC -> PcodecPages.decompress(dataSourceId, input, uncompressedSize);
             case BROTLI, LZ4_RAW -> throw new ParquetCorruptionException(dataSourceId, "Codec not supported in Parquet: %s", codec);
         };
     }

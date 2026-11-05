@@ -56,6 +56,12 @@ public class TrinoValuesWriterFactory
         };
     }
 
+    // tparquet fork: PLAIN values without a dictionary, for the numeric columns of a PCODEC file
+    public ValuesWriter newPlainValuesWriter(Optional<BloomFilter> bloomFilter)
+    {
+        return createBloomFilterValuesWriter(new PlainValuesWriter(INITIAL_SLAB_SIZE), bloomFilter);
+    }
+
     private ValuesWriter getFixedLenByteArrayValuesWriter(ColumnDescriptor path, Optional<BloomFilter> bloomFilter)
     {
         // dictionary encoding was not enabled in PARQUET 1.0

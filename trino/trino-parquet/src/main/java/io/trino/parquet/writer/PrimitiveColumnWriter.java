@@ -135,7 +135,8 @@ public class PrimitiveColumnWriter
         this.repetitionLevelWriter = requireNonNull(repetitionLevelWriter, "repetitionLevelWriter is null");
         this.primitiveValueWriter = requireNonNull(primitiveValueWriter, "primitiveValueWriter is null");
         this.compressionCodec = requireNonNull(compressionCodec, "compressionCodec is null");
-        this.compressor = getCompressor(compressionCodec);
+        // tparquet fork: the column, for PCODEC's type hint
+        this.compressor = getCompressor(compressionCodec, columnDescriptor);
         this.pageSizeThreshold = pageSizeThreshold;
         this.pageValueCountLimit = pageValueCountLimit;
         this.columnStatistics = createStatistics(columnDescriptor.getPrimitiveType());

@@ -18,6 +18,7 @@ import io.airlift.compress.v3.lz4.Lz4Compressor;
 import io.airlift.compress.v3.snappy.SnappyCompressor;
 import io.airlift.compress.v3.zstd.ZstdCompressor;
 import io.airlift.slice.Slices;
+import org.apache.parquet.column.ColumnDescriptor;
 import org.apache.parquet.format.CompressionCodec;
 
 import java.io.ByteArrayOutputStream;
@@ -35,7 +36,8 @@ interface ParquetCompressor
     ParquetDataOutput compress(ByteBuffer input)
             throws IOException;
 
-    static ParquetCompressor getCompressor(CompressionCodec codec)
+    // tparquet fork: the column, for PCODEC's type hint
+    static ParquetCompressor getCompressor(CompressionCodec codec, ColumnDescriptor column)
     {
         return switch (codec) {
             case GZIP -> new GzipCompressor();
@@ -43,6 +45,8 @@ interface ParquetCompressor
             case ZSTD -> new AirLiftCompressor(ZstdCompressor.create());
             case LZ4 -> new AirLiftCompressor(Lz4Compressor.create());
             case UNCOMPRESSED -> null;
+            // tparquet fork
+            case PCODEC -> new PcodecColumns.PcodecCompressor(PcodecColumns.hint(column));
             case LZO, LZ4_RAW, BROTLI -> {
                 // TODO Support LZO and LZ4_RAW compression
                 // Note: LZ4 compression scheme has been deprecated by parquet-format in favor of LZ4_RAW
