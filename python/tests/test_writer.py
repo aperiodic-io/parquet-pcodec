@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import io
 import pathlib
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import pyarrow as pa
@@ -65,8 +65,14 @@ def test_abort_twice(tmp_path: pathlib.Path) -> None:
 def test_a_finished_writer_refuses_everything_but_abort(tmp_path: pathlib.Path, end: str) -> None:
     w = ppc.Writer(tmp_path / "w.parquet", TABLE.schema)
     w.write(TABLE)
-    getattr(w, end)()
-    for call in [lambda: w.write(TABLE), w.flush, w.close, lambda: w.write(TABLE.to_batches()[0])]:
+    (w.close if end == "close" else w.abort)()
+    calls: list[Callable[[], object]] = [
+        lambda: w.write(TABLE),
+        w.flush,
+        w.close,
+        lambda: w.write(TABLE.to_batches()[0]),
+    ]
+    for call in calls:
         with pytest.raises(ppc.PcodecError, match=r"^the writer is closed$"):
             call()
     w.abort()
@@ -193,14 +199,15 @@ SAME_TYPES = pa.table({"a": pa.array(range(5), pa.int64()), "b": pa.array(range(
         SAME_TYPES.rename_columns(["a", "B"]),
         SAME_TYPES.select(["a"]),
         SAME_TYPES.append_column("c", pa.array(range(5), pa.int64())),
-        pa.table({"a": pa.array(range(5), pa.int32()), "b": SAME_TYPES["b"]}),
+        pa.table({"a": pa.array(range(5), pa.int32()), "b": pa.array(range(100, 105), pa.int64())}),
     ],
     ids=["swapped", "renamed", "case", "fewer", "more", "type"],
 )
 def test_data_that_does_not_match_the_schema_is_refused(tmp_path: pathlib.Path, data: pa.Table) -> None:
     path = tmp_path / "w.parquet"
     with ppc.Writer(path, SAME_TYPES.schema) as w:
-        for d in [data, data.to_batches()[0]]:
+        both: list[ppc.ArrowData] = [data, data.to_batches()[0]]
+        for d in both:
             with pytest.raises(ppc.PcodecError, match=r"^the data does not match the writer's schema"):
                 w.write(d)
         w.write(SAME_TYPES)

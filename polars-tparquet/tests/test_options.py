@@ -42,7 +42,7 @@ BAD: list[tuple[dict[str, Any], type[Exception], str | None]] = [
     ({"policy": "PCODEC"}, tparquet.PcodecError, r'^unknown policy "PCODEC"'),
     ({"level": -1}, tparquet.PcodecError, r"^level -1 is not in 0\.\.=12$"),
     ({"level": 13}, tparquet.PcodecError, r"^level 13 is not in 0\.\.=12$"),
-    ({"level": 2**70}, TypeError, "level"),
+    ({"level": 2**70}, tparquet.PcodecError, rf"^level {2**70} is out of range$"),
     ({"level": "8"}, TypeError, "level"),
     ({"level": 8.0}, TypeError, "level"),
     ({"base": "lz77"}, tparquet.PcodecError, r'^base codec "lz77": .*unsupported compression lz77'),

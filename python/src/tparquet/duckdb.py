@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 import duckdb
 
-from tparquet._core import ParquetFile, Source
+from tparquet._core import ParquetFile, Source, _names
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -25,7 +25,7 @@ class ArrowSource:
 
     def __init__(self, source: Source, columns: Sequence[str] | None = None, batch_size: int = 65536) -> None:
         self._file = ParquetFile(source)
-        self._columns = None if columns is None else list(columns)
+        self._columns = _names(columns)
         self._batch_size = batch_size
 
     def __arrow_c_stream__(self, requested_schema: object | None = None) -> object:

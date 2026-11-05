@@ -4,6 +4,7 @@ where a function returns pyarrow objects."""
 from __future__ import annotations
 
 import dataclasses
+import errno
 import io
 import json
 import os
@@ -83,6 +84,8 @@ def _binary(obj: object, mode: str) -> None:
 def _open(source: Source) -> _lib.File:
     path = _path(source)
     if path is not None:
+        if os.path.isdir(path):
+            raise IsADirectoryError(errno.EISDIR, os.strerror(errno.EISDIR), path)
         return _lib.open_path(path)
     _binary(source, "rb")
     read = getattr(source, "read", None)
@@ -105,15 +108,40 @@ def _sink(target: Sink) -> object:
     return target
 
 
+#: Integer arguments are 64-bit signed integers in the extension.
+_I64 = 2**63
+
+
+def _int(name: str, value: object) -> int:
+    """`value`, which must be an `int` (not a `bool`) of 64 bits; the extension checks the
+    range that makes sense."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"{name} must be an int, got {type(value).__name__}")
+    if not -_I64 <= value < _I64:
+        raise PcodecError(f"{name} {value} is out of range")
+    return value
+
+
+def _optional_int(name: str, value: object) -> int | None:
+    return None if value is None else _int(name, value)
+
+
+def _names(columns: Sequence[str] | None) -> list[str] | None:
+    """`columns` as a list; a string is not a sequence of names."""
+    if isinstance(columns, (str, bytes)):
+        raise TypeError(f"columns must be a sequence of names, not a {type(columns).__name__}")
+    return None if columns is None else list(columns)
+
+
 def _options(
     policy: Policy, columns: Mapping[str, Policy] | None, level: int, base: str, row_group_size: int | None
 ) -> dict[str, Any]:
     return {
         "policy": policy,
         "columns": dict(columns or {}),
-        "level": level,
+        "level": _int("level", level),
         "base": base,
-        "row_group_size": row_group_size,
+        "row_group_size": _optional_int("row_group_size", row_group_size),
     }
 
 
@@ -198,7 +226,7 @@ class ParquetFile:
 
     def empty(self, columns: Sequence[str] | None = None) -> _lib.RecordBatchStream:
         """A stream with the schema `stream(columns)` has and no rows."""
-        return self._file.empty(None if columns is None else list(columns))
+        return self._file.empty(_names(columns))
 
     def integer_bounds(self) -> list[dict[str, tuple[int, int]]]:
         """Per row group, `{leaf path: (min, max)}` from the statistics of its `INT32` and
@@ -225,10 +253,10 @@ class ParquetFile:
         order given; `limit` caps the number of rows.
         """
         return self._file.stream(
-            None if columns is None else list(columns),
-            None if row_groups is None else list(row_groups),
-            batch_size,
-            limit,
+            _names(columns),
+            None if row_groups is None else [_int("row_groups", rg) for rg in row_groups],
+            _int("batch_size", batch_size),
+            _optional_int("limit", limit),
         )
 
     def iter_batches(
