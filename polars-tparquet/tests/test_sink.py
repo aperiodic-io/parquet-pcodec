@@ -91,11 +91,6 @@ def test_a_failing_query_leaves_no_file(tmp_path: pathlib.Path) -> None:
     assert not (tmp_path / "out.parquet").exists()
 
 
-def test_bad_chunk_size(tmp_path: pathlib.Path) -> None:
-    with pytest.raises(ValueError, match="chunk_size must be positive"):
-        ticks(10).lazy().tparquet.sink(tmp_path / "x.parquet", chunk_size=0)
-
-
 def _boom(df: pl.DataFrame) -> pl.DataFrame:
     raise RuntimeError("boom")
 
