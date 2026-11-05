@@ -58,7 +58,7 @@ clash on Rust runtime symbols.
 | | |
 |---|---|
 | `make test` | unit, integration, property and acceptance tests, conformance vectors |
-| `make check` | `go vet`, staticcheck, `go test -race`, 30 s of each fuzz target |
+| `make check` | `go vet`, staticcheck, `go test -race`, 30 s of each of the five fuzz targets |
 | `make mutation` | gremlins; every viable mutant must be killed (`.gremlins.yaml`) |
 | `make vectors OUT=dir` | write the Go-produced conformance vectors (`cmd/tparquet-go-gen`) |
 

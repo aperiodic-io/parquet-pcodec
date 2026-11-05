@@ -21,13 +21,13 @@ import (
 
 // modeFile writes one required 8-byte column whose pages use the given payload mode, with
 // a page index, and returns the file and the payload of its first page as [start, end).
-func modeFile(t *testing.T, mode byte) ([]byte, arrow.RecordBatch, int, int) {
+func modeFile(t testing.TB, mode byte) ([]byte, arrow.RecordBatch, int, int) {
 	data, rec, start, end, _ := modeFileSize(t, mode)
 	return data, rec, start, end
 }
 
 // modeFileSize is modeFile, and also returns the decoded size of the first page's payload.
-func modeFileSize(t *testing.T, mode byte) ([]byte, arrow.RecordBatch, int, int, int) {
+func modeFileSize(t testing.TB, mode byte) ([]byte, arrow.RecordBatch, int, int, int) {
 	t.Helper()
 	typ, pt := arrow.DataType(arrow.PrimitiveTypes.Int64), parquet.Types.Int64
 	if mode == 2 {
@@ -92,7 +92,7 @@ func modeFileSize(t *testing.T, mode byte) ([]byte, arrow.RecordBatch, int, int,
 
 // readErr reads a whole file with pqarrow and with the low-level page reader, and returns
 // both errors; a panic fails the test.
-func readErr(t *testing.T, data []byte) (error, error) {
+func readErr(t testing.TB, data []byte) (error, error) {
 	t.Helper()
 	defer func() {
 		if r := recover(); r != nil {
