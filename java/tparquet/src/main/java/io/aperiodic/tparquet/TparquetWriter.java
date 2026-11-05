@@ -9,6 +9,7 @@ import java.util.Objects;
 import org.apache.parquet.column.ColumnDescriptor;
 import org.apache.parquet.column.ParquetProperties;
 import org.apache.parquet.column.ParquetProperties.WriterVersion;
+import org.apache.parquet.conf.ParquetConfiguration;
 import org.apache.parquet.conf.PlainParquetConfiguration;
 import org.apache.parquet.example.data.Group;
 import org.apache.parquet.hadoop.ParquetWriter;
@@ -31,13 +32,15 @@ public final class TparquetWriter {
   private TparquetWriter() {}
 
   /** Writer settings; {@link #defaults()} is PCODEC level 8 with DECIMAL, 128 MiB row groups, 1 MiB pages. */
-  public static final class Options {
+  public static final class Options implements java.io.Serializable {
+    private static final long serialVersionUID = 1L;
+
     final CompressionCodecName codec;
     final int level;
     final boolean decimal;
     final long rowGroupSize;
     final int pageSize;
-    final Map<String, String> extraMetadata;
+    final HashMap<String, String> extraMetadata;
 
     private Options(CompressionCodecName codec, int level, boolean decimal, long rowGroupSize, int pageSize, Map<String, String> extra) {
       this.codec = Objects.requireNonNull(codec);
@@ -48,7 +51,7 @@ public final class TparquetWriter {
       this.decimal = decimal;
       this.rowGroupSize = rowGroupSize;
       this.pageSize = pageSize;
-      this.extraMetadata = Map.copyOf(extra);
+      this.extraMetadata = new HashMap<>(extra);
     }
 
     public static Options defaults() {
@@ -90,7 +93,7 @@ public final class TparquetWriter {
 
   /** A writer for any write support whose schema is {@code schema}; {@code conf} gets the PCODEC level and decimal flag. */
   public static <T> ParquetWriter<T> create(
-      OutputFile file, WriteSupport<T> writeSupport, MessageType schema, PlainParquetConfiguration conf, Options options)
+      OutputFile file, WriteSupport<T> writeSupport, MessageType schema, ParquetConfiguration conf, Options options)
       throws IOException {
     conf.setInt(PcodecCodec.LEVEL, options.level);
     conf.setBoolean(PcodecCodec.DECIMAL, options.decimal);

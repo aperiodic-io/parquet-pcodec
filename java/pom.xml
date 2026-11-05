@@ -28,6 +28,7 @@
     <module>parquet-java/parquet-hadoop</module>
     <module>tparquet</module>
     <module>acceptance-upstream</module>
+    <module>tparquet-spark</module>
   </modules>
 
   <profiles>
@@ -63,10 +64,15 @@
     <parquet.jackson.version>2.19.2</parquet.jackson.version>
     <parquet.fastutil.version>8.5.15</parquet.fastutil.version>
     <tparquet.version>0.1.0-SNAPSHOT</tparquet.version>
+    <!-- Spark 4.3 is built on parquet-java 1.17.0, the fork's upstream -->
+    <spark.version>4.3.0</spark.version>
+    <scala.binary.version>2.13</scala.binary.version>
+    <scala.version>2.13.18</scala.version>
 
     <junit.version>5.14.4</junit.version>
     <jqwik.version>1.10.2</jqwik.version>
     <assertj.version>3.27.7</assertj.version>
+    <!-- tests only, and not in the dependency management: Spark brings its own Jackson -->
     <jackson.version>2.22.4</jackson.version>
     <pitest.version>1.30.1</pitest.version>
     <pitest.junit5.version>1.2.3</pitest.junit5.version>
@@ -91,11 +97,6 @@
         <groupId>org.assertj</groupId>
         <artifactId>assertj-core</artifactId>
         <version>${assertj.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>com.fasterxml.jackson.core</groupId>
-        <artifactId>jackson-databind</artifactId>
-        <version>${jackson.version}</version>
       </dependency>
       <dependency>
         <groupId>io.aperiodic.tparquet</groupId>

@@ -1,6 +1,5 @@
 package io.aperiodic.tparquet;
 
-import io.aperiodic.tparquet.Pcodec;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -19,11 +18,11 @@ import org.apache.parquet.hadoop.metadata.ColumnChunkMetaData;
 import org.apache.parquet.hadoop.metadata.CompressionCodecName;
 import org.apache.parquet.io.LocalInputFile;
 
-/** Test helper: column -> the distinct "PAGE_TYPE:MODE" of its pages, from the raw page headers. */
-final class Inspect {
+/** How a file's pages are stored: for each column, the distinct "PAGE_TYPE:MODE" of its pages, read from the raw page headers ("-" for an uncompressed V2 page or a codec other than PCODEC). */
+public final class Inspect {
   private Inspect() {}
 
-  static Map<String, List<String>> modes(Path file) throws IOException {
+  public static Map<String, List<String>> modes(Path file) throws IOException {
     byte[] bytes = Files.readAllBytes(file);
     Map<String, List<String>> out = new LinkedHashMap<>();
     try (ParquetFileReader r = ParquetFileReader.open(new LocalInputFile(file))) {

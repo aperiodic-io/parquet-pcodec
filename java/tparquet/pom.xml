@@ -29,10 +29,13 @@
         </exclusion>
       </exclusions>
     </dependency>
+    <!-- optional: applications bring their Hadoop (Spark has its own client jars); the CLI's
+         class path (target/classpath.txt) includes it -->
     <dependency>
       <groupId>org.apache.hadoop</groupId>
       <artifactId>hadoop-common</artifactId>
       <version>${hadoop.version}</version>
+      <optional>true</optional>
       <exclusions>
         <exclusion>
           <groupId>org.slf4j</groupId>
@@ -52,6 +55,7 @@
       <groupId>org.apache.hadoop</groupId>
       <artifactId>hadoop-mapreduce-client-core</artifactId>
       <version>${hadoop.version}</version>
+      <optional>true</optional>
       <exclusions>
         <exclusion>
           <groupId>*</groupId>
@@ -86,6 +90,7 @@
     <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-databind</artifactId>
+      <version>${jackson.version}</version>
       <scope>test</scope>
     </dependency>
   </dependencies>
