@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The PCODEC payload codec (spec/FORMAT.md section 4) for Java, over rust/jni. -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>io.aperiodic.tparquet</groupId>
+    <artifactId>tparquet-java-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>tparquet-jni</artifactId>
+  <name>tparquet JNI</name>
+  <description>The PCODEC Parquet codec payload over JNI (no Parquet dependency)</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>net.jqwik</groupId>
+      <artifactId>jqwik</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <resources>
+      <resource>
+        <directory>src/main/resources</directory>
+      </resource>
+    </resources>
+    <plugins>
+      <plugin>
+        <groupId>org.pitest</groupId>
+        <artifactId>pitest-maven</artifactId>
+        <configuration>
+          <targetClasses>
+            <param>io.aperiodic.tparquet.*</param>
+          </targetClasses>
+          <!-- Lines calling System (System.load, System.loadLibrary, System.getProperty in
+               NativeLibrary) and File (deleteOnExit of the extracted copy) are not mutated: by
+               the time a mutant runs, the PIT JVM has loaded the library, and the temporary
+               files are deleted at JVM exit, so no in-process test can tell the difference.
+               NativeLibraryProcessTest checks every loading route in a fresh JVM instead. -->
+          <avoidCallsTo>
+            <avoidCallsTo>java.lang.System</avoidCallsTo>
+            <avoidCallsTo>java.io.File</avoidCallsTo>
+          </avoidCallsTo>
+          <excludedTestClasses>
+            <!-- runs the unmutated classes in child JVMs: it cannot see a mutant -->
+            <param>io.aperiodic.tparquet.NativeLibraryProcessTest</param>
+          </excludedTestClasses>
+        </configuration>
+      </plugin>
+      <!-- the native library goes into the jar, under NativeLibrary.resourcePath() -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-resources-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>native-library</id>
+            <phase>prepare-package</phase>
+            <goals>
+              <goal>copy-resources</goal>
+            </goals>
+            <configuration>
+              <outputDirectory>${project.build.outputDirectory}/io/aperiodic/tparquet/native/linux-x86_64</outputDirectory>
+              <resources>
+                <resource>
+                  <directory>${tparquet.root}/target/release</directory>
+                  <includes>
+                    <include>libtparquet_jni.so</include>
+                  </includes>
+                </resource>
+              </resources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

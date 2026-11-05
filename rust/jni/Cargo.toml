@@ -1,0 +1,26 @@
+[package]
+name = "tparquet-jni"
+version = "0.1.0"
+description = "JNI binding of the PCODEC Parquet codec payload (java/tparquet-jni)"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+autotests = false
+
+[lib]
+name = "tparquet_jni"
+# rlib too, so that `cargo test` builds the library (and with it the cdylib) for the test
+crate-type = ["cdylib", "rlib"]
+# the native methods are tested from Java: tests/java_suite.rs runs the Maven suite against
+# the library this build produced
+doctest = false
+
+[dependencies]
+tparquet-core = { path = "../core" }
+jni = { version = "0.21.1", default-features = false }
+
+[[test]]
+name = "java"
+path = "tests/java_suite.rs"
