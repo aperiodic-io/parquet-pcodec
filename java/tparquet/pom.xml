@@ -106,6 +106,20 @@
             <param>io.aperiodic.tparquet.*</param>
             <param>org.apache.parquet.hadoop.TparquetWriters</param>
           </targetClasses>
+          <!-- Vectors.main's System calls (the log level, System.exit) are seen only by a fresh
+               JVM: VectorsProcessTest runs the CLI as one -->
+          <avoidCallsTo>
+            <avoidCallsTo>java.lang.System</avoidCallsTo>
+          </avoidCallsTo>
+          <!-- close() only releases resources, and nothing these classes expose shows it:
+               parquet-java's reader keeps serving the row group it has read after close, and
+               CapacityByteArrayOutputStream keeps reporting its capacity (equivalent mutants) -->
+          <excludedMethods>
+            <param>close</param>
+          </excludedMethods>
+          <excludedTestClasses>
+            <param>io.aperiodic.tparquet.VectorsProcessTest</param>
+          </excludedTestClasses>
         </configuration>
       </plugin>
       <!-- the vectors CLI with its class path, for acceptance/cross/run.sh -->

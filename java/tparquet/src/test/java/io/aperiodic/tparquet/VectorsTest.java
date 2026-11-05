@@ -88,6 +88,42 @@ class VectorsTest {
   }
 
   @Test
+  void aMissingRowIsRefused() throws Exception {
+    Path bad = dir.resolve("bad");
+    Files.createDirectories(bad.resolve("files"));
+    Files.createDirectories(bad.resolve("expected"));
+    Files.copy(Vectors_.file("temporal"), bad.resolve("files/temporal.parquet"));
+    List<String> rows = new java.util.ArrayList<>(Vectors_.expected("temporal"));
+    rows.add(rows.get(0));
+    Files.write(bad.resolve("expected/temporal.jsonl"), rows);
+    assertThat(run("check", bad.toString()).err()).isEqualTo("temporal: line " + rows.size() + " differs from expected/temporal.jsonl\n");
+  }
+
+  @Test
+  void anUnreadableFileIsAnError() throws Exception {
+    Path bad = dir.resolve("bad");
+    Files.createDirectories(bad.resolve("files"));
+    Files.createDirectories(bad.resolve("expected"));
+    Files.write(bad.resolve("files/junk.parquet"), new byte[] {1, 2, 3});
+    Files.write(bad.resolve("expected/junk.jsonl"), new byte[0]);
+    Run r = run("check", bad.toString());
+    assertThat(r.exit()).isEqualTo(1);
+    assertThat(r.err()).startsWith("junk: cannot be read: ").contains("is not a Parquet file");
+  }
+
+  @Test
+  void anUnreadableSourceFailsTheWrite() throws Exception {
+    Path bad = dir.resolve("bad");
+    Files.createDirectories(bad.resolve("files"));
+    Files.createDirectories(bad.resolve("expected"));
+    Files.write(bad.resolve("files/junk.parquet"), new byte[] {1, 2, 3});
+    Files.write(bad.resolve("expected/junk.jsonl"), new byte[0]);
+    Run r = run("write", dir.resolve("out").toString(), bad.toString());
+    assertThat(r.exit()).isEqualTo(1);
+    assertThat(r.err()).contains("is not a Parquet file");
+  }
+
+  @Test
   void aVectorWithoutExpectedRowsIsRefused() throws Exception {
     Path bad = dir.resolve("bad");
     Files.createDirectories(bad.resolve("files"));

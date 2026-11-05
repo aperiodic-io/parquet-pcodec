@@ -84,11 +84,7 @@ final class PlainNumbersValuesWriterFactory implements ValuesWriterFactory {
 
     @Override
     public BytesInput getBytes() {
-      try {
-        out.flush();
-      } catch (IOException e) {
-        throw new UncheckedIOException(e);
-      }
+      // LittleEndianDataOutputStream writes through: nothing to flush
       return BytesInput.from(bytes);
     }
 

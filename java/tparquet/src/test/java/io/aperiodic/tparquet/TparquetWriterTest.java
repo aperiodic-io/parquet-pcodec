@@ -133,13 +133,37 @@ class TparquetWriterTest {
   @Test
   void theOptionsReachTheWriter() throws IOException {
     TparquetWriter.Options o = TparquetWriter.Options.defaults().withRowGroupSize(32 * 1024).withPageSize(8 * 1024)
-        .withLevel(0).withExtraMetadata(Map.of("origin", "test"));
-    Path file = write(rows(30_000), o);
+        .withExtraMetadata(Map.of("origin", "test"));
+    Path file = write(rows(30_000), o.withLevel(0));
     ParquetMetadata footer = footer(file);
     assertThat(footer.getBlocks()).hasSizeGreaterThan(1);
     assertThat(footer.getFileMetaData().getKeyValueMetaData()).containsEntry("origin", "test");
-    Path l12 = write(rows(30_000), TparquetWriter.Options.defaults().withRowGroupSize(32 * 1024).withPageSize(8 * 1024).withLevel(12));
+    // the same options but the level: level 0 is larger
+    Path l12 = write(rows(30_000), o.withLevel(12));
     assertThat(java.nio.file.Files.size(file)).isGreaterThan(java.nio.file.Files.size(l12));
+    // pages are cut at the page size: 30000 timestamps are 240 KB, so dozens of 8 KB pages
+    Path paged = write(rows(30_000), TparquetWriter.Options.defaults().withPageSize(8 * 1024));
+    assertThat(footer(paged).getBlocks()).hasSize(1);
+    assertThat(Inspect.pageList(paged).get("ts")).hasSizeGreaterThan(10);
+    // with 1 MiB pages, only parquet-java's 20000-row page limit cuts them
+    assertThat(Inspect.pageList(write(rows(30_000), TparquetWriter.Options.defaults())).get("ts")).hasSize(2);
+  }
+
+  @Test
+  void theDecimalOptionReachesTheEncoder() throws IOException {
+    Path off = write(rows(30_000), TparquetWriter.Options.defaults().withDecimal(false));
+    assertThat(Inspect.modes(off).get("price")).containsOnly("DATA_PAGE_V2:PCO");
+    Path on = write(rows(30_000), TparquetWriter.Options.defaults().withDecimal(true));
+    assertThat(Inspect.modes(on).get("price")).contains("DATA_PAGE_V2:DECIMAL");
+  }
+
+  @Test
+  void levelsOutsideZeroToTwelveAreRefused() {
+    for (int level : new int[] {-1, 13}) {
+      org.assertj.core.api.Assertions.assertThatThrownBy(() -> TparquetWriter.Options.defaults().withLevel(level))
+          .isInstanceOf(IllegalArgumentException.class).hasMessage("level " + level + " outside 0..12");
+    }
+    TparquetWriter.Options.defaults().withLevel(0).withLevel(12);
   }
 
   @Test

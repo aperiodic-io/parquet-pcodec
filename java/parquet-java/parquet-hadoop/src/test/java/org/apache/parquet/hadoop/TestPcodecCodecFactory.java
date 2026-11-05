@@ -140,6 +140,14 @@ class TestPcodecCodecFactory {
   }
 
   @ParameterizedTest
+  @ValueSource(ints = {0, 12})
+  void theLowestAndHighestLevelsAreAccepted(int level) {
+    Configuration conf = new Configuration();
+    conf.setInt(PcodecCodec.LEVEL, level);
+    assertThat(((PcodecCompressor) heap(conf).getCompressor(CompressionCodecName.PCODEC)).level()).isEqualTo(level);
+  }
+
+  @ParameterizedTest
   @ValueSource(ints = {-1, 13})
   void aLevelOutOfRangeIsRefusedWhenTheCompressorIsCreated(int level) {
     Configuration conf = new Configuration();
@@ -165,6 +173,11 @@ class TestPcodecCodecFactory {
     ByteBuffer out = ByteBuffer.allocateDirect(4);
     ByteBuffer in = ByteBuffer.allocateDirect(0);
     d.decompress(in, 0, out, 0);
+    assertThat(out.position()).isZero();
+    // a payload that is there all the same is skipped: the input moves past it
+    ByteBuffer raw = ByteBuffer.allocateDirect(5).put(new byte[] {7, 1, 0, 7, 7}).flip().position(1);
+    d.decompress(raw, 2, out, 0);
+    assertThat(raw.position()).isEqualTo(3);
     assertThat(out.position()).isZero();
   }
 

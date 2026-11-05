@@ -362,10 +362,10 @@ index 0000000000000000000000000000000000000000..24faf48eb34fdcaa99d77902e6d6ba52
 +}
 diff --git fork/parquet-hadoop/pom.xml fork/parquet-hadoop/pom.xml
 new file mode 100644
-index 0000000000000000000000000000000000000000..3f992fee1a9bc540086b9ebbe3493402b282e70f
+index 0000000000000000000000000000000000000000..3100aea25e57d8ff0d8b0ab78271cfc0bf7f38e0
 --- /dev/null
 +++ fork/parquet-hadoop/pom.xml
-@@ -0,0 +1,253 @@
+@@ -0,0 +1,255 @@
 +<?xml version="1.0" encoding="UTF-8"?>
 +<!-- Fork of org.apache.parquet:parquet-hadoop 1.17.0 (../FORK.md): upstream's dependencies, plus
 +     tparquet-jni for the codec. parquet-column stays upstream; its parquet-common is excluded so
@@ -561,6 +561,8 @@ index 0000000000000000000000000000000000000000..3f992fee1a9bc540086b9ebbe3493402
 +            <param>cacheKey</param>
 +            <param>release</param>
 +            <param>createDirectCodecFactory</param>
++            <!-- CodecFactory's constructors are upstream's; the fork's classes' constructors only assign fields -->
++            <param>&lt;init&gt;</param>
 +          </excludedMethods>
 +        </configuration>
 +      </plugin>
@@ -1083,10 +1085,10 @@ index 0000000000000000000000000000000000000000..63ae4f60c8f3fd21c284a0bc1ba62c1a
 +}
 diff --git fork/parquet-hadoop/src/test/java/org/apache/parquet/hadoop/TestPcodecCodecFactory.java fork/parquet-hadoop/src/test/java/org/apache/parquet/hadoop/TestPcodecCodecFactory.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..229c5ab64ad4228575029c11db2eea83d0da6915
+index 0000000000000000000000000000000000000000..db5029c051b149420ce2142f1fa21ef2b94aece1
 --- /dev/null
 +++ fork/parquet-hadoop/src/test/java/org/apache/parquet/hadoop/TestPcodecCodecFactory.java
-@@ -0,0 +1,209 @@
+@@ -0,0 +1,222 @@
 +package org.apache.parquet.hadoop;
 +
 +import static org.assertj.core.api.Assertions.assertThat;
@@ -1229,6 +1231,14 @@ index 0000000000000000000000000000000000000000..229c5ab64ad4228575029c11db2eea83
 +  }
 +
 +  @ParameterizedTest
++  @ValueSource(ints = {0, 12})
++  void theLowestAndHighestLevelsAreAccepted(int level) {
++    Configuration conf = new Configuration();
++    conf.setInt(PcodecCodec.LEVEL, level);
++    assertThat(((PcodecCompressor) heap(conf).getCompressor(CompressionCodecName.PCODEC)).level()).isEqualTo(level);
++  }
++
++  @ParameterizedTest
 +  @ValueSource(ints = {-1, 13})
 +  void aLevelOutOfRangeIsRefusedWhenTheCompressorIsCreated(int level) {
 +    Configuration conf = new Configuration();
@@ -1254,6 +1264,11 @@ index 0000000000000000000000000000000000000000..229c5ab64ad4228575029c11db2eea83
 +    ByteBuffer out = ByteBuffer.allocateDirect(4);
 +    ByteBuffer in = ByteBuffer.allocateDirect(0);
 +    d.decompress(in, 0, out, 0);
++    assertThat(out.position()).isZero();
++    // a payload that is there all the same is skipped: the input moves past it
++    ByteBuffer raw = ByteBuffer.allocateDirect(5).put(new byte[] {7, 1, 0, 7, 7}).flip().position(1);
++    d.decompress(raw, 2, out, 0);
++    assertThat(raw.position()).isEqualTo(3);
 +    assertThat(out.position()).isZero();
 +  }
 +

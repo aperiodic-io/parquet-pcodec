@@ -65,7 +65,8 @@ public final class Vectors {
     } catch (Mismatch e) {
       err.println(e.getMessage());
       return 1;
-    } catch (IOException e) {
+    } catch (IOException | RuntimeException e) {
+      // a file parquet-java cannot read (it throws RuntimeExceptions for some) is a failed check
       err.println(e);
       return 1;
     }
@@ -103,7 +104,12 @@ public final class Vectors {
     int n = 0;
     for (Path f : files(dir)) {
       String name = name(f);
-      List<String> got = Canonical.lines(f);
+      List<String> got;
+      try {
+        got = Canonical.lines(f);
+      } catch (IOException | RuntimeException e) {
+        throw new Mismatch(name + ": cannot be read: " + e.getMessage());
+      }
       List<String> want = Files.readAllLines(dir.resolve("expected").resolve(name + ".jsonl"));
       for (int i = 0; i < Math.max(got.size(), want.size()); i++) {
         String a = i < got.size() ? got.get(i) : null;

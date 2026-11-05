@@ -23,6 +23,15 @@ public final class Inspect {
   private Inspect() {}
 
   public static Map<String, List<String>> modes(Path file) throws IOException {
+    return pages(file, false);
+  }
+
+  /** column -> the number of its pages, by "PAGE_TYPE:MODE". */
+  public static Map<String, List<String>> pageList(Path file) throws IOException {
+    return pages(file, true);
+  }
+
+  private static Map<String, List<String>> pages(Path file, boolean all) throws IOException {
     byte[] bytes = Files.readAllBytes(file);
     Map<String, List<String>> out = new LinkedHashMap<>();
     try (ParquetFileReader r = ParquetFileReader.open(new LocalInputFile(file))) {
@@ -31,7 +40,8 @@ public final class Inspect {
           long pos = chunk.getStartingPos();
           long end = pos + chunk.getTotalSize();
           while (pos < end) {
-            ByteArrayInputStream in = new ByteArrayInputStream(bytes, (int) pos, (int) (end - pos));
+            ByteArrayInputStream in = new ByteArrayInputStream(bytes);
+            in.skip(pos);
             int before = in.available();
             PageHeader h = Util.readPageHeader(in);
             long body = pos + (before - in.available());
@@ -44,7 +54,7 @@ public final class Inspect {
               mode = Pcodec.mode(Arrays.copyOfRange(bytes, (int) (body + levels), (int) (body + h.getCompressed_page_size()))).name();
             }
             List<String> l = out.computeIfAbsent(chunk.getPath().toDotString(), k -> new ArrayList<>());
-            if (!l.contains(h.getType() + ":" + mode)) {
+            if (all || !l.contains(h.getType() + ":" + mode)) {
               l.add(h.getType() + ":" + mode);
             }
             pos = body + h.getCompressed_page_size();

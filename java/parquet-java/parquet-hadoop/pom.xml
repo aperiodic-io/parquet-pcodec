@@ -193,6 +193,8 @@
             <param>cacheKey</param>
             <param>release</param>
             <param>createDirectCodecFactory</param>
+            <!-- CodecFactory's constructors are upstream's; the fork's classes' constructors only assign fields -->
+            <param>&lt;init&gt;</param>
           </excludedMethods>
         </configuration>
       </plugin>
