@@ -18,7 +18,7 @@ type Policy int
 
 const (
 	// Auto writes the column with PCODEC if that is smaller than the base codec on the first
-	// record batch, and with the base codec otherwise (spec section 6). It applies only to
+	// record batch with rows, and with the base codec otherwise (spec section 6). It applies only to
 	// INT32, INT64, FLOAT and DOUBLE leaves; other leaves use the base codec.
 	Auto Policy = iota
 	// Pcodec writes the column with PCODEC. As the default policy it applies to INT32,
@@ -132,7 +132,7 @@ func NewPlan(sc *arrow.Schema, sample arrow.RecordBatch, opts ...Option) (*Plan,
 		return nil, fmt.Errorf("pcodec: pcodec level %d is not in 0..%d", cfg.pcoLevel, MaxPcodecLevel)
 	}
 	if sample != nil && !sample.Schema().Equal(sc) {
-		return nil, errors.New("pcodec: the sample's schema differs from the file's")
+		return nil, errSampleSchema
 	}
 	pq, err := pqarrow.ToParquet(sc, parquet.NewWriterProperties(cfg.props...), cfg.arrowProps)
 	if err != nil {
@@ -170,6 +170,8 @@ func NewPlan(sc *arrow.Schema, sample arrow.RecordBatch, opts ...Option) (*Plan,
 	}
 	return p, nil
 }
+
+var errSampleSchema = errors.New("pcodec: the sample's schema differs from the file's")
 
 func checkPolicy(p Policy) error {
 	if p < Auto || p > Base {
