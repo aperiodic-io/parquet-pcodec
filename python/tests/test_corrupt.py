@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import os
 import pathlib
 import random
 import subprocess
@@ -154,7 +155,7 @@ def test_the_interpreter_survives_in_a_subprocess() -> None:
     )
     tests = str(pathlib.Path(__file__).parent)
     out = subprocess.run(
-        [sys.executable, "-c", code, tests], capture_output=True, text=True, env={"RUST_BACKTRACE": "0", "PATH": ""}
+        [sys.executable, "-c", code, tests], capture_output=True, text=True, env={**os.environ, "RUST_BACKTRACE": "0"}
     )
     assert out.returncode == 0, out.stderr[-2000:]
     assert out.stdout.strip() == "survived"
