@@ -800,4 +800,7 @@ def test_integer_bounds_leave_out_paths_that_name_two_leaves(tmp_path: pathlib.P
     # "a.b" is the top-level column and the leaf b of the struct a: whose bounds would it be?
     assert ppc.ParquetFile(path).integer_bounds() == [{"c": (0, 9)}]
     ppc.write_table(pa.table({"a": inner, "x": pa.array(range(10), pa.int32())}), path, row_group_size=5)
-    assert ppc.ParquetFile(path).integer_bounds() == [{"a.b": (1000, 1004), "x": (0, 4)}, {"a.b": (1005, 1009), "x": (5, 9)}]
+    assert ppc.ParquetFile(path).integer_bounds() == [
+        {"a.b": (1000, 1004), "x": (0, 4)},
+        {"a.b": (1005, 1009), "x": (5, 9)},
+    ]
