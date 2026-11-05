@@ -1,0 +1,8 @@
+# cargo-mutants configuration of the DataFusion connector (`make mutants`). Every exclusion
+# says why the mutant cannot be caught.
+exclude_re = []
+# the vendored fork is tested upstream; its patched functions are listed in parquet/FORK.md
+# and mutated by `make fork-mutants`
+exclude_globs = ["parquet/**"]
+# DataFusion is a large dependency: the first build of each scratch tree is slow
+build_timeout_multiplier = 3

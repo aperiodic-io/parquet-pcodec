@@ -1,0 +1,140 @@
+name: datafusion
+
+# The DataFusion connector (datafusion/): its own Cargo workspace, with the parquet 59.3.2
+# fork in datafusion/parquet. Local equivalents: datafusion/Makefile.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "datafusion/**"
+      - "rust/core/**"
+      - "testdata/**"
+      - "spec/**"
+      - "scripts/check-fork.sh"
+      - "rustfmt.toml"
+      - ".github/workflows/datafusion.yml"
+  pull_request:
+    paths:
+      - "datafusion/**"
+      - "rust/core/**"
+      - "testdata/**"
+      - "spec/**"
+      - "scripts/check-fork.sh"
+      - "rustfmt.toml"
+      - ".github/workflows/datafusion.yml"
+  schedule:
+    - cron: "23 5 * * 3" # weekly full mutation run of the connector and of the fork
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# a newer push to the same branch or pull request cancels the runs it supersedes
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1 (master)
+        with:
+          toolchain: stable
+          components: rustfmt
+      - run: make -C datafusion fmt-check
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1 (master)
+        with:
+          toolchain: stable
+          components: clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: datafusion
+      - run: make -C datafusion clippy
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1 (master)
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: datafusion
+      - run: make -C datafusion test fork-test vectors
+
+  check-fork:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: scripts/check-fork.sh datafusion/parquet
+
+  mutants:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1 (master)
+        with:
+          toolchain: stable
+      - uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2.90.0
+        with:
+          tool: cargo-mutants@27
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: datafusion
+      - name: mutants in the pull request's diff
+        if: github.event_name == 'pull_request'
+        working-directory: datafusion
+        run: |
+          # paths relative to the workspace (datafusion/), as cargo mutants reads them; the
+          # fork has its own run (fork-mutants)
+          git diff --relative "origin/${{ github.base_ref }}...HEAD" -- . ':!parquet' > pr.diff
+          # exit 3: some mutants made the tests hang (detected); accepted only when none was
+          # missed (see datafusion/Makefile's MUTANTS_OK)
+          # --in-place: see datafusion/Makefile (the fork's path dependency on rust/core)
+          cargo mutants -p tparquet-datafusion --in-diff pr.diff --in-place \
+            || { [ $? -eq 3 ] && [ ! -s mutants.out/missed.txt ]; }
+      - name: every mutant (weekly and on demand)
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: make -C datafusion mutants
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure() || cancelled()
+        with:
+          name: datafusion-mutants.out
+          path: datafusion/mutants.out*
+
+  fork-mutants:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1 (master)
+        with:
+          toolchain: stable
+      - uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2.90.0
+        with:
+          tool: cargo-mutants@27
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: datafusion
+      - run: make -C datafusion fork-mutants
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: datafusion-fork-mutants.out
+          path: datafusion/mutants.out*
