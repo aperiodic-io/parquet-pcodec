@@ -95,7 +95,7 @@ vector (2048 rows) at a time; pages are read as needed. Reading 400 MB of values
 test keeps the process's peak RSS where it was before the scan (97 MB).
 
 **Files.** Local files only (`std::fs`); DuckDB's virtual file systems (`httpfs`, S3) are not
-used.
+used. A leading `~/` is the home directory, as in `COPY ... TO`.
 
 ### Types
 

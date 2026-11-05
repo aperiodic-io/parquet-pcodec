@@ -41,26 +41,36 @@ fn is_glob(pattern: &str) -> bool {
     pattern.contains(['*', '?', '['])
 }
 
+/// `pattern` with a leading `~/` replaced by the home directory, as DuckDB's file system (and so
+/// `COPY ... TO`) takes it.
+fn in_home(pattern: &str, home: Option<PathBuf>) -> String {
+    match (pattern.strip_prefix("~/"), home) {
+        (Some(rest), Some(home)) => home.join(rest).to_string_lossy().into_owned(),
+        _ => pattern.to_string(),
+    }
+}
+
 /// The files that `patterns` name, in order: a pattern with `*`, `?` or `[` is a glob whose
-/// matches are sorted; any other pattern is a file that must exist.
+/// matches are sorted; any other pattern is a file that must exist. `~/` is the home directory.
 pub fn expand(patterns: &[String]) -> Result<Vec<PathBuf>, String> {
     if patterns.is_empty() {
         return Err("no files given".into());
     }
     let mut files = vec![];
-    for pattern in patterns {
+    for given in patterns {
+        let pattern = &in_home(given, std::env::home_dir());
         if is_glob(pattern) {
-            let paths = glob::glob(pattern).map_err(|e| format!("invalid glob {pattern:?}: {e}"))?;
+            let paths = glob::glob(pattern).map_err(|e| format!("invalid glob {given:?}: {e}"))?;
             let mut matched = paths.filter_map(Result::ok).filter(|p| p.is_file()).collect::<Vec<PathBuf>>();
             if matched.is_empty() {
-                return Err(format!("no files match {pattern:?}"));
+                return Err(format!("no files match {given:?}"));
             }
             matched.sort();
             files.extend(matched);
         } else {
             let path = PathBuf::from(pattern);
             if !path.is_file() {
-                return Err(format!("no such file: {pattern:?}"));
+                return Err(format!("no such file: {given:?}"));
             }
             files.push(path);
         }
@@ -522,6 +532,28 @@ mod tests {
         assert!(expand(&[format!("{d}/d.parquet")]).is_err());
         assert!(expand(&[format!("{d}/[.parquet")]).unwrap_err().starts_with("invalid glob"));
         assert_eq!(expand(&[]).unwrap_err(), "no files given");
+    }
+
+    #[test]
+    fn a_leading_tilde_is_the_home_directory() {
+        let home = || Some(PathBuf::from("/home/me"));
+        assert_eq!(in_home("~/a/b.parquet", home()), "/home/me/a/b.parquet");
+        assert_eq!(in_home("~/*.parquet", home()), "/home/me/*.parquet");
+        for kept in ["~a.parquet", "a/~/b", "/x/~/y", "~", "./~/z", "a.parquet"] {
+            assert_eq!(in_home(kept, home()), kept);
+        }
+        assert_eq!(in_home("~/a", None), "~/a");
+        // expand finds files there, and names the pattern as given
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("f.parquet"), b"x").unwrap();
+        let home_dir = std::env::home_dir().unwrap();
+        let relative = dir.path().strip_prefix(&home_dir);
+        if let Ok(rest) = relative {
+            let p = format!("~/{}/f.parquet", rest.display());
+            assert_eq!(expand(std::slice::from_ref(&p)).unwrap(), vec![dir.path().join("f.parquet")]);
+        }
+        assert_eq!(expand(&["~/no/such.parquet".into()]).unwrap_err(), "no such file: \"~/no/such.parquet\"");
+        assert_eq!(expand(&["~/no/such/*.parquet".into()]).unwrap_err(), "no files match \"~/no/such/*.parquet\"");
     }
 
     #[test]

@@ -533,3 +533,21 @@ def test_intervals_from_duckdbs_own_parquet_writer_keep_their_months(con, tmp_pa
     sql = "SELECT v::VARCHAR, l::VARCHAR, s::VARCHAR FROM {}('" + str(p) + "')"
     assert rows(con, sql.format("read_tparquet")) == rows(con, sql.format("read_parquet"))
     assert rows(con, sql.format("read_tparquet"))[0][0] == "1 year 2 months 3 days 04:05:06.789"
+
+
+def test_paths_from_the_home_directory_as_copy_takes_them(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    con = connect()
+    con.execute("COPY (SELECT 1::BIGINT AS a) TO '~/h.parquet' (FORMAT tparquet, COLUMN_NAMES ['a'])")
+    assert (tmp_path / "h.parquet").is_file()
+    for path in ["'~/h.parquet'", "'~/h*.parquet'", "['~/h.parquet', '~/h.parquet']"]:
+        assert rows(con, f"SELECT a FROM read_tparquet({path})")[0] == (1,), path
+    con.execute("CREATE TABLE t (a BIGINT)")
+    con.execute("COPY t FROM '~/h.parquet' (FORMAT tparquet)")
+    assert rows(con, "SELECT * FROM t") == [(1,)]
+    # only a leading ~ followed by / is the home directory
+    with pytest.raises(duckdb.BinderException, match='no such file: "x~/h.parquet"'):
+        con.execute("SELECT * FROM read_tparquet('x~/h.parquet')")
+    with pytest.raises(duckdb.BinderException, match='no such file: "~h.parquet"'):
+        con.execute("SELECT * FROM read_tparquet('~h.parquet')")
+    con.close()
