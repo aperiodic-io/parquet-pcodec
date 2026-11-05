@@ -324,3 +324,30 @@ fn column_names_with_dots() {
     }
     assert_eq!(lines(&file), batch_lines(&[batch]));
 }
+
+#[test]
+fn codecs_report_the_codecs_of_the_properties() {
+    // per-column codecs set in the properties stay on the base columns, and the writer says so
+    let batch = mixed(N, 13);
+    let gzip = Compression::GZIP(GzipLevel::default());
+    let props = WriterProperties::builder()
+        .set_column_compression("name".into(), Compression::SNAPPY)
+        .set_column_compression("flag".into(), gzip)
+        .build();
+    for policy in [Policy::Auto, Policy::Base, Policy::Pcodec] {
+        let options = WriterOptions::default().with_policy(policy).with_properties(props.clone());
+        let (file, chosen) = write(std::slice::from_ref(&batch), options.clone());
+        let chosen: Vec<(String, Compression)> = chosen.unwrap().into_iter().map(|c| (c.path, c.codec)).collect();
+        let in_file = codecs(&file);
+        for ((path, codec), (file_path, file_codec)) in chosen.iter().zip(&in_file) {
+            assert_eq!(path, file_path);
+            assert!(codec.to_string().starts_with(file_codec.as_str()), "{policy:?} {path}: {codec} vs {file_codec}");
+        }
+        assert_eq!(chosen[3].1, Compression::SNAPPY);
+        if policy != Policy::Pcodec {
+            assert_eq!(chosen[2].1, gzip);
+        }
+        let (_, finished) = Writer::try_new(Vec::new(), batch.schema(), options).unwrap().finish().unwrap();
+        assert_eq!(finished[3].codec, Compression::SNAPPY);
+    }
+}

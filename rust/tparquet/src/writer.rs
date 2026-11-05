@@ -112,6 +112,8 @@ pub struct Writer<W: Write + Send> {
     leaves: Vec<Leaf>,
     /// Per leaf, after the choice: whether it is PCODEC.
     pcodec: Vec<bool>,
+    /// The properties the file is written with, once chosen.
+    chosen: Option<WriterProperties>,
     state: State<W>,
 }
 
@@ -138,7 +140,8 @@ impl<W: Write + Send> Writer<W> {
         {
             return Err(invalid(format!("no column named {name:?}")));
         }
-        let mut writer = Self { schema, options, pcodec: vec![false; leaves.len()], leaves, state: State::Failed };
+        let mut writer =
+            Self { schema, options, pcodec: vec![false; leaves.len()], leaves, chosen: None, state: State::Failed };
         if writer.leaves.iter().any(|l| l.policy == Some(Policy::Auto)) {
             writer.state = State::Pending(sink);
         } else {
@@ -185,7 +188,8 @@ impl<W: Write + Send> Writer<W> {
             }
         }
         let props = self.properties(&self.pcodec, false);
-        self.state = State::Open(Box::new(ArrowWriter::try_new(sink, self.schema.clone(), Some(props))?));
+        self.state = State::Open(Box::new(ArrowWriter::try_new(sink, self.schema.clone(), Some(props.clone()))?));
+        self.chosen = Some(props);
         Ok(())
     }
 
@@ -230,17 +234,14 @@ impl<W: Write + Send> Writer<W> {
         Ok(self.writer()?.flush()?)
     }
 
-    /// The codec of every leaf column, once chosen (after the first batch with rows).
+    /// The codec of every leaf column, once chosen (after the first batch with rows): PCODEC,
+    /// the base codec, or the column's own codec in the properties.
     pub fn codecs(&self) -> Option<Vec<ColumnCodec>> {
-        match self.state {
-            State::Open(_) => Some(
+        match (&self.state, &self.chosen) {
+            (State::Open(_), Some(props)) => Some(
                 self.leaves
                     .iter()
-                    .zip(&self.pcodec)
-                    .map(|(l, &p)| ColumnCodec {
-                        path: l.path.string(),
-                        codec: if p { Compression::PCODEC(self.options.level) } else { self.options.base },
-                    })
+                    .map(|l| ColumnCodec { path: l.path.string(), codec: props.compression(&l.path) })
                     .collect(),
             ),
             _ => None,
