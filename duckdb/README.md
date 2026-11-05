@@ -78,9 +78,10 @@ struct fields) repeat a name, `x` and `X`, gets the names `read_parquet` gives t
 `X_1`.
 
 **Projection pushdown.** Only the columns the query uses are read (`EXPLAIN` shows
-`Projections:`); `count(*)` reads no column at all. **Filters** are applied by DuckDB after the
-scan: the C API does not hand table functions their filters, so there is no row-group skipping
-on statistics.
+`Projections:`). `count(*)` reads one column, the first: DuckDB asks a C API table function,
+which has no row id, for its first column (read_parquet answers `count(*)` from the footer).
+**Filters** are applied by DuckDB after the scan: the C API does not hand table functions their
+filters, so there is no row-group skipping on statistics.
 
 **Parallelism.** The scan's unit of work is a row group. DuckDB's threads take row groups from
 a shared queue that walks the files in order (opening each footer once); `max_threads` is the
