@@ -106,7 +106,7 @@ uv run --no-sync tpq-bench run --markdown out.md --json out.json
 uv run --no-sync pytest                          # offline: tiny synthetic files, no provider data
 uv run --no-sync ruff check src tests && uv run --no-sync ruff format --check src tests
 uv run --no-sync mypy
-uv run --no-sync mutmut run
+uv run --no-sync python scripts/mutmut_check.py     # fails unless every mutant is killed
 ```
 
 New sources go in [`catalog.py`](src/tpq_bench/catalog.py), with a loader in

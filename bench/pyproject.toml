@@ -58,7 +58,7 @@ known-first-party = ["tpq_bench"]
 [tool.mypy]
 strict = true
 python_version = "3.10"
-files = ["src", "tests"]
+files = ["src", "tests", "scripts"]
 
 [[tool.mypy.overrides]]
 # no type information published
@@ -71,7 +71,7 @@ addopts = "-ra --strict-markers"
 filterwarnings = ["error"]
 
 [tool.mutmut]
-# run from bench/: `uv run --no-sync mutmut run`; the offline tests judge every mutant (the
+# run from bench/: `uv run --no-sync python scripts/mutmut_check.py` (fails on a survivor); the offline tests judge every mutant (the
 # network and Databento's client are faked). `# pragma: no mutate` marks the lines whose mutants
 # no test can observe, each with its reason
 source_paths = ["src/tpq_bench"]

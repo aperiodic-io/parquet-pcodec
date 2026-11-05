@@ -62,13 +62,20 @@ def test_main_writes_markdown_and_json(tmp_path: pathlib.Path, monkeypatch: pyte
 def test_main_fetch_reports_what_it_could_not_fetch(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    trades(tmp_path / "x" / "cached.parquet")
     monkeypatch.setattr(
-        catalog, "SOURCES", [catalog.Source("X", "BTC trades", "trades", "x/t.parquet", "parquet", catalog.Local())]
+        catalog,
+        "SOURCES",
+        [
+            catalog.Source("X", "BTC trades", "trades", "x/t.parquet", "parquet", catalog.Local()),
+            catalog.Source("X", "ETH trades", "trades", "x/cached.parquet", "parquet", catalog.Local()),
+            catalog.Source("X", "BTC quotes", "quotes", "x/q.parquet", "parquet", catalog.Local()),
+        ],
     )
     assert cli.main(["fetch", "--data", str(tmp_path)]) == 1
     err = capsys.readouterr().err
     assert "not fetched: X: BTC trades" in err
-    assert err.endswith("1 of 1 not fetched: x/t.parquet\n")
+    assert err.endswith("2 of 3 not fetched: x/t.parquet, x/q.parquet\n")
 
 
 def test_main_list(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]) -> None:

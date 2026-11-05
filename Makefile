@@ -9,7 +9,7 @@ FUZZ_TIME ?= 60
 .PHONY: check fmt fmt-check clippy test c-test check-fork testdata testdata-check fuzz-smoke \
 	mutants fork-mutants fork-upstream-tests python-test python-mutants polars-test polars-mutants acceptance \
 	java-test cpp-test trino-test trino-mutants datafusion-test \
-	bench-test bench
+	bench-test bench-mutants bench
 
 check: fmt-check clippy test c-test check-fork testdata-check
 
@@ -88,6 +88,9 @@ polars-test:
 # the providers' samples (about 1.2 GB, cached in bench/data) and rewrites bench/RESULTS.md
 bench-test:
 	cd bench && uv sync --python 3.14 --extra databento && uv run --no-sync pytest
+
+bench-mutants:
+	cd bench && uv run --no-sync python scripts/mutmut_check.py
 
 bench:
 	cd bench && uv sync --python 3.14 --extra databento && \
