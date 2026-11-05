@@ -12,6 +12,7 @@
 | `go/` | Go package: arrow-go codec plugin and writer helpers |
 | `python/` | Python package: pyarrow, pandas, Polars, DuckDB |
 | `duckdb/` | DuckDB loadable extension |
+| `polars-tparquet/` | Polars plugin package: `scan_tparquet`, `read_tparquet`, `tparquet` namespaces |
 | `testdata/` | conformance vectors shared by every implementation |
 | `acceptance/` | cross-language acceptance tests |
 

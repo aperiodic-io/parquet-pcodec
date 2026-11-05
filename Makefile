@@ -7,7 +7,7 @@ UPSTREAM := acceptance/rust-upstream/Cargo.toml
 FUZZ_TIME ?= 60
 
 .PHONY: check fmt fmt-check clippy test c-test check-fork testdata testdata-check fuzz-smoke \
-	mutants fork-mutants fork-upstream-tests python-test python-mutants acceptance
+	mutants fork-mutants fork-upstream-tests python-test python-mutants polars-test polars-mutants acceptance
 
 check: fmt-check clippy test c-test check-fork testdata-check
 
@@ -73,6 +73,14 @@ python-mutants:
 	  uv run --no-sync python scripts/mutmut_check.py
 	HYPOTHESIS_PROFILE=mutation TPARQUET_PYTHON=$(PYTHON_VENV) PYO3_PYTHON=$(PYTHON_VENV) \
 	  $(CARGO) mutants -p tparquet-python -j $(JOBS) $(MUTANTS_OK)
+
+# the Polars plugin (polars-tparquet/): uv builds tparquet from python/ into its own venv
+polars-test:
+	cd polars-tparquet && uv sync --python 3.14 && uv run --no-sync pytest
+
+polars-mutants:
+	cd polars-tparquet && HYPOTHESIS_PROFILE=mutation TPARQUET_TESTDATA=$(CURDIR)/testdata \
+	  uv run --no-sync python scripts/mutmut_check.py
 
 # the fork's changed functions only (rust/parquet/FORK.md); the fork is rebuilt for every
 # mutant, so it is built without optimization here

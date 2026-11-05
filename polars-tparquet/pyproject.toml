@@ -1,0 +1,92 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "polars-tparquet"
+version = "0.1.0"
+description = "Polars plugin for tparquet: scan, read, write and sink Parquet files with the PCODEC codec"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Database",
+    "Typing :: Typed",
+]
+# the decoding and encoding are tparquet's Rust core; this package is the Polars side of it
+dependencies = ["polars>=2.0", "tparquet"]
+
+[project.urls]
+Repository = "https://github.com/aperiodic-io/tparquet"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/polars_tparquet"]
+
+[tool.uv.sources]
+# tparquet is built from this repository (maturin; needs a Rust toolchain)
+tparquet = { path = "../python", package = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "hypothesis>=6.100",
+    "mypy>=1.10",
+    "ruff>=0.6",
+    "mutmut>=3.3",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "PT", "C4", "PIE", "RET", "TC"]
+ignore = [
+    # `Union[...]` aliases are kept: `X | Y` of string forward references fails at runtime on 3.10
+    "UP007",
+    # zip(strict=True) where the lengths are equal by construction only adds mutants no test can
+    # kill (strict=False, None or left out behave the same)
+    "B905",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# tests import what they annotate at runtime; long literal expectations stay on one line
+"tests/*" = ["TC", "E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["polars_tparquet", "conftest"]
+
+[tool.mypy]
+strict = true
+python_version = "3.10"
+files = ["src", "tests", "scripts"]
+mypy_path = "tests"
+
+[[tool.mypy.overrides]]
+# no type information published
+module = ["hypothesis.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# the `tparquet` namespaces are registered on DataFrame and LazyFrame at import (Polars' plugin
+# API); static checkers cannot see such attributes, so these tests skip that one check
+module = ["test_write", "test_properties"]
+disable_error_code = ["attr-defined"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+filterwarnings = ["error"]
+
+[tool.mutmut]
+# run from polars-tparquet/ with `python scripts/mutmut_check.py` (TPARQUET_TESTDATA set:
+# the copy in mutants/ cannot find ../testdata by itself)
+source_paths = ["src/polars_tparquet"]
+pytest_add_cli_args = ["-p", "no:cacheprovider"]
+pytest_add_cli_args_test_selection = ["tests/"]
+# Polars and tparquet start thread pools: workers forked from the process that ran the suite
+# inherit them broken and hang. Fork them from a clean server instead.
+process_isolation = "forkserver"
+forkserver_warmup = "none"

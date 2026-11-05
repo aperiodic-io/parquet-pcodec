@@ -25,6 +25,7 @@ The format is specified in [`spec/FORMAT.md`](spec/FORMAT.md).
 | Go | [`go/`](go) | arrow-go codec plugin (no fork: `compress.RegisterCodec`) and writer helpers |
 | Python, pandas, Polars | [`python/`](python) | pyo3 package: `read_table`, `write_table`, `Writer`; `tparquet.pandas`, `tparquet.polars` (`scan_parquet` with pushdown), `tparquet.duckdb` |
 | DuckDB | [`duckdb/`](duckdb) | loadable extension: `read_tparquet(...)`, `COPY ... (FORMAT tparquet)` |
+| Polars | [`polars-tparquet/`](polars-tparquet) | Polars plugin `polars-tparquet`: `scan_tparquet` over files, lists, globs and directories (lazy, with pushdown), `read_tparquet`, `df.tparquet.write(...)`, `lf.tparquet.sink(...)` (streamed) |
 
 ## Quick start
 
@@ -42,6 +43,13 @@ ppc.write_table(table, "trades.parquet")          # {"price": "PCODEC", "sym": "
 table = ppc.read_table("trades.parquet", columns=["ts", "price"])
 ```
 
+```python
+import polars_tparquet as pt
+
+lf = pt.scan_tparquet("trades/**/*.parquet")      # lazy; pushdown into every file
+lf.filter(pl.col("qty") > 0).tparquet.sink("out.parquet")
+```
+
 ```go
 import tparquet "github.com/aperiodic-io/tparquet/go" // reading: the import is enough
 
@@ -53,8 +61,8 @@ LOAD 'tparquet.duckdb_extension';
 SELECT * FROM read_tparquet('trades/*.parquet');
 ```
 
-Each package's README has the details: [Python](python/README.md), [Go](go/README.md),
-[DuckDB](duckdb/README.md).
+Each package's README has the details: [Python](python/README.md),
+[Polars](polars-tparquet/README.md), [Go](go/README.md), [DuckDB](duckdb/README.md).
 
 ## Testing
 
@@ -70,6 +78,7 @@ Each package's README has the details: [Python](python/README.md), [Go](go/READM
 make check            # Rust: fmt, clippy, tests, C smoke test, fork check, vectors
 make -C go test       # Go
 make python-test      # Python (uv, Python 3.14)
+make polars-test      # the Polars plugin
 make -C duckdb sql    # DuckDB extension
 make acceptance       # cross-language (needs the Python package and the DuckDB extension built)
 ```
