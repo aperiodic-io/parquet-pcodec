@@ -455,3 +455,69 @@ def test_a_file_without_columns_is_refused_clearly(con, tmp_path):
         con.execute(f"SELECT * FROM read_tparquet('{p}')")
     # not an internal error: the database is still usable, and the extra columns are columns
     assert rows(con, f"SELECT count(*) FROM read_tparquet('{p}', filename := true)") == [(0,)]
+
+
+# ---------------------------------------------------------------------------------------------
+# intervals and durations
+
+
+def test_durations_keep_their_nulls_and_values(con, tmp_path):
+    big = 2**40
+    t = pa.table(
+        {
+            "s": pa.array([1, -2, None, big], pa.duration("s")),
+            "ms": pa.array([1, -2, None, big * 1000], pa.duration("ms")),
+            "us": pa.array([1, -2, None, 2**62], pa.duration("us")),
+            "ns": pa.array([1500, -1500, None, 2**62], pa.duration("ns")),
+        }
+    )
+    p = tmp_path / "d.parquet"
+    pq.write_table(t, p)
+    assert describe(con, f"SELECT * FROM read_tparquet('{p}')") == [(c, "INTERVAL") for c in t.column_names]
+    us = datetime.timedelta(microseconds=1)
+    assert rows(con, f"SELECT * FROM read_tparquet('{p}')") == [
+        (1_000_000 * us, 1000 * us, us, us),
+        (-2_000_000 * us, -2000 * us, -2 * us, -us),
+        (None, None, None, None),
+        (big * 1_000_000 * us, big * 1_000_000 * us, 2**62 * us, 2**62 // 1000 * us),
+    ]
+
+
+def test_durations_inside_lists_structs_and_maps_keep_their_nulls(con, tmp_path):
+    d = pa.duration("ms")
+    t = pa.table(
+        {
+            "l": pa.array([[1, None, 3], None, [], [None]], pa.list_(d)),
+            "st": pa.array([{"x": 5, "y": 1}, None, {"x": None, "y": 2}, {"x": 7, "y": None}],
+                           pa.struct([("x", d), ("y", pa.int32())])),
+            "m": pa.array([[("a", 1)], [("b", None)], None, []], pa.map_(pa.string(), d)),
+            "ll": pa.array([[[1], None], [[None, 2]], None, [[]]], pa.list_(pa.list_(d))),
+            "lg": pa.array([[None], [4], None, []], pa.large_list(d)),
+            "fixed": pa.array([[1, None], [None, 2], [3, 4], [None, None]], pa.list_(d, 2)),
+        }
+    )
+    p = tmp_path / "nested.parquet"
+    pq.write_table(t, p)
+    ms = datetime.timedelta(milliseconds=1)
+    assert rows(con, f"SELECT * FROM read_tparquet('{p}')") == [
+        ([ms, None, 3 * ms], {"x": 5 * ms, "y": 1}, {"a": ms}, [[ms], None], [None], (ms, None)),
+        (None, None, {"b": None}, [[None, 2 * ms]], [4 * ms], (None, 2 * ms)),
+        ([], {"x": None, "y": 2}, None, None, None, (3 * ms, 4 * ms)),
+        ([None], {"x": 7 * ms, "y": None}, {}, [[]], [], (None, None)),
+    ]
+
+
+def test_a_duration_too_long_for_an_interval_is_an_error(con, tmp_path):
+    p = tmp_path / "long.parquet"
+    pq.write_table(pa.table({"d": pa.array([0, 2**62], pa.duration("s"))}), p)
+    with pytest.raises(duckdb.Error, match="the duration 4611686018427387904 s does not fit in an INTERVAL"):
+        con.execute(f"SELECT * FROM read_tparquet('{p}')").fetchall()
+
+
+def test_null_intervals_from_duckdbs_own_parquet_writer_stay_null(con, tmp_path):
+    p = tmp_path / "iv.parquet"
+    con.execute(
+        f"COPY (SELECT * FROM (VALUES (INTERVAL '3 days 04:05:06.789'), (NULL), (INTERVAL '1 second')) t(v)) "
+        f"TO '{p}' (FORMAT parquet)"
+    )
+    assert rows(con, f"SELECT v FROM read_tparquet('{p}')") == rows(con, f"SELECT v FROM read_parquet('{p}')")

@@ -287,6 +287,57 @@ impl SqlType {
     }
 }
 
+/// DuckDB's `interval_t`, the layout of an `INTERVAL` vector's values.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Interval {
+    pub months: i32,
+    pub days: i32,
+    pub micros: i64,
+}
+
+/// The DuckDB intervals of an Arrow interval or duration array, one per row (NULL rows give
+/// zero). Durations become microseconds (nanoseconds are truncated toward zero, as DuckDB's own
+/// Arrow import does); one that does not fit in 64-bit microseconds is an error.
+///
+/// The `duckdb` crate writes intervals through nanoseconds and without their NULLs (it rebuilds
+/// the array from its values), so `crate::read` writes them again with these.
+pub fn intervals(array: &dyn Array) -> Result<Vec<Interval>, String> {
+    use arrow_array::cast::AsArray;
+    use arrow_array::types::*;
+    use arrow_schema::IntervalUnit;
+    fn each<T: arrow_array::ArrowPrimitiveType>(
+        array: &dyn Array,
+        f: impl Fn(T::Native) -> Result<Interval, String>,
+    ) -> Result<Vec<Interval>, String> {
+        let a = array.as_primitive::<T>();
+        (0..a.len()).map(|i| if a.is_valid(i) { f(a.value(i)) } else { Ok(Interval::default()) }).collect()
+    }
+    let micros = |v: i64, per_unit: i64, unit: &str| {
+        let micros =
+            v.checked_mul(per_unit).ok_or_else(|| format!("the duration {v} {unit} does not fit in an INTERVAL"))?;
+        Ok(Interval { micros, ..Default::default() })
+    };
+    match array.data_type() {
+        DataType::Interval(IntervalUnit::YearMonth) => {
+            each::<IntervalYearMonthType>(array, |months| Ok(Interval { months, ..Default::default() }))
+        }
+        DataType::Interval(IntervalUnit::DayTime) => each::<IntervalDayTimeType>(array, |v| {
+            Ok(Interval { months: 0, days: v.days, micros: v.milliseconds as i64 * 1000 })
+        }),
+        DataType::Interval(IntervalUnit::MonthDayNano) => each::<IntervalMonthDayNanoType>(array, |v| {
+            Ok(Interval { months: v.months, days: v.days, micros: v.nanoseconds / 1000 })
+        }),
+        DataType::Duration(TimeUnit::Second) => each::<DurationSecondType>(array, |v| micros(v, 1_000_000, "s")),
+        DataType::Duration(TimeUnit::Millisecond) => each::<DurationMillisecondType>(array, |v| micros(v, 1000, "ms")),
+        DataType::Duration(TimeUnit::Microsecond) => each::<DurationMicrosecondType>(array, |v| micros(v, 1, "us")),
+        DataType::Duration(TimeUnit::Nanosecond) => {
+            each::<DurationNanosecondType>(array, |v| Ok(Interval { micros: v / 1000, ..Default::default() }))
+        }
+        other => Err(format!("{other} is not an interval")),
+    }
+}
+
 /// Whether [`normalize`] changes arrays of this type.
 fn needs_normalize(data_type: &DataType) -> bool {
     match data_type {
@@ -435,6 +486,49 @@ mod tests {
             Field::new("A", DataType::Utf8, true),
         ]));
         assert_eq!(ty(t), SqlType::Struct(vec![("a".into(), SqlType::TinyInt), ("A_1".into(), SqlType::Varchar)]));
+    }
+
+    #[test]
+    fn intervals_and_durations_in_duckdb_units() {
+        use arrow_buffer::{IntervalDayTime, IntervalMonthDayNano};
+        let iv = |months, days, micros| Interval { months, days, micros };
+        let zero = Interval::default();
+        let a = IntervalYearMonthArray::from(vec![Some(14), None, Some(-1)]);
+        assert_eq!(intervals(&a).unwrap(), vec![iv(14, 0, 0), zero, iv(-1, 0, 0)]);
+        let a = IntervalDayTimeArray::from(vec![Some(IntervalDayTime::new(3, 14_706_789)), None]);
+        assert_eq!(intervals(&a).unwrap(), vec![iv(0, 3, 14_706_789_000), zero]);
+        let a = IntervalMonthDayNanoArray::from(vec![
+            Some(IntervalMonthDayNano::new(1, 2, 3_999)),
+            Some(IntervalMonthDayNano::new(-1, -2, -3_999)),
+            None,
+        ]);
+        assert_eq!(intervals(&a).unwrap(), vec![iv(1, 2, 3), iv(-1, -2, -3), zero]);
+        let us = |micros| iv(0, 0, micros);
+        assert_eq!(intervals(&DurationSecondArray::from(vec![Some(-2), None])).unwrap(), vec![us(-2_000_000), zero]);
+        assert_eq!(intervals(&DurationMillisecondArray::from(vec![7, -7])).unwrap(), vec![us(7000), us(-7000)]);
+        assert_eq!(intervals(&DurationMicrosecondArray::from(vec![i64::MAX])).unwrap(), vec![us(i64::MAX)]);
+        assert_eq!(intervals(&DurationNanosecondArray::from(vec![1999, -1999])).unwrap(), vec![us(1), us(-1)]);
+        // the largest durations that fit, and the first that do not
+        let s = i64::MAX / 1_000_000;
+        assert_eq!(
+            intervals(&DurationSecondArray::from(vec![s, -s])).unwrap(),
+            vec![us(s * 1_000_000), us(-s * 1_000_000)]
+        );
+        assert_eq!(
+            intervals(&DurationSecondArray::from(vec![s + 1])).unwrap_err(),
+            format!("the duration {} s does not fit in an INTERVAL", s + 1)
+        );
+        let ms = i64::MAX / 1000;
+        assert_eq!(intervals(&DurationMillisecondArray::from(vec![ms])).unwrap(), vec![us(ms * 1000)]);
+        assert_eq!(
+            intervals(&DurationMillisecondArray::from(vec![-ms - 1])).unwrap_err(),
+            format!("the duration {} ms does not fit in an INTERVAL", -ms - 1)
+        );
+        // a NULL row is not converted
+        let masked = DurationSecondArray::new(vec![i64::MAX, 1].into(), Some(vec![false, true].into()));
+        assert_eq!(intervals(&masked).unwrap(), vec![zero, us(1_000_000)]);
+        assert_eq!(intervals(&Int64Array::from(vec![1])).unwrap_err(), "Int64 is not an interval");
+        assert_eq!(std::mem::size_of::<Interval>(), 16);
     }
 
     #[test]
