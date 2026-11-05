@@ -231,3 +231,13 @@ fn a_pcodec_size_hint_is_not_trusted() {
     assert_eq!(decompress(&q, 24), Ok(i64s(&[4, 5, 6])));
     assert_eq!(decompress(&q, 32), Err(Error::SizeMismatch { expected: 32, actual: 24 }));
 }
+
+#[test]
+fn a_zstd_body_is_refused_only_when_too_short_for_the_expected_size() {
+    // a 10 byte body: a frame header (magic, descriptor, window 2^17) and one RLE block of
+    // 128 KiB; 10 bytes hold at most 2 blocks (RFC 8878 3.1.1.2), 256 KiB
+    let p = [1, 3, 0x28, 0xB5, 0x2F, 0xFD, 0x00, 0x38, 0x03, 0x00, 0x10, 0x61];
+    assert_eq!(decompress(&p, 128 << 10).as_deref(), Ok(&[0x61; 128 << 10][..]));
+    assert_eq!(decompress(&p, 256 << 10), Err(Error::SizeMismatch { expected: 256 << 10, actual: 128 << 10 }));
+    assert_eq!(decompress(&p, (256 << 10) + 1), Err(Error::Truncated));
+}
