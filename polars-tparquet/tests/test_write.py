@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import io
+import os
 import pathlib
+import re
 from collections.abc import Callable
 
 import polars as pl
@@ -60,3 +62,63 @@ def test_write_to_a_file_object() -> None:
     buf = io.BytesIO()
     ticks(100).tparquet.write(buf)
     assert_frame_equal(pt.read_tparquet(io.BytesIO(buf.getvalue())), ticks(100))
+
+
+def test_a_write_the_writer_rejects_leaves_no_file(tmp_path: pathlib.Path) -> None:
+    # the column names are checked only once the file is created
+    with pytest.raises(tparquet.PcodecError, match=r'^no column named "nope"$'):
+        ticks(10).tparquet.write(tmp_path / "t.parquet", columns={"nope": "pcodec"})
+    assert os.listdir(tmp_path) == []
+
+
+def test_a_failed_write_keeps_the_file_it_would_replace(tmp_path: pathlib.Path) -> None:
+    path = tmp_path / "t.parquet"
+    ticks(10).tparquet.write(path)
+    before = path.read_bytes()
+    with pytest.raises(tparquet.PcodecError):
+        ticks(20).tparquet.write(path, columns={"nope": "pcodec"})
+    assert path.read_bytes() == before
+    assert os.listdir(tmp_path) == ["t.parquet"]
+
+
+def test_write_replaces_a_file_once_complete(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "t.parquet"
+    ticks(10).tparquet.write(path)
+    before = path.read_bytes()
+    sinks: list[object] = []
+    write_table = tparquet.write_table
+
+    def recording(data: tparquet.ArrowData, sink: tparquet.Sink, **kwargs: object) -> dict[str, str]:
+        sinks.append(sink)
+        codecs = write_table(data, sink, **kwargs)  # type: ignore[arg-type]
+        assert path.read_bytes() == before  # still the old file
+        return codecs
+
+    monkeypatch.setattr(tparquet.polars, "write_table", recording)
+    ticks(20).tparquet.write(path)
+    (sink,) = sinks
+    assert isinstance(sink, str)
+    assert os.path.dirname(sink) == str(tmp_path)
+    assert re.fullmatch(r"\.t\.parquet\.[0-9a-f]{32}\.tmp", os.path.basename(sink))
+    assert os.listdir(tmp_path) == ["t.parquet"]
+    assert_frame_equal(pt.read_tparquet(path), ticks(20))
+
+
+def test_write_through_a_symlink_writes_the_file_it_links_to(tmp_path: pathlib.Path) -> None:
+    real = tmp_path / "data" / "t.parquet"
+    real.parent.mkdir()
+    link = tmp_path / "link.parquet"
+    link.symlink_to(real)  # dangling until written
+    ticks(10).tparquet.write(link)
+    assert link.is_symlink()
+    assert_frame_equal(pt.read_tparquet(real), ticks(10))
+
+
+def test_write_errors_name_the_path(tmp_path: pathlib.Path) -> None:
+    with pytest.raises(FileNotFoundError, match=re.escape(str(tmp_path / "no"))) as e:
+        ticks(10).tparquet.write(tmp_path / "no" / "t.parquet")
+    assert ".tmp" not in str(e.value)
+    (tmp_path / "d").mkdir()
+    with pytest.raises(IsADirectoryError):
+        ticks(10).tparquet.write(tmp_path / "d")
+    assert sorted(os.listdir(tmp_path)) == ["d"]

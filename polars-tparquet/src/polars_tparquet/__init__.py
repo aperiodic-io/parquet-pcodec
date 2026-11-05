@@ -174,10 +174,14 @@ class DataFrameNamespace:
         dotted leaf path to its own policy, `level` is the pcodec level (0 to 12), `base` the codec
         of the other columns (`"zstd(3)"`, `"snappy"`, ...) and `row_group_size` the most rows
         per row group.
+
+        A path is written as a hidden temporary file beside it, which replaces it once complete:
+        if writing fails, the target is left as it was.
         """
-        return write_parquet(
-            self._df, target, policy=policy, columns=columns, level=level, base=base, row_group_size=row_group_size
-        )
+        with _replacing(target) as sink:
+            return write_parquet(
+                self._df, sink, policy=policy, columns=columns, level=level, base=base, row_group_size=row_group_size
+            )
 
 
 @pl.api.register_lazyframe_namespace("tparquet")
