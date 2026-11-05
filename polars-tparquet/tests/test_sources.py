@@ -176,3 +176,16 @@ def test_a_glob_of_any_kind_of_path(write: Write, tmp_path: pathlib.Path) -> Non
         out = pt.scan_tparquet(source, include_file_paths="file").collect()
         assert_frame_equal(out.drop("file"), want)
         assert out["file"].unique(maintain_order=True).to_list() == [str(p) for p in parts]
+
+
+@pytest.mark.parametrize("name", ["a[1].parquet", "what?.parquet", "x*y.parquet"])
+def test_an_existing_file_is_read_as_named_whatever_its_name(write: Write, tmp_path: pathlib.Path, name: str) -> None:
+    path = write(name, ticks(3))
+    write("a1.parquet", ticks(5))  # what a[1].parquet matches as a glob
+    write("whatX.parquet", ticks(5))
+    write("xzzy.parquet", ticks(5))
+    for source in (str(path), path):
+        assert_frame_equal(pt.scan_tparquet(source).collect(), ticks(3))
+    # a directory too
+    write(f"{name}.d/b.parquet", ticks(4))
+    assert_frame_equal(pt.scan_tparquet(tmp_path / f"{name}.d").collect(), ticks(4))
