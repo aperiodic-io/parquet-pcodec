@@ -39,6 +39,8 @@ import org.apache.parquet.bytes.BytesInput;
 import org.apache.parquet.compression.CompressionCodecFactory;
 import org.apache.parquet.conf.HadoopParquetConfiguration;
 import org.apache.parquet.conf.ParquetConfiguration;
+import org.apache.parquet.hadoop.codec.PcodecCodec;
+import org.apache.parquet.hadoop.codec.PcodecDecompressor;
 import org.apache.parquet.hadoop.codec.ZstandardCodec;
 import org.apache.parquet.hadoop.metadata.CompressionCodecName;
 import org.apache.parquet.hadoop.util.ConfigurationUtil;
@@ -269,11 +271,17 @@ public class CodecFactory implements CompressionCodecFactory {
   }
 
   protected BytesCompressor createCompressor(CompressionCodecName codecName) {
+    if (codecName == CompressionCodecName.PCODEC) { // tparquet fork
+      return PcodecCodec.compressor(conf);
+    }
     CompressionCodec codec = getCodec(codecName);
     return codec == null ? NO_OP_COMPRESSOR : new HeapBytesCompressor(codecName, codec);
   }
 
   protected BytesDecompressor createDecompressor(CompressionCodecName codecName) {
+    if (codecName == CompressionCodecName.PCODEC) { // tparquet fork
+      return new PcodecDecompressor();
+    }
     CompressionCodec codec = getCodec(codecName);
     return codec == null ? NO_OP_DECOMPRESSOR : new HeapBytesDecompressor(codec);
   }

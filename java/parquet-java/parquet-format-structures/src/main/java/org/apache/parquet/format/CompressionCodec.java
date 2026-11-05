@@ -25,7 +25,9 @@ public enum CompressionCodec implements org.apache.thrift.TEnum {
   BROTLI(4),
   LZ4(5),
   ZSTD(6),
-  LZ4_RAW(7);
+  LZ4_RAW(7),
+  /** tparquet fork: the PCODEC codec of spec/FORMAT.md (not a standard Parquet codec). */
+  PCODEC(20547);
 
   private final int value;
 
@@ -64,6 +66,8 @@ public enum CompressionCodec implements org.apache.thrift.TEnum {
         return ZSTD;
       case 7:
         return LZ4_RAW;
+      case 20547:
+        return PCODEC;
       default:
         return null;
     }

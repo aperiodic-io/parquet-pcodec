@@ -71,6 +71,7 @@ import org.apache.parquet.format.BlockCipher;
 import org.apache.parquet.format.Util;
 import org.apache.parquet.format.converter.ParquetMetadataConverter;
 import org.apache.parquet.hadoop.ParquetOutputFormat.JobSummaryLevel;
+import org.apache.parquet.hadoop.codec.PcodecCodec;
 import org.apache.parquet.hadoop.metadata.BlockMetaData;
 import org.apache.parquet.hadoop.metadata.ColumnChunkMetaData;
 import org.apache.parquet.hadoop.metadata.ColumnPath;
@@ -1879,8 +1880,9 @@ public class ParquetFileWriter implements AutoCloseable {
         serializeOffsetIndexes(offsetIndexes, blocks, out, fileEncryptor);
         serializeBloomFilters(bloomFilters, blocks, out, fileEncryptor);
         LOG.debug("{}: end", out.getPos());
-        this.footer =
-            new ParquetMetadata(new FileMetaData(schema, extraMetaData, Version.FULL_VERSION), blocks);
+        // tparquet fork: parquet.pcodec.version = "1" when a column chunk uses PCODEC
+        this.footer = new ParquetMetadata(
+            new FileMetaData(schema, PcodecCodec.withVersion(extraMetaData, blocks), Version.FULL_VERSION), blocks);
         serializeFooter(footer, out, fileEncryptor, metadataConverter);
       } finally {
         close();

@@ -52,6 +52,7 @@ import org.apache.parquet.crypto.ModuleCipherFactory.ModuleType;
 import org.apache.parquet.format.BlockCipher;
 import org.apache.parquet.format.converter.ParquetMetadataConverter;
 import org.apache.parquet.hadoop.CodecFactory.BytesCompressor;
+import org.apache.parquet.hadoop.codec.PcodecCompressor;
 import org.apache.parquet.hadoop.metadata.ColumnPath;
 import org.apache.parquet.internal.column.columnindex.ColumnIndexBuilder;
 import org.apache.parquet.internal.column.columnindex.OffsetIndexBuilder;
@@ -582,7 +583,7 @@ public class ColumnChunkPageWriteStore implements PageWriteStore, BloomFilterWri
           path,
           new ColumnChunkPageWriter(
               path,
-              compressor,
+              PcodecCompressor.forColumn(compressor, path), // tparquet fork: the type hint
               allocator,
               columnIndexTruncateLength,
               pageWriteChecksumEnabled,
@@ -628,7 +629,7 @@ public class ColumnChunkPageWriteStore implements PageWriteStore, BloomFilterWri
             path,
             new ColumnChunkPageWriter(
                 path,
-                compressor,
+                PcodecCompressor.forColumn(compressor, path), // tparquet fork: the type hint
                 allocator,
                 columnIndexTruncateLength,
                 pageWriteChecksumEnabled,
@@ -660,7 +661,7 @@ public class ColumnChunkPageWriteStore implements PageWriteStore, BloomFilterWri
           path,
           new ColumnChunkPageWriter(
               path,
-              compressor,
+              PcodecCompressor.forColumn(compressor, path), // tparquet fork: the type hint
               allocator,
               columnIndexTruncateLength,
               pageWriteChecksumEnabled,

@@ -30,7 +30,10 @@ public enum CompressionCodecName {
   BROTLI("org.apache.hadoop.io.compress.BrotliCodec", CompressionCodec.BROTLI, ".br"),
   LZ4("org.apache.hadoop.io.compress.Lz4Codec", CompressionCodec.LZ4, ".lz4hadoop"),
   ZSTD("org.apache.parquet.hadoop.codec.ZstandardCodec", CompressionCodec.ZSTD, ".zstd"),
-  LZ4_RAW("org.apache.parquet.hadoop.codec.Lz4RawCodec", CompressionCodec.LZ4_RAW, ".lz4raw");
+  LZ4_RAW("org.apache.parquet.hadoop.codec.Lz4RawCodec", CompressionCodec.LZ4_RAW, ".lz4raw"),
+  // tparquet fork: spec/FORMAT.md. The Hadoop codec class only refuses stream use: CodecFactory
+  // creates PCODEC's compressors and decompressors, which need the page's type and size.
+  PCODEC("org.apache.parquet.hadoop.codec.PcodecCodec", CompressionCodec.PCODEC, ".pcodec");
 
   public static CompressionCodecName fromConf(String name) {
     if (name == null) {

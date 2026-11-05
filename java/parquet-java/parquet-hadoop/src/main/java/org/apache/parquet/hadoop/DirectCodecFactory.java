@@ -40,6 +40,7 @@ import org.apache.parquet.bytes.ByteBufferAllocator;
 import org.apache.parquet.bytes.ByteBufferReleaser;
 import org.apache.parquet.bytes.BytesInput;
 import org.apache.parquet.bytes.ReusingByteBufferAllocator;
+import org.apache.parquet.hadoop.codec.PcodecDecompressor;
 import org.apache.parquet.hadoop.codec.ZstandardCodec;
 import org.apache.parquet.hadoop.metadata.CompressionCodecName;
 import org.apache.parquet.util.AutoCloseables;
@@ -117,6 +118,8 @@ class DirectCodecFactory extends CodecFactory implements AutoCloseable {
         return new SnappyDecompressor();
       case ZSTD:
         return new ZstdDecompressor();
+      case PCODEC: // tparquet fork: decodes direct buffers in place
+        return new PcodecDecompressor();
       default:
         CompressionCodec codec = getCodec(codecName);
         if (codec == null) {

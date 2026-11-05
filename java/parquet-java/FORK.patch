@@ -1,0 +1,1692 @@
+diff --git fork/parquet-common/pom.xml fork/parquet-common/pom.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..8f1907428e189cb67571b98d01acc35c3470536e
+--- /dev/null
++++ fork/parquet-common/pom.xml
+@@ -0,0 +1,40 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!-- Fork of org.apache.parquet:parquet-common 1.17.0 (../FORK.md). -->
++<project xmlns="http://maven.apache.org/POM/4.0.0"
++         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
++         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
++  <modelVersion>4.0.0</modelVersion>
++  <parent>
++    <groupId>io.aperiodic.tparquet</groupId>
++    <artifactId>tparquet-java-parent</artifactId>
++    <version>0.1.0-SNAPSHOT</version>
++    <relativePath>../../pom.xml</relativePath>
++  </parent>
++
++  <groupId>org.apache.parquet</groupId>
++  <artifactId>parquet-common</artifactId>
++  <version>${parquet.fork.version}</version>
++  <name>Apache Parquet Common (tparquet fork)</name>
++  <description>parquet-common 1.17.0 with the PCODEC codec (java/parquet-java/FORK.md)</description>
++
++  <dependencies>
++    <dependency>
++      <groupId>org.apache.parquet</groupId>
++      <artifactId>parquet-format-structures</artifactId>
++    </dependency>
++    <dependency>
++      <groupId>org.slf4j</groupId>
++      <artifactId>slf4j-api</artifactId>
++    </dependency>
++    <dependency>
++      <groupId>org.junit.jupiter</groupId>
++      <artifactId>junit-jupiter</artifactId>
++      <scope>test</scope>
++    </dependency>
++    <dependency>
++      <groupId>org.assertj</groupId>
++      <artifactId>assertj-core</artifactId>
++      <scope>test</scope>
++    </dependency>
++  </dependencies>
++</project>
+diff --git upstream/parquet-common/src/main/java/org/apache/parquet/hadoop/metadata/CompressionCodecName.java fork/parquet-common/src/main/java/org/apache/parquet/hadoop/metadata/CompressionCodecName.java
+index 18818c3c212ab99a169b83890f54ea99f2b97423..61c1c1d79c1c1e1036a17ffb818eaaa44c5b97b1 100644
+--- upstream/parquet-common/src/main/java/org/apache/parquet/hadoop/metadata/CompressionCodecName.java
++++ fork/parquet-common/src/main/java/org/apache/parquet/hadoop/metadata/CompressionCodecName.java
+@@ -30,7 +30,10 @@ public enum CompressionCodecName {
+   BROTLI("org.apache.hadoop.io.compress.BrotliCodec", CompressionCodec.BROTLI, ".br"),
+   LZ4("org.apache.hadoop.io.compress.Lz4Codec", CompressionCodec.LZ4, ".lz4hadoop"),
+   ZSTD("org.apache.parquet.hadoop.codec.ZstandardCodec", CompressionCodec.ZSTD, ".zstd"),
+-  LZ4_RAW("org.apache.parquet.hadoop.codec.Lz4RawCodec", CompressionCodec.LZ4_RAW, ".lz4raw");
++  LZ4_RAW("org.apache.parquet.hadoop.codec.Lz4RawCodec", CompressionCodec.LZ4_RAW, ".lz4raw"),
++  // tparquet fork: spec/FORMAT.md. The Hadoop codec class only refuses stream use: CodecFactory
++  // creates PCODEC's compressors and decompressors, which need the page's type and size.
++  PCODEC("org.apache.parquet.hadoop.codec.PcodecCodec", CompressionCodec.PCODEC, ".pcodec");
+ 
+   public static CompressionCodecName fromConf(String name) {
+     if (name == null) {
+diff --git fork/parquet-common/src/test/java/org/apache/parquet/hadoop/metadata/TestPcodecCompressionCodecName.java fork/parquet-common/src/test/java/org/apache/parquet/hadoop/metadata/TestPcodecCompressionCodecName.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..7fea4c0e4670d45c075a03e06a269a346209ed7f
+--- /dev/null
++++ fork/parquet-common/src/test/java/org/apache/parquet/hadoop/metadata/TestPcodecCompressionCodecName.java
+@@ -0,0 +1,33 @@
++package org.apache.parquet.hadoop.metadata;
++
++import static org.assertj.core.api.Assertions.assertThat;
++
++import org.apache.parquet.format.CompressionCodec;
++import org.junit.jupiter.api.Test;
++
++/** The tparquet fork: CompressionCodecName.PCODEC. */
++class TestPcodecCompressionCodecName {
++  @Test
++  void pcodec() {
++    CompressionCodecName c = CompressionCodecName.PCODEC;
++    assertThat(c.getParquetCompressionCodec()).isSameAs(CompressionCodec.PCODEC);
++    assertThat(c.getExtension()).isEqualTo(".pcodec");
++    assertThat(c.getHadoopCompressionCodecClassName()).isEqualTo("org.apache.parquet.hadoop.codec.PcodecCodec");
++  }
++
++  @Test
++  void fromTheConfigurationAndTheFooter() {
++    assertThat(CompressionCodecName.fromConf("PCODEC")).isSameAs(CompressionCodecName.PCODEC);
++    assertThat(CompressionCodecName.fromConf("pcodec")).isSameAs(CompressionCodecName.PCODEC);
++    assertThat(CompressionCodecName.fromParquet(CompressionCodec.PCODEC)).isSameAs(CompressionCodecName.PCODEC);
++    assertThat(CompressionCodecName.valueOf(CompressionCodec.PCODEC.name())).isSameAs(CompressionCodecName.PCODEC);
++  }
++
++  @Test
++  void everyCodecMapsToTheFooterAndBack() {
++    for (CompressionCodecName c : CompressionCodecName.values()) {
++      assertThat(CompressionCodecName.fromParquet(c.getParquetCompressionCodec())).isSameAs(c);
++    }
++    assertThat(CompressionCodecName.values()).hasSize(CompressionCodec.values().length);
++  }
++}
+diff --git fork/parquet-format-structures/pom.xml fork/parquet-format-structures/pom.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..a2e0fd109244b3ffee36b75a9728c85a526e3a73
+--- /dev/null
++++ fork/parquet-format-structures/pom.xml
+@@ -0,0 +1,89 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!-- Fork of org.apache.parquet:parquet-format-structures 1.17.0 (../FORK.md). Built as upstream
++     builds it, from the thrift-generated sources it publishes: the jar includes libthrift
++     relocated to shaded.parquet.org.apache.thrift, and the installed (dependency-reduced) pom
++     lists libthrift as provided, as upstream's published pom does. -->
++<project xmlns="http://maven.apache.org/POM/4.0.0"
++         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
++         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
++  <modelVersion>4.0.0</modelVersion>
++  <parent>
++    <groupId>io.aperiodic.tparquet</groupId>
++    <artifactId>tparquet-java-parent</artifactId>
++    <version>0.1.0-SNAPSHOT</version>
++    <relativePath>../../pom.xml</relativePath>
++  </parent>
++
++  <groupId>org.apache.parquet</groupId>
++  <artifactId>parquet-format-structures</artifactId>
++  <version>${parquet.fork.version}</version>
++  <name>Apache Parquet Format Structures (tparquet fork)</name>
++  <description>parquet-format-structures 1.17.0 with the PCODEC codec (java/parquet-java/FORK.md)</description>
++
++  <dependencies>
++    <dependency>
++      <groupId>org.apache.thrift</groupId>
++      <artifactId>libthrift</artifactId>
++      <version>${thrift.version}</version>
++    </dependency>
++    <dependency>
++      <groupId>javax.annotation</groupId>
++      <artifactId>javax.annotation-api</artifactId>
++      <version>1.3.2</version>
++    </dependency>
++    <dependency>
++      <groupId>org.junit.jupiter</groupId>
++      <artifactId>junit-jupiter</artifactId>
++      <scope>test</scope>
++    </dependency>
++    <dependency>
++      <groupId>org.assertj</groupId>
++      <artifactId>assertj-core</artifactId>
++      <scope>test</scope>
++    </dependency>
++  </dependencies>
++
++  <build>
++    <plugins>
++      <plugin>
++        <groupId>org.apache.maven.plugins</groupId>
++        <artifactId>maven-shade-plugin</artifactId>
++        <executions>
++          <execution>
++            <phase>package</phase>
++            <goals>
++              <goal>shade</goal>
++            </goals>
++            <configuration>
++              <!-- as upstream (its parent pom sets minimizeJar for every module) -->
++              <minimizeJar>true</minimizeJar>
++              <dependencyReducedPomLocation>${project.build.directory}/dependency-reduced-pom.xml</dependencyReducedPomLocation>
++              <keepDependenciesWithProvidedScope>true</keepDependenciesWithProvidedScope>
++              <artifactSet>
++                <includes>
++                  <include>org.apache.thrift:libthrift</include>
++                </includes>
++              </artifactSet>
++              <filters>
++                <filter>
++                  <artifact>org.apache.thrift:libthrift</artifact>
++                  <excludes>
++                    <exclude>**/*.java</exclude>
++                    <exclude>META-INF/LICENSE.txt</exclude>
++                    <exclude>META-INF/NOTICE.txt</exclude>
++                  </excludes>
++                </filter>
++              </filters>
++              <relocations>
++                <relocation>
++                  <pattern>org.apache.thrift</pattern>
++                  <shadedPattern>shaded.parquet.org.apache.thrift</shadedPattern>
++                </relocation>
++              </relocations>
++            </configuration>
++          </execution>
++        </executions>
++      </plugin>
++    </plugins>
++  </build>
++</project>
+diff --git upstream/parquet-format-structures/src/main/java/org/apache/parquet/format/CompressionCodec.java fork/parquet-format-structures/src/main/java/org/apache/parquet/format/CompressionCodec.java
+index 95787e8bb911a03d59d70335ef9b566061c4b4b2..a1e860ecb085ad8b776a4bc601e59168a5baa33c 100644
+--- upstream/parquet-format-structures/src/main/java/org/apache/parquet/format/CompressionCodec.java
++++ fork/parquet-format-structures/src/main/java/org/apache/parquet/format/CompressionCodec.java
+@@ -25,7 +25,9 @@ public enum CompressionCodec implements org.apache.thrift.TEnum {
+   BROTLI(4),
+   LZ4(5),
+   ZSTD(6),
+-  LZ4_RAW(7);
++  LZ4_RAW(7),
++  /** tparquet fork: the PCODEC codec of spec/FORMAT.md (not a standard Parquet codec). */
++  PCODEC(20547);
+ 
+   private final int value;
+ 
+@@ -64,6 +66,8 @@ public enum CompressionCodec implements org.apache.thrift.TEnum {
+         return ZSTD;
+       case 7:
+         return LZ4_RAW;
++      case 20547:
++        return PCODEC;
+       default:
+         return null;
+     }
+diff --git upstream/parquet-format-structures/src/main/resources/parquet.thrift fork/parquet-format-structures/src/main/resources/parquet.thrift
+index e99c4619570506529a303f52bbe273ea84ad4b5e..f38df7b0322cc3940a9196d4e24b139f8adba0b6 100644
+--- upstream/parquet-format-structures/src/main/resources/parquet.thrift
++++ fork/parquet-format-structures/src/main/resources/parquet.thrift
+@@ -648,6 +648,11 @@ enum CompressionCodec {
+   LZ4 = 5;     // DEPRECATED (Added in 2.4)
+   ZSTD = 6;    // Added in 2.4
+   LZ4_RAW = 7; // Added in 2.9
++  /**
++   * tparquet fork: the PCODEC codec of spec/FORMAT.md, outside the range of the standard
++   * codecs. Readers without it refuse PCODEC column chunks.
++   */
++  PCODEC = 20547;
+ }
+ 
+ enum PageType {
+diff --git fork/parquet-format-structures/src/test/java/org/apache/parquet/format/TestPcodecCompressionCodec.java fork/parquet-format-structures/src/test/java/org/apache/parquet/format/TestPcodecCompressionCodec.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..24faf48eb34fdcaa99d77902e6d6ba52df82ad61
+--- /dev/null
++++ fork/parquet-format-structures/src/test/java/org/apache/parquet/format/TestPcodecCompressionCodec.java
+@@ -0,0 +1,62 @@
++package org.apache.parquet.format;
++
++import static org.assertj.core.api.Assertions.assertThat;
++
++import java.io.ByteArrayInputStream;
++import java.io.ByteArrayOutputStream;
++import java.io.InputStream;
++import java.nio.charset.StandardCharsets;
++import java.util.List;
++import org.apache.thrift.protocol.TCompactProtocol;
++import org.apache.thrift.transport.TIOStreamTransport;
++import org.junit.jupiter.api.Test;
++
++/** The tparquet fork: PCODEC in the thrift enum (spec/FORMAT.md section 2). */
++class TestPcodecCompressionCodec {
++  @Test
++  void theCodecIdOfSpecSection2() {
++    assertThat(CompressionCodec.PCODEC.getValue()).isEqualTo(20547);
++    assertThat(CompressionCodec.findByValue(20547)).isSameAs(CompressionCodec.PCODEC);
++  }
++
++  @Test
++  void theStandardCodecsKeepTheirValues() {
++    CompressionCodec[] standard = {
++      CompressionCodec.UNCOMPRESSED, CompressionCodec.SNAPPY, CompressionCodec.GZIP, CompressionCodec.LZO,
++      CompressionCodec.BROTLI, CompressionCodec.LZ4, CompressionCodec.ZSTD, CompressionCodec.LZ4_RAW
++    };
++    for (int i = 0; i < standard.length; i++) {
++      assertThat(standard[i].getValue()).isEqualTo(i);
++      assertThat(CompressionCodec.findByValue(i)).isSameAs(standard[i]);
++    }
++    assertThat(CompressionCodec.values()).hasSize(standard.length + 1);
++  }
++
++  @Test
++  void otherValuesAreStillUnknown() {
++    for (int v : new int[] {-1, 8, 20546, 20548, Integer.MAX_VALUE}) {
++      assertThat(CompressionCodec.findByValue(v)).isNull();
++    }
++  }
++
++  @Test
++  void aPcodecColumnChunkRoundTripsThroughThrift() throws Exception {
++    ColumnMetaData md = new ColumnMetaData(
++        Type.INT64, List.of(Encoding.PLAIN), List.of("ts"), CompressionCodec.PCODEC, 10, 100, 50, 4);
++    ByteArrayOutputStream out = new ByteArrayOutputStream();
++    md.write(new TCompactProtocol(new TIOStreamTransport(out)));
++    ColumnMetaData back = new ColumnMetaData();
++    back.read(new TCompactProtocol(new TIOStreamTransport(new ByteArrayInputStream(out.toByteArray()))));
++    back.validate();
++    assertThat(back.getCodec()).isSameAs(CompressionCodec.PCODEC);
++    assertThat(back).isEqualTo(md);
++  }
++
++  @Test
++  void theThriftDefinitionDeclaresIt() throws Exception {
++    try (InputStream in = getClass().getResourceAsStream("/parquet.thrift")) {
++      String thrift = new String(in.readAllBytes(), StandardCharsets.UTF_8);
++      assertThat(thrift).contains("  PCODEC = 20547;");
++    }
++  }
++}
+diff --git fork/parquet-hadoop/pom.xml fork/parquet-hadoop/pom.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..177a0f4acfaa4fc216e79eec8b07c49215a019ec
+--- /dev/null
++++ fork/parquet-hadoop/pom.xml
+@@ -0,0 +1,229 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!-- Fork of org.apache.parquet:parquet-hadoop 1.17.0 (../FORK.md): upstream's dependencies, plus
++     tparquet-jni for the codec. parquet-column stays upstream; its parquet-common is excluded so
++     that the fork's comes with this module. -->
++<project xmlns="http://maven.apache.org/POM/4.0.0"
++         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
++         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
++  <modelVersion>4.0.0</modelVersion>
++  <parent>
++    <groupId>io.aperiodic.tparquet</groupId>
++    <artifactId>tparquet-java-parent</artifactId>
++    <version>0.1.0-SNAPSHOT</version>
++    <relativePath>../../pom.xml</relativePath>
++  </parent>
++
++  <groupId>org.apache.parquet</groupId>
++  <artifactId>parquet-hadoop</artifactId>
++  <version>${parquet.fork.version}</version>
++  <name>Apache Parquet Hadoop (tparquet fork)</name>
++  <description>parquet-hadoop 1.17.0 with the PCODEC codec (java/parquet-java/FORK.md)</description>
++
++  <dependencies>
++    <dependency>
++      <groupId>io.aperiodic.tparquet</groupId>
++      <artifactId>tparquet-jni</artifactId>
++    </dependency>
++    <dependency>
++      <groupId>org.apache.parquet</groupId>
++      <artifactId>parquet-column</artifactId>
++      <exclusions>
++        <exclusion>
++          <groupId>org.apache.parquet</groupId>
++          <artifactId>parquet-common</artifactId>
++        </exclusion>
++      </exclusions>
++    </dependency>
++    <dependency>
++      <groupId>org.apache.parquet</groupId>
++      <artifactId>parquet-format-structures</artifactId>
++    </dependency>
++    <dependency>
++      <groupId>org.apache.parquet</groupId>
++      <artifactId>parquet-common</artifactId>
++    </dependency>
++    <dependency>
++      <groupId>org.apache.hadoop</groupId>
++      <artifactId>hadoop-client</artifactId>
++      <version>${hadoop.version}</version>
++      <scope>provided</scope>
++      <exclusions>
++        <exclusion>
++          <groupId>*</groupId>
++          <artifactId>*</artifactId>
++        </exclusion>
++      </exclusions>
++    </dependency>
++    <dependency>
++      <groupId>org.apache.hadoop</groupId>
++      <artifactId>hadoop-common</artifactId>
++      <version>${hadoop.version}</version>
++      <scope>provided</scope>
++      <exclusions>
++        <exclusion>
++          <groupId>org.slf4j</groupId>
++          <artifactId>slf4j-log4j12</artifactId>
++        </exclusion>
++        <exclusion>
++          <groupId>org.slf4j</groupId>
++          <artifactId>slf4j-reload4j</artifactId>
++        </exclusion>
++        <exclusion>
++          <groupId>ch.qos.logback</groupId>
++          <artifactId>logback-core</artifactId>
++        </exclusion>
++        <exclusion>
++          <groupId>ch.qos.logback</groupId>
++          <artifactId>logback-classic</artifactId>
++        </exclusion>
++      </exclusions>
++    </dependency>
++    <dependency>
++      <groupId>org.apache.hadoop</groupId>
++      <artifactId>hadoop-mapreduce-client-core</artifactId>
++      <version>${hadoop.version}</version>
++      <scope>provided</scope>
++      <exclusions>
++        <exclusion>
++          <groupId>*</groupId>
++          <artifactId>*</artifactId>
++        </exclusion>
++      </exclusions>
++    </dependency>
++    <dependency>
++      <groupId>org.apache.hadoop</groupId>
++      <artifactId>hadoop-annotations</artifactId>
++      <version>${hadoop.version}</version>
++      <scope>provided</scope>
++      <exclusions>
++        <exclusion>
++          <groupId>jdk.tools</groupId>
++          <artifactId>jdk.tools</artifactId>
++        </exclusion>
++      </exclusions>
++    </dependency>
++    <dependency>
++      <groupId>org.apache.parquet</groupId>
++      <artifactId>parquet-jackson</artifactId>
++      <scope>runtime</scope>
++    </dependency>
++    <dependency>
++      <groupId>org.xerial.snappy</groupId>
++      <artifactId>snappy-java</artifactId>
++      <version>1.1.10.7</version>
++    </dependency>
++    <dependency>
++      <groupId>io.airlift</groupId>
++      <artifactId>aircompressor</artifactId>
++      <version>2.0.2</version>
++    </dependency>
++    <dependency>
++      <groupId>commons-pool</groupId>
++      <artifactId>commons-pool</artifactId>
++      <version>1.6</version>
++    </dependency>
++    <dependency>
++      <groupId>com.github.luben</groupId>
++      <artifactId>zstd-jni</artifactId>
++      <version>1.5.7-3</version>
++    </dependency>
++    <dependency>
++      <groupId>org.slf4j</groupId>
++      <artifactId>slf4j-api</artifactId>
++    </dependency>
++
++    <!-- compile only: references are relocated to shaded.parquet.* below (parquet-jackson holds
++         the classes), as upstream does -->
++    <dependency>
++      <groupId>com.fasterxml.jackson.core</groupId>
++      <artifactId>jackson-databind</artifactId>
++      <version>${parquet.jackson.version}</version>
++      <scope>provided</scope>
++    </dependency>
++    <!-- as upstream: the classes parquet-hadoop uses are included (minimized, relocated) -->
++    <dependency>
++      <groupId>it.unimi.dsi</groupId>
++      <artifactId>fastutil</artifactId>
++      <version>${parquet.fastutil.version}</version>
++    </dependency>
++
++    <dependency>
++      <groupId>org.junit.jupiter</groupId>
++      <artifactId>junit-jupiter</artifactId>
++      <scope>test</scope>
++    </dependency>
++    <dependency>
++      <groupId>net.jqwik</groupId>
++      <artifactId>jqwik</artifactId>
++      <scope>test</scope>
++    </dependency>
++    <dependency>
++      <groupId>org.assertj</groupId>
++      <artifactId>assertj-core</artifactId>
++      <scope>test</scope>
++    </dependency>
++    <dependency>
++      <groupId>org.slf4j</groupId>
++      <artifactId>slf4j-simple</artifactId>
++      <version>${slf4j.version}</version>
++      <scope>test</scope>
++    </dependency>
++  </dependencies>
++
++  <build>
++    <plugins>
++      <!-- upstream's parent pom: relocate the jackson references (no classes included) and include
++           the fastutil classes in use, relocated -->
++      <plugin>
++        <groupId>org.apache.maven.plugins</groupId>
++        <artifactId>maven-shade-plugin</artifactId>
++        <executions>
++          <execution>
++            <phase>package</phase>
++            <goals>
++              <goal>shade</goal>
++            </goals>
++            <configuration>
++              <minimizeJar>true</minimizeJar>
++              <dependencyReducedPomLocation>${project.build.directory}/dependency-reduced-pom.xml</dependencyReducedPomLocation>
++              <artifactSet>
++                <includes>
++                  <include>com.fasterxml.jackson.core:*</include>
++                  <include>it.unimi.dsi:fastutil</include>
++                </includes>
++              </artifactSet>
++              <filters>
++                <filter>
++                  <artifact>com.fasterxml.jackson.core:*</artifact>
++                  <excludes>
++                    <exclude>**</exclude>
++                  </excludes>
++                </filter>
++                <filter>
++                  <artifact>it.unimi.dsi:fastutil</artifact>
++                  <excludes>
++                    <exclude>it/unimi/dsi/fastutil/**/package-info.class</exclude>
++                  </excludes>
++                </filter>
++              </filters>
++              <relocations>
++                <relocation>
++                  <pattern>com.fasterxml.jackson</pattern>
++                  <shadedPattern>shaded.parquet.com.fasterxml.jackson</shadedPattern>
++                </relocation>
++                <relocation>
++                  <pattern>it.unimi.dsi</pattern>
++                  <shadedPattern>shaded.parquet.it.unimi.dsi</shadedPattern>
++                </relocation>
++                <relocation>
++                  <pattern>net.openhft</pattern>
++                  <shadedPattern>shaded.parquet.net.openhft</shadedPattern>
++                </relocation>
++              </relocations>
++            </configuration>
++          </execution>
++        </executions>
++      </plugin>
++    </plugins>
++  </build>
++</project>
+diff --git upstream/parquet-hadoop/src/main/java/org/apache/parquet/hadoop/CodecFactory.java fork/parquet-hadoop/src/main/java/org/apache/parquet/hadoop/CodecFactory.java
+index eee5fa6083da9fed63a7d15f1d179e593ab78801..f37b1c6fbcd78e9e6477084e44ed59fe20af27e3 100644
+--- upstream/parquet-hadoop/src/main/java/org/apache/parquet/hadoop/CodecFactory.java
++++ fork/parquet-hadoop/src/main/java/org/apache/parquet/hadoop/CodecFactory.java
+@@ -39,6 +39,8 @@ import org.apache.parquet.bytes.BytesInput;
+ import org.apache.parquet.compression.CompressionCodecFactory;
+ import org.apache.parquet.conf.HadoopParquetConfiguration;
+ import org.apache.parquet.conf.ParquetConfiguration;
++import org.apache.parquet.hadoop.codec.PcodecCodec;
++import org.apache.parquet.hadoop.codec.PcodecDecompressor;
+ import org.apache.parquet.hadoop.codec.ZstandardCodec;
+ import org.apache.parquet.hadoop.metadata.CompressionCodecName;
+ import org.apache.parquet.hadoop.util.ConfigurationUtil;
+@@ -269,11 +271,17 @@ public class CodecFactory implements CompressionCodecFactory {
+   }
+ 
+   protected BytesCompressor createCompressor(CompressionCodecName codecName) {
++    if (codecName == CompressionCodecName.PCODEC) { // tparquet fork
++      return PcodecCodec.compressor(conf);
++    }
+     CompressionCodec codec = getCodec(codecName);
+     return codec == null ? NO_OP_COMPRESSOR : new HeapBytesCompressor(codecName, codec);
+   }
+ 
+   protected BytesDecompressor createDecompressor(CompressionCodecName codecName) {
++    if (codecName == CompressionCodecName.PCODEC) { // tparquet fork
++      return new PcodecDecompressor();
++    }
+     CompressionCodec codec = getCodec(codecName);
+     return codec == null ? NO_OP_DECOMPRESSOR : new HeapBytesDecompressor(codec);
+   }
+diff --git upstream/parquet-hadoop/src/main/java/org/apache/parquet/hadoop/ColumnChunkPageWriteStore.java fork/parquet-hadoop/src/main/java/org/apache/parquet/hadoop/ColumnChunkPageWriteStore.java
+index d9e6ea09903e90d29d0cc7b75add713b4cc4014f..62012198ed902f966690c3aa84a67e4889821f35 100644
+--- upstream/parquet-hadoop/src/main/java/org/apache/parquet/hadoop/ColumnChunkPageWriteStore.java
++++ fork/parquet-hadoop/src/main/java/org/apache/parquet/hadoop/ColumnChunkPageWriteStore.java
+@@ -52,6 +52,7 @@ import org.apache.parquet.crypto.ModuleCipherFactory.ModuleType;
+ import org.apache.parquet.format.BlockCipher;
+ import org.apache.parquet.format.converter.ParquetMetadataConverter;
+ import org.apache.parquet.hadoop.CodecFactory.BytesCompressor;
++import org.apache.parquet.hadoop.codec.PcodecCompressor;
+ import org.apache.parquet.hadoop.metadata.ColumnPath;
+ import org.apache.parquet.internal.column.columnindex.ColumnIndexBuilder;
+ import org.apache.parquet.internal.column.columnindex.OffsetIndexBuilder;
+@@ -582,7 +583,7 @@ public class ColumnChunkPageWriteStore implements PageWriteStore, BloomFilterWri
+           path,
+           new ColumnChunkPageWriter(
+               path,
+-              compressor,
++              PcodecCompressor.forColumn(compressor, path), // tparquet fork: the type hint
+               allocator,
+               columnIndexTruncateLength,
+               pageWriteChecksumEnabled,
+@@ -628,7 +629,7 @@ public class ColumnChunkPageWriteStore implements PageWriteStore, BloomFilterWri
+             path,
+             new ColumnChunkPageWriter(
+                 path,
+-                compressor,
++                PcodecCompressor.forColumn(compressor, path), // tparquet fork: the type hint
+                 allocator,
+                 columnIndexTruncateLength,
+                 pageWriteChecksumEnabled,
+@@ -660,7 +661,7 @@ public class ColumnChunkPageWriteStore implements PageWriteStore, BloomFilterWri
+           path,
+           new ColumnChunkPageWriter(
+               path,
+-              compressor,
++              PcodecCompressor.forColumn(compressor, path), // tparquet fork: the type hint
+               allocator,
+               columnIndexTruncateLength,
+               pageWriteChecksumEnabled,
+diff --git upstream/parquet-hadoop/src/main/java/org/apache/parquet/hadoop/DirectCodecFactory.java fork/parquet-hadoop/src/main/java/org/apache/parquet/hadoop/DirectCodecFactory.java
+index b2b5233eeb1192f33ebe365191365707ea9033b2..8071dd8c6c81b5c9b3d1ea679dcb1e465084f698 100644
+--- upstream/parquet-hadoop/src/main/java/org/apache/parquet/hadoop/DirectCodecFactory.java
++++ fork/parquet-hadoop/src/main/java/org/apache/parquet/hadoop/DirectCodecFactory.java
+@@ -40,6 +40,7 @@ import org.apache.parquet.bytes.ByteBufferAllocator;
+ import org.apache.parquet.bytes.ByteBufferReleaser;
+ import org.apache.parquet.bytes.BytesInput;
+ import org.apache.parquet.bytes.ReusingByteBufferAllocator;
++import org.apache.parquet.hadoop.codec.PcodecDecompressor;
+ import org.apache.parquet.hadoop.codec.ZstandardCodec;
+ import org.apache.parquet.hadoop.metadata.CompressionCodecName;
+ import org.apache.parquet.util.AutoCloseables;
+@@ -117,6 +118,8 @@ class DirectCodecFactory extends CodecFactory implements AutoCloseable {
+         return new SnappyDecompressor();
+       case ZSTD:
+         return new ZstdDecompressor();
++      case PCODEC: // tparquet fork: decodes direct buffers in place
++        return new PcodecDecompressor();
+       default:
+         CompressionCodec codec = getCodec(codecName);
+         if (codec == null) {
+diff --git upstream/parquet-hadoop/src/main/java/org/apache/parquet/hadoop/ParquetFileWriter.java fork/parquet-hadoop/src/main/java/org/apache/parquet/hadoop/ParquetFileWriter.java
+index 82f4577b83133abe03f3abf3c6ada7ca906130e1..3547094d951314679b77bab351a7430eee60e849 100644
+--- upstream/parquet-hadoop/src/main/java/org/apache/parquet/hadoop/ParquetFileWriter.java
++++ fork/parquet-hadoop/src/main/java/org/apache/parquet/hadoop/ParquetFileWriter.java
+@@ -71,6 +71,7 @@ import org.apache.parquet.format.BlockCipher;
+ import org.apache.parquet.format.Util;
+ import org.apache.parquet.format.converter.ParquetMetadataConverter;
+ import org.apache.parquet.hadoop.ParquetOutputFormat.JobSummaryLevel;
++import org.apache.parquet.hadoop.codec.PcodecCodec;
+ import org.apache.parquet.hadoop.metadata.BlockMetaData;
+ import org.apache.parquet.hadoop.metadata.ColumnChunkMetaData;
+ import org.apache.parquet.hadoop.metadata.ColumnPath;
+@@ -1879,8 +1880,9 @@ public class ParquetFileWriter implements AutoCloseable {
+         serializeOffsetIndexes(offsetIndexes, blocks, out, fileEncryptor);
+         serializeBloomFilters(bloomFilters, blocks, out, fileEncryptor);
+         LOG.debug("{}: end", out.getPos());
+-        this.footer =
+-            new ParquetMetadata(new FileMetaData(schema, extraMetaData, Version.FULL_VERSION), blocks);
++        // tparquet fork: parquet.pcodec.version = "1" when a column chunk uses PCODEC
++        this.footer = new ParquetMetadata(
++            new FileMetaData(schema, PcodecCodec.withVersion(extraMetaData, blocks), Version.FULL_VERSION), blocks);
+         serializeFooter(footer, out, fileEncryptor, metadataConverter);
+       } finally {
+         close();
+diff --git fork/parquet-hadoop/src/main/java/org/apache/parquet/hadoop/codec/PcodecCodec.java fork/parquet-hadoop/src/main/java/org/apache/parquet/hadoop/codec/PcodecCodec.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..30bd6deeb657b8b7212655a87ae50b919c8fa920
+--- /dev/null
++++ fork/parquet-hadoop/src/main/java/org/apache/parquet/hadoop/codec/PcodecCodec.java
+@@ -0,0 +1,133 @@
++/*
++ * tparquet fork (java/parquet-java/FORK.md): new file.
++ */
++package org.apache.parquet.hadoop.codec;
++
++import io.aperiodic.tparquet.Pcodec;
++import java.io.InputStream;
++import java.io.OutputStream;
++import java.util.HashMap;
++import java.util.List;
++import java.util.Map;
++import org.apache.hadoop.conf.Configurable;
++import org.apache.hadoop.conf.Configuration;
++import org.apache.hadoop.io.compress.CompressionCodec;
++import org.apache.hadoop.io.compress.CompressionInputStream;
++import org.apache.hadoop.io.compress.CompressionOutputStream;
++import org.apache.hadoop.io.compress.Compressor;
++import org.apache.hadoop.io.compress.Decompressor;
++import org.apache.parquet.conf.ParquetConfiguration;
++import org.apache.parquet.hadoop.metadata.BlockMetaData;
++import org.apache.parquet.hadoop.metadata.ColumnChunkMetaData;
++import org.apache.parquet.hadoop.metadata.CompressionCodecName;
++
++/**
++ * The Hadoop codec class of {@link CompressionCodecName#PCODEC}, the codec of spec/FORMAT.md.
++ *
++ * <p>PCODEC needs each page's physical type (to compress) and expected size (to decompress), which
++ * the Hadoop stream API does not carry, so this class refuses streams: {@code CodecFactory} creates
++ * a {@link PcodecCompressor} and a {@link PcodecDecompressor} for PCODEC instead. A code path that
++ * reached the stream API would fail here rather than write or read wrong bytes.
++ */
++public class PcodecCodec implements Configurable, CompressionCodec {
++  /** pcodec compression level, 0..12. */
++  public static final String LEVEL = "parquet.compression.codec.pcodec.level";
++  /** Whether to try DECIMAL mode for FLOAT and DOUBLE columns. */
++  public static final String DECIMAL = "parquet.compression.codec.pcodec.decimal";
++
++  public static final int DEFAULT_LEVEL = Pcodec.DEFAULT_LEVEL;
++  public static final boolean DEFAULT_DECIMAL = true;
++
++  private static final String STREAMS =
++      "PCODEC needs each page's type and expected size: use CodecFactory, not the Hadoop stream API";
++
++  private Configuration conf;
++
++  @Override
++  public void setConf(Configuration conf) {
++    this.conf = conf;
++  }
++
++  @Override
++  public Configuration getConf() {
++    return conf;
++  }
++
++  @Override
++  public CompressionOutputStream createOutputStream(OutputStream out) {
++    throw new UnsupportedOperationException(STREAMS);
++  }
++
++  @Override
++  public CompressionOutputStream createOutputStream(OutputStream out, Compressor compressor) {
++    throw new UnsupportedOperationException(STREAMS);
++  }
++
++  @Override
++  public Class<? extends Compressor> getCompressorType() {
++    throw new UnsupportedOperationException(STREAMS);
++  }
++
++  @Override
++  public Compressor createCompressor() {
++    throw new UnsupportedOperationException(STREAMS);
++  }
++
++  @Override
++  public CompressionInputStream createInputStream(InputStream in) {
++    throw new UnsupportedOperationException(STREAMS);
++  }
++
++  @Override
++  public CompressionInputStream createInputStream(InputStream in, Decompressor decompressor) {
++    throw new UnsupportedOperationException(STREAMS);
++  }
++
++  @Override
++  public Class<? extends Decompressor> getDecompressorType() {
++    throw new UnsupportedOperationException(STREAMS);
++  }
++
++  @Override
++  public Decompressor createDecompressor() {
++    throw new UnsupportedOperationException(STREAMS);
++  }
++
++  @Override
++  public String getDefaultExtension() {
++    return CompressionCodecName.PCODEC.getExtension();
++  }
++
++  /** The compressor of a codec factory: level and decimal flag from {@link #LEVEL} and {@link #DECIMAL}. */
++  public static PcodecCompressor compressor(ParquetConfiguration conf) {
++    int level = conf.getInt(LEVEL, DEFAULT_LEVEL);
++    if (level < 0 || level > Pcodec.MAX_LEVEL) {
++      throw new IllegalArgumentException(LEVEL + "=" + level + ": the level is 0.." + Pcodec.MAX_LEVEL);
++    }
++    return new PcodecCompressor(level, conf.getBoolean(DECIMAL, DEFAULT_DECIMAL), null);
++  }
++
++  /**
++   * The footer's key-value metadata with {@code parquet.pcodec.version = "1"} added when a column
++   * chunk uses PCODEC and the key is not there (spec section 2); otherwise {@code kv} itself.
++   */
++  public static Map<String, String> withVersion(Map<String, String> kv, List<BlockMetaData> blocks) {
++    if (kv.containsKey(Pcodec.KV_KEY) || !usesPcodec(blocks)) {
++      return kv;
++    }
++    Map<String, String> out = new HashMap<>(kv);
++    out.put(Pcodec.KV_KEY, Pcodec.KV_VALUE);
++    return out;
++  }
++
++  private static boolean usesPcodec(List<BlockMetaData> blocks) {
++    for (BlockMetaData b : blocks) {
++      for (ColumnChunkMetaData c : b.getColumns()) {
++        if (c.getCodec() == CompressionCodecName.PCODEC) {
++          return true;
++        }
++      }
++    }
++    return false;
++  }
++}
+diff --git fork/parquet-hadoop/src/main/java/org/apache/parquet/hadoop/codec/PcodecCompressor.java fork/parquet-hadoop/src/main/java/org/apache/parquet/hadoop/codec/PcodecCompressor.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..4f3c7f34bb0262735e76f1099f2eff7da0b965fb
+--- /dev/null
++++ fork/parquet-hadoop/src/main/java/org/apache/parquet/hadoop/codec/PcodecCompressor.java
+@@ -0,0 +1,67 @@
++/*
++ * tparquet fork (java/parquet-java/FORK.md): new file.
++ */
++package org.apache.parquet.hadoop.codec;
++
++import io.aperiodic.tparquet.Pcodec;
++import io.aperiodic.tparquet.PhysicalType;
++import java.io.IOException;
++import org.apache.parquet.bytes.BytesInput;
++import org.apache.parquet.column.ColumnDescriptor;
++import org.apache.parquet.compression.CompressionCodecFactory.BytesInputCompressor;
++import org.apache.parquet.hadoop.CodecFactory;
++import org.apache.parquet.hadoop.metadata.CompressionCodecName;
++
++/**
++ * Compresses pages with PCODEC (spec/FORMAT.md section 4). The factory's instance has no type
++ * hint; {@link #forColumn} gives each column chunk's page writer one with the column's physical
++ * type, which only changes the compression ratio (section 1).
++ */
++public final class PcodecCompressor extends CodecFactory.BytesCompressor {
++  private final int level;
++  private final boolean decimal;
++  private final PhysicalType hint;
++
++  PcodecCompressor(int level, boolean decimal, PhysicalType hint) {
++    this.level = level;
++    this.decimal = decimal;
++    this.hint = hint;
++  }
++
++  /** {@code compressor} for the pages of {@code column}: typed if it is a PCODEC compressor. */
++  public static BytesInputCompressor forColumn(BytesInputCompressor compressor, ColumnDescriptor column) {
++    if (!(compressor instanceof PcodecCompressor)) {
++      return compressor;
++    }
++    PcodecCompressor c = (PcodecCompressor) compressor;
++    String type = column.getPrimitiveType().getPrimitiveTypeName().name();
++    return new PcodecCompressor(c.level, c.decimal, PhysicalType.fromName(type));
++  }
++
++  @Override
++  public BytesInput compress(BytesInput bytes) throws IOException {
++    byte[] src = bytes.toByteArray();
++    return BytesInput.from(Pcodec.compress(src, 0, src.length, hint, level, decimal));
++  }
++
++  @Override
++  public CompressionCodecName getCodecName() {
++    return CompressionCodecName.PCODEC;
++  }
++
++  @Override
++  public void release() {}
++
++  public int level() {
++    return level;
++  }
++
++  public boolean decimal() {
++    return decimal;
++  }
++
++  /** The type hint, or {@code null} for none. */
++  public PhysicalType hint() {
++    return hint;
++  }
++}
+diff --git fork/parquet-hadoop/src/main/java/org/apache/parquet/hadoop/codec/PcodecDecompressor.java fork/parquet-hadoop/src/main/java/org/apache/parquet/hadoop/codec/PcodecDecompressor.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..579619659f3bf1437113a11eaa7d218ffd13ac4c
+--- /dev/null
++++ fork/parquet-hadoop/src/main/java/org/apache/parquet/hadoop/codec/PcodecDecompressor.java
+@@ -0,0 +1,45 @@
++/*
++ * tparquet fork (java/parquet-java/FORK.md): new file.
++ */
++package org.apache.parquet.hadoop.codec;
++
++import io.aperiodic.tparquet.Pcodec;
++import java.io.IOException;
++import java.nio.ByteBuffer;
++import org.apache.parquet.bytes.BytesInput;
++import org.apache.parquet.hadoop.CodecFactory;
++
++/**
++ * Decompresses PCODEC pages (spec/FORMAT.md section 4) to exactly the size Parquet expects; a
++ * malformed payload is a {@code PcodecException} (an {@code IOException}). As the reference reader
++ * does, an empty values section (expected size 0) is not decoded.
++ */
++public final class PcodecDecompressor extends CodecFactory.BytesDecompressor {
++  @Override
++  public BytesInput decompress(BytesInput bytes, int decompressedSize) throws IOException {
++    if (decompressedSize == 0) {
++      return BytesInput.empty();
++    }
++    return BytesInput.from(Pcodec.decompress(bytes.toByteArray(), decompressedSize));
++  }
++
++  /** Decodes {@code compressedSize} bytes at {@code input}'s position into {@code output}; both positions advance. */
++  @Override
++  public void decompress(ByteBuffer input, int compressedSize, ByteBuffer output, int decompressedSize)
++      throws IOException {
++    if (input.remaining() < compressedSize) {
++      throw new IllegalArgumentException("input has " + input.remaining() + " bytes, the page " + compressedSize);
++    }
++    if (decompressedSize == 0) {
++      input.position(input.position() + compressedSize);
++      return;
++    }
++    ByteBuffer page = input.duplicate();
++    page.limit(page.position() + compressedSize);
++    Pcodec.decompress(page, output, decompressedSize);
++    input.position(input.position() + compressedSize);
++  }
++
++  @Override
++  public void release() {}
++}
+diff --git fork/parquet-hadoop/src/test/java/org/apache/parquet/hadoop/PcodecPages.java fork/parquet-hadoop/src/test/java/org/apache/parquet/hadoop/PcodecPages.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..63ae4f60c8f3fd21c284a0bc1ba62c1aa30dbbea
+--- /dev/null
++++ fork/parquet-hadoop/src/test/java/org/apache/parquet/hadoop/PcodecPages.java
+@@ -0,0 +1,78 @@
++package org.apache.parquet.hadoop;
++
++import io.aperiodic.tparquet.Pcodec;
++import java.io.ByteArrayInputStream;
++import java.io.IOException;
++import java.nio.file.Files;
++import java.util.ArrayList;
++import java.util.LinkedHashMap;
++import java.util.List;
++import java.util.Map;
++import org.apache.hadoop.conf.Configuration;
++import org.apache.hadoop.fs.Path;
++import org.apache.parquet.format.PageHeader;
++import org.apache.parquet.format.PageType;
++import org.apache.parquet.format.Util;
++import org.apache.parquet.hadoop.metadata.BlockMetaData;
++import org.apache.parquet.hadoop.metadata.ColumnChunkMetaData;
++import org.apache.parquet.hadoop.metadata.CompressionCodecName;
++import org.apache.parquet.hadoop.metadata.ParquetMetadata;
++
++/** The pages of a file as stored: for each column, "PAGE_TYPE:MODE" per page (MODE "-" for an uncompressed V2 page). */
++final class PcodecPages {
++  /** Where one page's compressed bytes are in the file. */
++  record Page(String column, PageType type, long payloadOffset, int payloadLength, String mode) {}
++
++  private PcodecPages() {}
++
++  static List<Page> pages(java.nio.file.Path file) throws IOException {
++    byte[] bytes = Files.readAllBytes(file);
++    ParquetMetadata footer;
++    try (ParquetFileReader r = ParquetFileReader.open(new Configuration(), new Path(file.toUri()))) {
++      footer = r.getFooter();
++    }
++    List<Page> out = new ArrayList<>();
++    for (BlockMetaData block : footer.getBlocks()) {
++      for (ColumnChunkMetaData chunk : block.getColumns()) {
++        long pos = chunk.getStartingPos();
++        long end = pos + chunk.getTotalSize();
++        while (pos < end) {
++          ByteArrayInputStream in = new ByteArrayInputStream(bytes, (int) pos, (int) (end - pos));
++          int before = in.available();
++          PageHeader h = Util.readPageHeader(in);
++          long body = pos + (before - in.available());
++          int levels = 0;
++          boolean compressed = true;
++          if (h.getType() == PageType.DATA_PAGE_V2) {
++            levels = h.getData_page_header_v2().getRepetition_levels_byte_length()
++                + h.getData_page_header_v2().getDefinition_levels_byte_length();
++            compressed = h.getData_page_header_v2().isIs_compressed();
++          }
++          long payload = body + levels;
++          int length = h.getCompressed_page_size() - levels;
++          String mode = "-";
++          if (compressed && chunk.getCodec() == CompressionCodecName.PCODEC) {
++            byte[] p = java.util.Arrays.copyOfRange(bytes, (int) payload, (int) payload + length);
++            mode = Pcodec.mode(p).name();
++          }
++          out.add(new Page(chunk.getPath().toDotString(), h.getType(), payload, length, mode));
++          pos = body + h.getCompressed_page_size();
++        }
++      }
++    }
++    return out;
++  }
++
++  /** column -> the distinct "PAGE_TYPE:MODE" of its pages. */
++  static Map<String, List<String>> modes(java.nio.file.Path file) throws IOException {
++    Map<String, List<String>> m = new LinkedHashMap<>();
++    for (Page p : pages(file)) {
++      List<String> l = m.computeIfAbsent(p.column(), k -> new ArrayList<>());
++      String s = p.type() + ":" + p.mode();
++      if (!l.contains(s)) {
++        l.add(s);
++      }
++    }
++    return m;
++  }
++}
+diff --git fork/parquet-hadoop/src/test/java/org/apache/parquet/hadoop/TestPcodecCodecFactory.java fork/parquet-hadoop/src/test/java/org/apache/parquet/hadoop/TestPcodecCodecFactory.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..229c5ab64ad4228575029c11db2eea83d0da6915
+--- /dev/null
++++ fork/parquet-hadoop/src/test/java/org/apache/parquet/hadoop/TestPcodecCodecFactory.java
+@@ -0,0 +1,209 @@
++package org.apache.parquet.hadoop;
++
++import static org.assertj.core.api.Assertions.assertThat;
++import static org.assertj.core.api.Assertions.assertThatThrownBy;
++
++import io.aperiodic.tparquet.Mode;
++import io.aperiodic.tparquet.Pcodec;
++import io.aperiodic.tparquet.PcodecException;
++import java.io.IOException;
++import java.nio.ByteBuffer;
++import java.nio.ByteOrder;
++import org.apache.hadoop.conf.Configuration;
++import org.apache.parquet.bytes.BytesInput;
++import org.apache.parquet.bytes.DirectByteBufferAllocator;
++import org.apache.parquet.column.ColumnDescriptor;
++import org.apache.parquet.compression.CompressionCodecFactory.BytesInputCompressor;
++import org.apache.parquet.compression.CompressionCodecFactory.BytesInputDecompressor;
++import org.apache.parquet.hadoop.codec.PcodecCodec;
++import org.apache.parquet.hadoop.codec.PcodecCompressor;
++import org.apache.parquet.hadoop.codec.PcodecDecompressor;
++import org.apache.parquet.hadoop.metadata.CompressionCodecName;
++import org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName;
++import org.apache.parquet.schema.Types;
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.params.ParameterizedTest;
++import org.junit.jupiter.params.provider.EnumSource;
++import org.junit.jupiter.params.provider.ValueSource;
++
++/** CodecFactory and DirectCodecFactory create PCODEC compressors and decompressors (FORK.md). */
++class TestPcodecCodecFactory {
++  static byte[] doubles(int n) {
++    ByteBuffer b = ByteBuffer.allocate(8 * n).order(ByteOrder.LITTLE_ENDIAN);
++    for (int i = 0; i < n; i++) {
++      b.putDouble((100_000 + i % 977) / 100.0);
++    }
++    return b.array();
++  }
++
++  static byte[] floats(int n) {
++    ByteBuffer b = ByteBuffer.allocate(4 * n).order(ByteOrder.LITTLE_ENDIAN);
++    for (int i = 0; i < n; i++) {
++      b.putFloat((10_000 + i % 500) / 100f);
++    }
++    return b.array();
++  }
++
++  static CodecFactory heap(Configuration conf) {
++    return new CodecFactory(conf, 1 << 20);
++  }
++
++  static CodecFactory direct(Configuration conf) {
++    return CodecFactory.createDirectCodecFactory(conf, new DirectByteBufferAllocator(), 1 << 20);
++  }
++
++  static ColumnDescriptor column(PrimitiveTypeName t) {
++    return new ColumnDescriptor(new String[] {"c"}, Types.required(t).length(t == PrimitiveTypeName.FIXED_LEN_BYTE_ARRAY ? 4 : 0).named("c"), 0, 0);
++  }
++
++  @ParameterizedTest
++  @ValueSource(booleans = {false, true})
++  void bothFactoriesCreatePcodecCodecs(boolean isDirect) throws IOException {
++    CodecFactory f = isDirect ? direct(new Configuration()) : heap(new Configuration());
++    BytesInputCompressor c = f.getCompressor(CompressionCodecName.PCODEC);
++    BytesInputDecompressor d = f.getDecompressor(CompressionCodecName.PCODEC);
++    assertThat(c).isInstanceOf(PcodecCompressor.class);
++    assertThat(d).isInstanceOf(PcodecDecompressor.class);
++    assertThat(c.getCodecName()).isSameAs(CompressionCodecName.PCODEC);
++    byte[] src = doubles(1000);
++    BytesInput p = c.compress(BytesInput.from(src));
++    assertThat(d.decompress(p, src.length).toByteArray()).isEqualTo(src);
++    // cached, and released without error
++    assertThat(f.getCompressor(CompressionCodecName.PCODEC)).isSameAs(c);
++    assertThat(f.getDecompressor(CompressionCodecName.PCODEC)).isSameAs(d);
++    f.release();
++  }
++
++  @Test
++  void theOtherCodecsAreUnchanged() {
++    CodecFactory f = heap(new Configuration());
++    assertThat(f.getCompressor(CompressionCodecName.ZSTD)).isNotInstanceOf(PcodecCompressor.class);
++    assertThat(f.getDecompressor(CompressionCodecName.SNAPPY)).isNotInstanceOf(PcodecDecompressor.class);
++    assertThat(f.getCompressor(CompressionCodecName.UNCOMPRESSED)).isSameAs(CodecFactory.NO_OP_COMPRESSOR);
++    CodecFactory d = direct(new Configuration());
++    assertThat(d.getDecompressor(CompressionCodecName.ZSTD)).isNotInstanceOf(PcodecDecompressor.class);
++  }
++
++  /** Without a column the compressor has no hint: numbers go to the ZSTD fallback. */
++  @Test
++  void theFactoryCompressorHasNoHint() throws IOException {
++    PcodecCompressor c = (PcodecCompressor) heap(new Configuration()).getCompressor(CompressionCodecName.PCODEC);
++    assertThat(c.hint()).isNull();
++    assertThat(Pcodec.mode(c.compress(BytesInput.from(doubles(1000))).toByteArray())).isEqualTo(Mode.ZSTD);
++  }
++
++  @ParameterizedTest
++  @EnumSource(PrimitiveTypeName.class)
++  void eachColumnGetsItsTypeAsTheHint(PrimitiveTypeName t) {
++    PcodecCompressor c = (PcodecCompressor) heap(new Configuration()).getCompressor(CompressionCodecName.PCODEC);
++    BytesInputCompressor typed = PcodecCompressor.forColumn(c, column(t));
++    assertThat(typed).isInstanceOf(PcodecCompressor.class);
++    String hint = ((PcodecCompressor) typed).hint() == null ? null : ((PcodecCompressor) typed).hint().name();
++    switch (t) {
++      case INT32, INT64, FLOAT, DOUBLE -> assertThat(hint).isEqualTo(t.name());
++      default -> assertThat(hint).isNull();
++    }
++    assertThat(typed.getCodecName()).isSameAs(CompressionCodecName.PCODEC);
++  }
++
++  @Test
++  void otherCompressorsAreNotWrapped() {
++    BytesInputCompressor zstd = heap(new Configuration()).getCompressor(CompressionCodecName.ZSTD);
++    assertThat(PcodecCompressor.forColumn(zstd, column(PrimitiveTypeName.INT64))).isSameAs(zstd);
++  }
++
++  @Test
++  void theTypedCompressorWritesTheHintedModes() throws IOException {
++    PcodecCompressor c = (PcodecCompressor) heap(new Configuration()).getCompressor(CompressionCodecName.PCODEC);
++    BytesInput p = PcodecCompressor.forColumn(c, column(PrimitiveTypeName.DOUBLE)).compress(BytesInput.from(doubles(1000)));
++    assertThat(Pcodec.mode(p.toByteArray())).isEqualTo(Mode.DECIMAL);
++  }
++
++  @Test
++  void theLevelAndDecimalFlagComeFromTheConfiguration() throws IOException {
++    Configuration conf = new Configuration();
++    conf.setInt(PcodecCodec.LEVEL, 1);
++    conf.setBoolean(PcodecCodec.DECIMAL, false);
++    PcodecCompressor c = (PcodecCompressor) heap(conf).getCompressor(CompressionCodecName.PCODEC);
++    assertThat(c.level()).isEqualTo(1);
++    assertThat(c.decimal()).isFalse();
++    byte[] src = floats(10_000);
++    PcodecCompressor typed = (PcodecCompressor) PcodecCompressor.forColumn(c, column(PrimitiveTypeName.FLOAT));
++    assertThat(typed.level()).isEqualTo(1);
++    assertThat(typed.decimal()).isFalse();
++    byte[] p = typed.compress(BytesInput.from(src)).toByteArray();
++    assertThat(p).isEqualTo(Pcodec.compress(src, 0, src.length, io.aperiodic.tparquet.PhysicalType.FLOAT, 1, false));
++
++    PcodecCompressor defaults = (PcodecCompressor) heap(new Configuration()).getCompressor(CompressionCodecName.PCODEC);
++    assertThat(defaults.level()).isEqualTo(8);
++    assertThat(defaults.decimal()).isTrue();
++  }
++
++  @ParameterizedTest
++  @ValueSource(ints = {-1, 13})
++  void aLevelOutOfRangeIsRefusedWhenTheCompressorIsCreated(int level) {
++    Configuration conf = new Configuration();
++    conf.setInt(PcodecCodec.LEVEL, level);
++    assertThatThrownBy(() -> heap(conf).getCompressor(CompressionCodecName.PCODEC))
++        .isInstanceOf(IllegalArgumentException.class)
++        .hasMessage("parquet.compression.codec.pcodec.level=" + level + ": the level is 0..12");
++  }
++
++  @Test
++  void aCorruptPayloadIsAnIOException() {
++    BytesInputDecompressor d = heap(new Configuration()).getDecompressor(CompressionCodecName.PCODEC);
++    assertThatThrownBy(() -> d.decompress(BytesInput.from(new byte[] {9, 0}), 0 + 1))
++        .isInstanceOf(PcodecException.class).hasMessage("pcodec payload: unsupported version 9");
++  }
++
++  /** As the reference reader (rust/parquet decode_page), an empty values section is not decoded. */
++  @Test
++  void anEmptyValuesSectionIsNotDecoded() throws IOException {
++    PcodecDecompressor d = new PcodecDecompressor();
++    assertThat(d.decompress(BytesInput.empty(), 0).size()).isZero();
++    assertThat(d.decompress(BytesInput.from(new byte[] {1, 0}), 0).size()).isZero();
++    ByteBuffer out = ByteBuffer.allocateDirect(4);
++    ByteBuffer in = ByteBuffer.allocateDirect(0);
++    d.decompress(in, 0, out, 0);
++    assertThat(out.position()).isZero();
++  }
++
++  /** The ByteBuffer method reads compressedSize bytes at the input's position, as the other codecs do. */
++  @ParameterizedTest
++  @ValueSource(booleans = {false, true})
++  void byteBuffers(boolean isDirect) throws IOException {
++    byte[] src = doubles(500);
++    byte[] payload = Pcodec.compress(src, io.aperiodic.tparquet.PhysicalType.DOUBLE);
++    ByteBuffer in = isDirect ? ByteBuffer.allocateDirect(payload.length + 10) : ByteBuffer.allocate(payload.length + 10);
++    in.position(3);
++    in.put(payload);
++    in.put(new byte[] {7, 7, 7});
++    in.flip().position(3);
++    ByteBuffer out = isDirect ? ByteBuffer.allocateDirect(src.length + 2) : ByteBuffer.allocate(src.length + 2);
++    out.position(1);
++    BytesInputDecompressor d = direct(new Configuration()).getDecompressor(CompressionCodecName.PCODEC);
++    d.decompress(in, payload.length, out, src.length);
++    assertThat(in.position()).isEqualTo(3 + payload.length);
++    assertThat(in.limit()).isEqualTo(3 + payload.length + 3);
++    assertThat(out.position()).isEqualTo(1 + src.length);
++    byte[] got = new byte[src.length];
++    out.flip().position(1);
++    out.get(got);
++    assertThat(got).isEqualTo(src);
++  }
++
++  @Test
++  void aShortInputBufferIsRefused() {
++    BytesInputDecompressor d = new PcodecDecompressor();
++    assertThatThrownBy(() -> d.decompress(ByteBuffer.allocate(4), 5, ByteBuffer.allocate(8), 8))
++        .isInstanceOf(IllegalArgumentException.class).hasMessage("input has 4 bytes, the page 5");
++  }
++
++  @Test
++  void aCorruptDirectPayloadLeavesTheInput() {
++    ByteBuffer in = ByteBuffer.allocateDirect(2).put(new byte[] {1, 9}).flip();
++    assertThatThrownBy(() -> new PcodecDecompressor().decompress(in, 2, ByteBuffer.allocateDirect(8), 8))
++        .isInstanceOf(PcodecException.class).hasMessage("pcodec payload: unknown mode 9");
++    assertThat(in.position()).isZero();
++  }
++}
+diff --git fork/parquet-hadoop/src/test/java/org/apache/parquet/hadoop/TestPcodecFiles.java fork/parquet-hadoop/src/test/java/org/apache/parquet/hadoop/TestPcodecFiles.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..8a6f93687ab3b3fb84c3f6cd3d7f88ae74dffcc0
+--- /dev/null
++++ fork/parquet-hadoop/src/test/java/org/apache/parquet/hadoop/TestPcodecFiles.java
+@@ -0,0 +1,333 @@
++package org.apache.parquet.hadoop;
++
++import static org.assertj.core.api.Assertions.assertThat;
++import static org.assertj.core.api.Assertions.assertThatThrownBy;
++
++import io.aperiodic.tparquet.PcodecException;
++import java.io.IOException;
++import java.nio.file.Files;
++import java.util.ArrayList;
++import java.util.List;
++import java.util.Map;
++import java.util.stream.Stream;
++import org.apache.hadoop.conf.Configuration;
++import org.apache.hadoop.fs.Path;
++import org.apache.parquet.bytes.DirectByteBufferAllocator;
++import org.apache.parquet.column.ParquetProperties.WriterVersion;
++import org.apache.parquet.example.data.Group;
++import org.apache.parquet.example.data.simple.SimpleGroupFactory;
++import org.apache.parquet.format.PageType;
++import org.apache.parquet.hadoop.example.ExampleParquetWriter;
++import org.apache.parquet.hadoop.example.GroupReadSupport;
++import org.apache.parquet.hadoop.metadata.BlockMetaData;
++import org.apache.parquet.hadoop.metadata.ColumnChunkMetaData;
++import org.apache.parquet.hadoop.metadata.CompressionCodecName;
++import org.apache.parquet.hadoop.metadata.ParquetMetadata;
++import org.apache.parquet.io.ParquetDecodingException;
++import org.apache.parquet.schema.MessageType;
++import org.apache.parquet.schema.MessageTypeParser;
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.io.TempDir;
++import org.junit.jupiter.params.ParameterizedTest;
++import org.junit.jupiter.params.provider.Arguments;
++import org.junit.jupiter.params.provider.MethodSource;
++
++/** Files written and read through the fork with PCODEC: rows, footer, pages, failures. */
++class TestPcodecFiles {
++  static final MessageType SCHEMA = MessageTypeParser.parseMessageType(String.join("\n",
++      "message trades {",
++      "  required int32 i32;",
++      "  required int32 lot;",
++      "  optional int64 i64;",
++      "  required float f32;",
++      "  optional double f64;",
++      "  required double price;",
++      "  required int64 ts (TIMESTAMP(MILLIS,true));",
++      "  required binary sym (STRING);",
++      "  optional boolean buy;",
++      "  optional group levels (LIST) { repeated group list { optional int64 element; } }",
++      "}"));
++
++  @TempDir java.nio.file.Path dir;
++
++  static List<Group> rows(int n) {
++    SimpleGroupFactory f = new SimpleGroupFactory(SCHEMA);
++    List<Group> out = new ArrayList<>();
++    for (int i = 0; i < n; i++) {
++      Group g = f.newGroup()
++          .append("i32", 1000 + 3 * i)
++          .append("lot", (i * 7 % 200) * 100)
++          .append("f32", (10_000 + i % 500) / 100f)
++          .append("price", (100_000 + (i * 7919) % 977) / 100.0)
++          .append("ts", 1_735_689_600_000L + 37L * i)
++          .append("sym", new String[] {"BTC-USD", "ETH-USD", "SOL-USD"}[i % 3]);
++      if (i % 5 != 0) {
++        g.append("i64", 1L << 40 | i);
++      }
++      if (i % 7 != 0) {
++        g.append("f64", i * 0.25);
++      }
++      if (i % 3 != 0) {
++        g.append("buy", i % 2 == 0);
++      }
++      if (i % 4 != 0) {
++        Group levels = g.addGroup("levels");
++        for (int j = 0; j < i % 6; j++) {
++          Group e = levels.addGroup("list");
++          if (j != 2) {
++            e.append("element", (long) i * 10 + j);
++          }
++        }
++      }
++      out.add(g);
++    }
++    return out;
++  }
++
++  java.nio.file.Path write(List<Group> rows, CompressionCodecName codec, WriterVersion version, boolean dictionary,
++      int rowGroupSize, Map<String, String> extra) throws IOException {
++    java.nio.file.Path file = dir.resolve("f-" + System.nanoTime() + ".parquet");
++    try (ParquetWriter<Group> w = ExampleParquetWriter.builder(new Path(file.toUri()))
++        .withType(SCHEMA)
++        .withConf(new Configuration())
++        .withCompressionCodec(codec)
++        .withWriterVersion(version)
++        .withDictionaryEncoding(dictionary)
++        .withRowGroupSize(rowGroupSize)
++        .withPageSize(4096)
++        .withExtraMetaData(extra)
++        .build()) {
++      for (Group g : rows) {
++        w.write(g);
++      }
++    }
++    return file;
++  }
++
++  java.nio.file.Path write(List<Group> rows, WriterVersion version, boolean dictionary) throws IOException {
++    return write(rows, CompressionCodecName.PCODEC, version, dictionary, 16 * 1024, Map.of());
++  }
++
++  /** Rewrites a file in place, without the checksum file Hadoop's LocalFileSystem keeps (it would catch the change first). */
++  static void tamper(java.nio.file.Path file, byte[] bytes) throws IOException {
++    Files.write(file, bytes);
++    Files.deleteIfExists(file.resolveSibling("." + file.getFileName() + ".crc"));
++  }
++
++  static List<String> read(java.nio.file.Path file, Configuration conf, boolean direct) throws IOException {
++    ParquetReader.Builder<Group> b = ParquetReader.builder(new GroupReadSupport(), new Path(file.toUri())).withConf(conf);
++    if (direct) {
++      DirectByteBufferAllocator alloc = new DirectByteBufferAllocator();
++      b = b.withAllocator(alloc).withCodecFactory(CodecFactory.createDirectCodecFactory(conf, alloc, 1 << 20));
++    }
++    List<String> out = new ArrayList<>();
++    try (ParquetReader<Group> r = b.build()) {
++      for (Group g = r.read(); g != null; g = r.read()) {
++        out.add(g.toString());
++      }
++    }
++    return out;
++  }
++
++  static List<String> read(java.nio.file.Path file) throws IOException {
++    return read(file, new Configuration(), false);
++  }
++
++  static ParquetMetadata footer(java.nio.file.Path file) throws IOException {
++    try (ParquetFileReader r = ParquetFileReader.open(new Configuration(), new Path(file.toUri()))) {
++      return r.getFooter();
++    }
++  }
++
++  static Stream<Arguments> layouts() {
++    return Stream.of(
++        Arguments.of(WriterVersion.PARQUET_1_0, false),
++        Arguments.of(WriterVersion.PARQUET_1_0, true),
++        Arguments.of(WriterVersion.PARQUET_2_0, false),
++        Arguments.of(WriterVersion.PARQUET_2_0, true));
++  }
++
++  @ParameterizedTest(name = "{0} dictionary {1}")
++  @MethodSource("layouts")
++  void rowsRoundTripInEveryPageLayout(WriterVersion version, boolean dictionary) throws IOException {
++    List<Group> rows = rows(20_000);
++    java.nio.file.Path file = write(rows, version, dictionary);
++    List<String> want = rows.stream().map(Group::toString).toList();
++    assertThat(read(file)).isEqualTo(want);
++    ParquetMetadata footer = footer(file);
++    assertThat(footer.getBlocks().size()).as("row groups").isGreaterThan(1);
++    for (BlockMetaData b : footer.getBlocks()) {
++      for (ColumnChunkMetaData c : b.getColumns()) {
++        assertThat(c.getCodec()).as(c.getPath().toDotString()).isSameAs(CompressionCodecName.PCODEC);
++      }
++    }
++    assertThat(footer.getFileMetaData().getKeyValueMetaData()).containsEntry("parquet.pcodec.version", "1");
++  }
++
++  @ParameterizedTest(name = "{0} dictionary {1}")
++  @MethodSource("layouts")
++  void theDirectBufferPathReadsTheSameRows(WriterVersion version, boolean dictionary) throws IOException {
++    List<Group> rows = rows(5000);
++    java.nio.file.Path file = write(rows, version, dictionary);
++    Configuration conf = new Configuration();
++    conf.setBoolean(ParquetInputFormat.OFF_HEAP_DECRYPT_BUFFER_ENABLED, true);
++    assertThat(read(file, conf, true)).isEqualTo(rows.stream().map(Group::toString).toList());
++  }
++
++  /** The column's type reaches the encoder: required PLAIN columns in V1 pages are pcodec's own modes. */
++  @Test
++  void eachColumnIsEncodedForItsType() throws IOException {
++    Map<String, List<String>> modes = PcodecPages.modes(write(rows(20_000), WriterVersion.PARQUET_1_0, false));
++    assertThat(modes.get("i32")).as(modes.toString()).containsOnly("DATA_PAGE:PCO");
++    assertThat(modes.get("ts")).containsOnly("DATA_PAGE:PCO");
++    // floats: DECIMAL, or PCO where that is smaller (spec section 5); never the untyped fallback
++    assertThat(modes.get("f32")).isSubsetOf("DATA_PAGE:DECIMAL", "DATA_PAGE:PCO").contains("DATA_PAGE:DECIMAL");
++    assertThat(modes.get("price")).as(modes.toString()).isSubsetOf("DATA_PAGE:DECIMAL", "DATA_PAGE:PCO").contains("DATA_PAGE:DECIMAL");
++    // V1 pages of optional columns start with the levels: not whole values, so the ZSTD fallback
++    assertThat(modes.get("i64")).isSubsetOf("DATA_PAGE:ZSTD", "DATA_PAGE:RAW");
++    // no hint for strings and booleans: the ZSTD fallback, or RAW when that is not smaller
++    assertThat(modes.get("sym")).isSubsetOf("DATA_PAGE:ZSTD", "DATA_PAGE:RAW");
++    assertThat(modes.get("buy")).isSubsetOf("DATA_PAGE:ZSTD", "DATA_PAGE:RAW");
++  }
++
++  /**
++   * V2 pages keep the levels out of the payload (spec section 3), but parquet-java's V2 writer
++   * encodes integers DELTA_BINARY_PACKED unless told otherwise: not PLAIN values, so the ZSTD
++   * fallback (the tparquet writer asks for PLAIN). Floats stay PLAIN and get DECIMAL.
++   */
++  @Test
++  void v2PagesWithParquetJavasDefaultEncodings() throws IOException {
++    Map<String, List<String>> modes = PcodecPages.modes(write(rows(20_000), WriterVersion.PARQUET_2_0, false));
++    assertThat(modes.get("f32")).isSubsetOf("DATA_PAGE_V2:DECIMAL", "DATA_PAGE_V2:PCO").contains("DATA_PAGE_V2:DECIMAL");
++    assertThat(modes.get("price")).as(modes.toString()).isSubsetOf("DATA_PAGE_V2:DECIMAL", "DATA_PAGE_V2:PCO").contains("DATA_PAGE_V2:DECIMAL");
++    // multiples of 0.25: whichever of PCO and DECIMAL is smaller, page by page
++    assertThat(modes.get("f64")).isSubsetOf("DATA_PAGE_V2:DECIMAL", "DATA_PAGE_V2:PCO");
++    assertThat(modes.get("i32")).isSubsetOf("DATA_PAGE_V2:ZSTD", "DATA_PAGE_V2:RAW");
++  }
++
++  /** Dictionary pages hold PLAIN values of the column's type and get its hint too. */
++  @Test
++  void dictionaryPagesGetTheHint() throws IOException {
++    java.nio.file.Path file = write(rows(20_000), CompressionCodecName.PCODEC, WriterVersion.PARQUET_1_0, true, 1 << 20, Map.of());
++    List<String> dict = PcodecPages.pages(file).stream()
++        .filter(p -> p.column().equals("lot") && p.type() == PageType.DICTIONARY_PAGE)
++        .map(PcodecPages.Page::mode).distinct().toList();
++    assertThat(dict).containsOnly("PCO");
++  }
++
++  @Test
++  void otherCodecsWriteNoFooterKey() throws IOException {
++    java.nio.file.Path file = write(rows(100), CompressionCodecName.ZSTD, WriterVersion.PARQUET_2_0, false, 1 << 20, Map.of());
++    assertThat(footer(file).getFileMetaData().getKeyValueMetaData()).doesNotContainKey("parquet.pcodec.version");
++    assertThat(read(file)).hasSize(100);
++  }
++
++  @Test
++  void theFooterKeyIsAddedNextToTheUsersKeys() throws IOException {
++    java.nio.file.Path file = write(rows(100), CompressionCodecName.PCODEC, WriterVersion.PARQUET_2_0, false, 1 << 20,
++        Map.of("writer", "test"));
++    assertThat(footer(file).getFileMetaData().getKeyValueMetaData())
++        .containsEntry("writer", "test").containsEntry("parquet.pcodec.version", "1");
++  }
++
++  @Test
++  void anEmptyFileHasNoPcodecChunkAndNoKey() throws IOException {
++    java.nio.file.Path file = write(List.of(), WriterVersion.PARQUET_2_0, false);
++    assertThat(read(file)).isEmpty();
++    assertThat(footer(file).getFileMetaData().getKeyValueMetaData()).doesNotContainKey("parquet.pcodec.version");
++  }
++
++  static long[] DOUBLE_BITS = {0x7ff8000000000001L, 0xfff0000000000000L, 0x8000000000000000L, 0L, 1L, 0x7ff0000000000000L, 0xfff8000000000000L};
++  static int[] FLOAT_BITS = {0x7fc00001, 0xff800000, 0x80000000, 0, 1, 0x7f800000, 0xffc00000};
++
++  java.nio.file.Path writeSpecials(CompressionCodecName codec) throws IOException {
++    MessageType schema = MessageTypeParser.parseMessageType("message m { required double d; required float f; }");
++    java.nio.file.Path file = dir.resolve("specials-" + codec + ".parquet");
++    SimpleGroupFactory f = new SimpleGroupFactory(schema);
++    try (ParquetWriter<Group> w = ExampleParquetWriter.builder(new Path(file.toUri())).withType(schema)
++        .withConf(new Configuration()).withCompressionCodec(codec)
++        .withWriterVersion(WriterVersion.PARQUET_2_0).withDictionaryEncoding(false).build()) {
++      for (int i = 0; i < 700; i++) {
++        w.write(f.newGroup().append("d", Double.longBitsToDouble(DOUBLE_BITS[i % 7]))
++            .append("f", Float.intBitsToFloat(FLOAT_BITS[i % 7])));
++      }
++    }
++    return file;
++  }
++
++  static List<String> bits(java.nio.file.Path file) throws IOException {
++    List<String> out = new ArrayList<>();
++    try (ParquetReader<Group> r = ParquetReader.builder(new GroupReadSupport(), new Path(file.toUri())).build()) {
++      for (Group g = r.read(); g != null; g = r.read()) {
++        out.add(Long.toHexString(Double.doubleToRawLongBits(g.getDouble("d", 0))) + " "
++            + Integer.toHexString(Float.floatToRawIntBits(g.getFloat("f", 0))));
++      }
++    }
++    return out;
++  }
++
++  /**
++   * Signed zeros, infinities, subnormals and NaNs come back bit for bit, as without compression.
++   * (parquet-java's PLAIN writer itself writes every NaN as the canonical NaN, doubleToLongBits;
++   * reading NaN payloads written by others is checked by the conformance vectors.)
++   */
++  @Test
++  void specialFloatsAsUncompressed() throws IOException {
++    List<String> pcodec = bits(writeSpecials(CompressionCodecName.PCODEC));
++    assertThat(pcodec).hasSize(700).isEqualTo(bits(writeSpecials(CompressionCodecName.UNCOMPRESSED)));
++    assertThat(pcodec).contains("8000000000000000 80000000", "1 1", "fff0000000000000 ff800000");
++  }
++
++  /** A corrupt payload in a file is a decoding error, never a crash. */
++  @Test
++  void aCorruptPayloadInAFileIsAnError() throws IOException {
++    java.nio.file.Path file = write(rows(2000), WriterVersion.PARQUET_2_0, false);
++    PcodecPages.Page page = PcodecPages.pages(file).stream().filter(p -> p.column().equals("ts")).findFirst().orElseThrow();
++    byte[] bytes = Files.readAllBytes(file);
++    bytes[(int) page.payloadOffset()] = 9; // the version byte
++    tamper(file, bytes);
++    assertThatThrownBy(() -> read(file))
++        .isInstanceOf(ParquetDecodingException.class)
++        .hasRootCauseInstanceOf(PcodecException.class)
++        .rootCause().hasMessage("pcodec payload: unsupported version 9");
++  }
++
++  /**
++   * Every sixteenth byte of every payload changed in turn gives the rows or an error, never a
++   * crash: the payload checks refuse some, others decode to bytes Parquet's decoders refuse.
++   */
++  @Test
++  void damagedPayloadsNeverCrash() throws IOException {
++    java.nio.file.Path file = write(rows(300), WriterVersion.PARQUET_2_0, false);
++    byte[] clean = Files.readAllBytes(file);
++    List<String> want = read(file);
++    int errors = 0;
++    int payloadErrors = 0;
++    for (PcodecPages.Page page : PcodecPages.pages(file)) {
++      for (int i = 0; i < page.payloadLength(); i += Math.max(1, page.payloadLength() / 16)) {
++        byte[] bytes = clean.clone();
++        bytes[(int) page.payloadOffset() + i] ^= (byte) 0x5a;
++        tamper(file, bytes);
++        try {
++          read(file);
++        } catch (IOException | RuntimeException e) {
++          errors++;
++          payloadErrors += hasPcodecCause(e) ? 1 : 0;
++        }
++      }
++    }
++    tamper(file, clean);
++    assertThat(read(file)).isEqualTo(want);
++    assertThat(errors).isPositive();
++    assertThat(payloadErrors).isPositive();
++  }
++
++  static boolean hasPcodecCause(Throwable e) {
++    for (Throwable t = e; t != null; t = t.getCause()) {
++      if (t instanceof PcodecException) {
++        return true;
++      }
++    }
++    return false;
++  }
++}
+diff --git fork/parquet-hadoop/src/test/java/org/apache/parquet/hadoop/TestPcodecShadedJar.java fork/parquet-hadoop/src/test/java/org/apache/parquet/hadoop/TestPcodecShadedJar.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..d00652b7357125c31058f78e27149c65ac0c9c09
+--- /dev/null
++++ fork/parquet-hadoop/src/test/java/org/apache/parquet/hadoop/TestPcodecShadedJar.java
+@@ -0,0 +1,27 @@
++package org.apache.parquet.hadoop;
++
++import static org.assertj.core.api.Assertions.assertThat;
++import static org.junit.jupiter.api.Assumptions.assumeTrue;
++
++import java.nio.file.Path;
++import java.util.List;
++import java.util.jar.JarFile;
++import java.util.stream.Collectors;
++import org.apache.parquet.format.CompressionCodec;
++import org.junit.jupiter.api.Test;
++
++/** The fork's parquet-format-structures jar is shaded as upstream's (when tested as a jar: mvn verify). */
++class TestPcodecShadedJar {
++  @Test
++  void thriftIsRelocated() throws Exception {
++    String from = CompressionCodec.class.getProtectionDomain().getCodeSource().getLocation().toString();
++    assumeTrue(from.endsWith(".jar"), "parquet-format-structures comes from " + from + ", not its jar (run mvn verify)");
++    assertThat(CompressionCodec.class.getInterfaces()).extracting(Class::getName)
++        .containsExactly("shaded.parquet.org.apache.thrift.TEnum");
++    try (JarFile jar = new JarFile(Path.of(CompressionCodec.class.getProtectionDomain().getCodeSource().getLocation().toURI()).toFile())) {
++      List<String> names = jar.stream().map(e -> e.getName()).collect(Collectors.toList());
++      assertThat(names).contains("shaded/parquet/org/apache/thrift/protocol/TCompactProtocol.class", "parquet.thrift");
++      assertThat(names).noneMatch(n -> n.startsWith("org/apache/thrift/"));
++    }
++  }
++}
+diff --git fork/parquet-hadoop/src/test/java/org/apache/parquet/hadoop/codec/TestPcodecCodec.java fork/parquet-hadoop/src/test/java/org/apache/parquet/hadoop/codec/TestPcodecCodec.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..ede0bce0a50be200889c5f8a77cd87242fbdf5ed
+--- /dev/null
++++ fork/parquet-hadoop/src/test/java/org/apache/parquet/hadoop/codec/TestPcodecCodec.java
+@@ -0,0 +1,98 @@
++package org.apache.parquet.hadoop.codec;
++
++import static org.assertj.core.api.Assertions.assertThat;
++import static org.assertj.core.api.Assertions.assertThatThrownBy;
++
++import java.io.ByteArrayInputStream;
++import java.io.ByteArrayOutputStream;
++import java.util.HashSet;
++import java.util.List;
++import java.util.Map;
++import java.util.Set;
++import org.apache.hadoop.conf.Configuration;
++import org.apache.parquet.column.Encoding;
++import org.apache.parquet.column.statistics.Statistics;
++import org.apache.parquet.hadoop.metadata.BlockMetaData;
++import org.apache.parquet.hadoop.metadata.ColumnChunkMetaData;
++import org.apache.parquet.hadoop.metadata.ColumnPath;
++import org.apache.parquet.hadoop.metadata.CompressionCodecName;
++import org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName;
++import org.junit.jupiter.api.Test;
++
++/** The Hadoop codec class of CompressionCodecName.PCODEC, and the footer key (spec section 2). */
++class TestPcodecCodec {
++  @Test
++  void theCodecNameNamesThisClass() {
++    assertThat(CompressionCodecName.PCODEC.getHadoopCompressionCodecClass()).isSameAs(PcodecCodec.class);
++    assertThat(CompressionCodecName.fromCompressionCodec(PcodecCodec.class)).isSameAs(CompressionCodecName.PCODEC);
++  }
++
++  @Test
++  void streamsAreRefusedNotSilentlyWrong() {
++    PcodecCodec c = new PcodecCodec();
++    String msg = "PCODEC needs each page's type and expected size: use CodecFactory, not the Hadoop stream API";
++    assertThatThrownBy(() -> c.createOutputStream(new ByteArrayOutputStream()))
++        .isInstanceOf(UnsupportedOperationException.class).hasMessage(msg);
++    assertThatThrownBy(() -> c.createOutputStream(new ByteArrayOutputStream(), null)).hasMessage(msg);
++    assertThatThrownBy(() -> c.createInputStream(new ByteArrayInputStream(new byte[0]))).hasMessage(msg);
++    assertThatThrownBy(() -> c.createInputStream(new ByteArrayInputStream(new byte[0]), null)).hasMessage(msg);
++    assertThatThrownBy(c::createCompressor).hasMessage(msg);
++    assertThatThrownBy(c::createDecompressor).hasMessage(msg);
++    assertThatThrownBy(c::getCompressorType).hasMessage(msg);
++    assertThatThrownBy(c::getDecompressorType).hasMessage(msg);
++    assertThat(c.getDefaultExtension()).isEqualTo(".pcodec");
++  }
++
++  @Test
++  void configurable() {
++    PcodecCodec c = new PcodecCodec();
++    assertThat(c.getConf()).isNull();
++    Configuration conf = new Configuration(false);
++    c.setConf(conf);
++    assertThat(c.getConf()).isSameAs(conf);
++  }
++
++  static BlockMetaData block(CompressionCodecName... codecs) {
++    BlockMetaData b = new BlockMetaData();
++    int i = 0;
++    for (CompressionCodecName codec : codecs) {
++      Set<Encoding> enc = new HashSet<>(List.of(Encoding.PLAIN));
++      b.addColumn(ColumnChunkMetaData.get(ColumnPath.get("c" + i++), PrimitiveTypeName.INT64, codec, enc,
++          Statistics.createStats(org.apache.parquet.schema.Types.required(PrimitiveTypeName.INT64).named("c")), 4, 0, 10, 100, 50));
++    }
++    return b;
++  }
++
++  @Test
++  void theFooterKeyIsAddedWhenAChunkUsesPcodec() {
++    Map<String, String> kv = Map.of("a", "b");
++    assertThat(PcodecCodec.withVersion(kv, List.of(block(CompressionCodecName.ZSTD), block(CompressionCodecName.PCODEC))))
++        .containsExactlyInAnyOrderEntriesOf(Map.of("a", "b", "parquet.pcodec.version", "1"));
++    assertThat(PcodecCodec.withVersion(kv, List.of(block(CompressionCodecName.ZSTD, CompressionCodecName.PCODEC))))
++        .containsEntry("parquet.pcodec.version", "1");
++    // the input is not changed
++    assertThat(kv).containsOnlyKeys("a");
++  }
++
++  @Test
++  void theFooterKeyIsNotAddedWithoutPcodec() {
++    Map<String, String> kv = Map.of("a", "b");
++    assertThat(PcodecCodec.withVersion(kv, List.of(block(CompressionCodecName.ZSTD, CompressionCodecName.SNAPPY))))
++        .isSameAs(kv);
++    assertThat(PcodecCodec.withVersion(kv, List.of())).isSameAs(kv);
++    assertThat(PcodecCodec.withVersion(kv, List.of(new BlockMetaData()))).isSameAs(kv);
++  }
++
++  @Test
++  void aKeyAlreadyThereIsKept() {
++    Map<String, String> kv = Map.of("parquet.pcodec.version", "custom");
++    assertThat(PcodecCodec.withVersion(kv, List.of(block(CompressionCodecName.PCODEC)))).isSameAs(kv);
++  }
++
++  @Test
++  void configurationKeys() {
++    assertThat(PcodecCodec.LEVEL).isEqualTo("parquet.compression.codec.pcodec.level");
++    assertThat(PcodecCodec.DECIMAL).isEqualTo("parquet.compression.codec.pcodec.decimal");
++    assertThat(PcodecCodec.DEFAULT_LEVEL).isEqualTo(8);
++  }
++}
