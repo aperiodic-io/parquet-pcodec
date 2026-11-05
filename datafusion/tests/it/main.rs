@@ -1,6 +1,7 @@
 //! The integration tests of tparquet-datafusion, in one binary (one link of DataFusion per
 //! build, which matters for cargo mutants).
 
+mod api;
 mod common;
 mod conformance;
 mod corrupt;

@@ -106,7 +106,7 @@ jobs:
           # exit 3: some mutants made the tests hang (detected); accepted only when none was
           # missed (see datafusion/Makefile's MUTANTS_OK)
           # --in-place: see datafusion/Makefile (the fork's path dependency on rust/core)
-          cargo mutants -p tparquet-datafusion --in-diff pr.diff --in-place \
+          cargo mutants -p tparquet-datafusion --in-diff pr.diff --in-place --build-timeout 1200 \
             || { [ $? -eq 3 ] && [ ! -s mutants.out/missed.txt ]; }
       - name: every mutant (weekly and on demand)
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'

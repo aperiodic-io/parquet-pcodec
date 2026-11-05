@@ -159,11 +159,8 @@ impl FileSink for TparquetSink {
             ));
         }
         while let Some(result) = tasks.join_next().await {
-            let (path, metadata) = match result {
-                Ok(r) => r?,
-                Err(e) if e.is_panic() => std::panic::resume_unwind(e.into_panic()),
-                Err(e) => return Err(DataFusionError::ExecutionJoin(Box::new(e))),
-            };
+            // a writer task that panicked or was cancelled is an error of the query
+            let (path, metadata) = result.map_err(|e| DataFusionError::ExecutionJoin(Box::new(e)))??;
             rows_written.add(metadata.file_metadata().num_rows() as usize);
             bytes_written.add(metadata.row_groups().iter().map(|rg| rg.compressed_size() as usize).sum());
             self.written.lock().unwrap_or_else(|e| e.into_inner()).insert(path, metadata);

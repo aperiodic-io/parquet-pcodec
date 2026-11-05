@@ -1,8 +1,15 @@
 # cargo-mutants configuration of the DataFusion connector (`make mutants`). Every exclusion
 # says why the mutant cannot be caught.
-exclude_re = []
+exclude_re = [
+    # Ties in Auto (spec section 6): `<` vs `<=` only changes which of two candidates of the
+    # same size is written (a column chunk, or the whole first batch); both hold the same data
+    # and the same number of bytes, and the spec leaves ties to the writer (equivalent
+    # mutants, excluded for rust/tparquet's Writer::open too).
+    'src/codecs\.rs:.*replace < with <= in Codecs::choose',
+]
 # the vendored fork is tested upstream; its patched functions are listed in parquet/FORK.md
 # and mutated by `make fork-mutants`
 exclude_globs = ["parquet/**"]
-# DataFusion is a large dependency: the first build of each scratch tree is slow
-build_timeout_multiplier = 3
+# no build timeout multiplier: mutants are tested in place (Makefile), where the baseline build
+# is a no-op that takes 0s and a multiple of it would time every build out; the Makefile gives
+# a fixed --build-timeout instead

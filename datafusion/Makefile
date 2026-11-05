@@ -45,15 +45,18 @@ MUTANTS_OK = || { [ $$? -eq 3 ] && [ ! -s mutants.out/missed.txt ]; }
 # fork's path dependency ../../rust/core does not resolve; so the mutants are tested in this
 # tree, one at a time (do not edit it meanwhile; each mutant is reverted after its test)
 #
-# the connector (configuration: .cargo/mutants.toml)
+# the connector (configuration: .cargo/mutants.toml). In place, the baseline build is often a
+# no-op of 0s, so the build timeout is fixed rather than a multiple of it.
+BUILD_TIMEOUT ?= 1200
 mutants:
-	$(CARGO) mutants $(OWN) --in-place $(MUTANTS_OK)
+	$(CARGO) mutants $(OWN) --in-place --build-timeout $(BUILD_TIMEOUT) $(MUTANTS_OK)
 
 # the fork's changed functions only (parquet/FORK.md); the fork is rebuilt for every mutant,
 # so it is built without optimization here
 FORK_RE := PcodecLevel|PcodecCodec|with_pcodec_version|CodecOptionsBuilder::set_physical_type|CodecOptionsBuilder::build|create_codec|<impl From<CompressionCodec> for Compression>::from|<impl From<Compression> for CompressionCodec>::from|<impl FromStr for Compression>::from_str|write_metadata
 fork-mutants:
 	CARGO_PROFILE_DEV_PACKAGE_PARQUET_OPT_LEVEL=0 $(CARGO) mutants --no-config -p parquet --in-place \
+	  --build-timeout $(BUILD_TIMEOUT) \
 	  -f parquet/src/basic.rs -f parquet/src/compression.rs \
 	  -f parquet/src/column/writer/mod.rs -f parquet/src/file/writer.rs \
 	  --re '$(FORK_RE)' \
