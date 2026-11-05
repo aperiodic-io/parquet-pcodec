@@ -312,13 +312,15 @@ func (p *Plan) Properties() []parquet.WriterProperty {
 }
 
 // NewFileWriter returns a pqarrow writer of the plan's schema with the plan's properties.
-// If any column uses PCODEC it adds FooterKey = FooterValue to the footer.
+// If any column uses PCODEC it adds FooterKey = FooterValue to the footer. pqarrow copies
+// the schema metadata into the footer; a FooterKey there is left out, so that the footer
+// has the key once, and only when the file has PCODEC columns.
 func (p *Plan) NewFileWriter(w io.Writer) (*pqarrow.FileWriter, error) {
 	return p.newFileWriter(w, p.Properties())
 }
 
 func (p *Plan) newFileWriter(w io.Writer, props []parquet.WriterProperty) (*pqarrow.FileWriter, error) {
-	fw, err := pqarrow.NewFileWriter(p.schema, w, parquet.NewWriterProperties(props...), p.cfg.arrowProps)
+	fw, err := pqarrow.NewFileWriter(withoutFooterKey(p.schema), w, parquet.NewWriterProperties(props...), p.cfg.arrowProps)
 	if err != nil {
 		return nil, err
 	}
@@ -328,4 +330,21 @@ func (p *Plan) newFileWriter(w io.Writer, props []parquet.WriterProperty) (*pqar
 		}
 	}
 	return fw, nil
+}
+
+// withoutFooterKey returns sc without FooterKey in its metadata. pqarrow checks record
+// batches against the writer's schema without the schema metadata, so they still match.
+func withoutFooterKey(sc *arrow.Schema) *arrow.Schema {
+	md := sc.Metadata()
+	if md.FindKey(FooterKey) < 0 {
+		return sc
+	}
+	var keys, values []string
+	for i, k := range md.Keys() {
+		if k != FooterKey {
+			keys, values = append(keys, k), append(values, md.Values()[i])
+		}
+	}
+	kept := arrow.NewMetadata(keys, values)
+	return arrow.NewSchemaWithEndian(sc.Fields(), &kept, sc.Endianness())
 }
