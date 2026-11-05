@@ -35,7 +35,7 @@ intended change, which must also be listed below.
 | `src/compression.rs` | new `PcodecLevel` (`CompressionLevel`, `try_new`, `compression_level`, `Default`) | levels 0..=12, default 8 | as `ZstdLevel` |
 | `src/column/writer/mod.rs` | `GenericColumnWriter::new` | `CodecOptionsBuilder::default().set_physical_type(descr.physical_type())` | data pages and dictionary pages get the type hint |
 | `src/file/writer.rs` | `SerializedFileWriter::write_metadata` | calls `with_pcodec_version` on the key-value metadata | spec section 2 |
-| `src/file/writer.rs` | new `with_pcodec_version` | adds `parquet.pcodec.version = "1"` when a column chunk uses PCODEC and the key is not there | spec section 2 |
+| `src/file/writer.rs` | new `with_pcodec_version` | drops the `parquet.pcodec.version` pairs of the key-value metadata given by the caller, then adds `parquet.pcodec.version = "1"` when a column chunk uses PCODEC | spec section 2; the writer owns the key, so metadata copied from another file cannot give a stale value, a duplicate, or the key in a file without PCODEC |
 | `tests/arrow_writer/mod.rs` | | `mod pcodec;` | the fork's Arrow tests |
 | `tests/arrow_writer/pcodec.rs` | new | Arrow round trips with PCODEC | see Tests |
 

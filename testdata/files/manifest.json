@@ -486,12 +486,8 @@
           "codecs": [
             "PCODEC"
           ],
-          "modes": {
-            "EMPTY": 1
-          },
-          "pages": {
-            "DICTIONARY_PAGE": 1
-          },
+          "modes": {},
+          "pages": {},
           "path": "i32",
           "physical_type": "INT32"
         },
@@ -499,12 +495,8 @@
           "codecs": [
             "PCODEC"
           ],
-          "modes": {
-            "EMPTY": 1
-          },
-          "pages": {
-            "DICTIONARY_PAGE": 1
-          },
+          "modes": {},
+          "pages": {},
           "path": "i64",
           "physical_type": "INT64"
         },
@@ -512,12 +504,8 @@
           "codecs": [
             "PCODEC"
           ],
-          "modes": {
-            "EMPTY": 1
-          },
-          "pages": {
-            "DICTIONARY_PAGE": 1
-          },
+          "modes": {},
+          "pages": {},
           "path": "f32",
           "physical_type": "FLOAT"
         },
@@ -525,12 +513,8 @@
           "codecs": [
             "PCODEC"
           ],
-          "modes": {
-            "EMPTY": 1
-          },
-          "pages": {
-            "DICTIONARY_PAGE": 1
-          },
+          "modes": {},
+          "pages": {},
           "path": "f64",
           "physical_type": "DOUBLE"
         }

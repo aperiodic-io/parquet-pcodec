@@ -50,3 +50,63 @@ fn upstream_reads_the_control_file() {
         .sum();
     assert_eq!(rows, 1500);
 }
+
+/// Every PCODEC vector as bytes.
+fn pcodec_files() -> Vec<(&'static str, bytes::Bytes)> {
+    TPARQUET_FILES.iter().map(|name| (*name, bytes::Bytes::from(std::fs::read(testdata(name)).unwrap()))).collect()
+}
+
+fn assert_unknown_codec(name: &str, err: Option<impl std::fmt::Display>) {
+    let err = err.unwrap_or_else(|| panic!("{name}: upstream read a PCODEC file"));
+    assert!(err.to_string().contains("Unexpected CompressionCodec 20547"), "{name}: {err}");
+}
+
+#[test]
+fn upstream_rejects_pcodec_on_every_entry_point() {
+    use parquet::arrow::ProjectionMask;
+    use parquet::arrow::arrow_reader::{ArrowReaderMetadata, ArrowReaderOptions};
+    use parquet::file::metadata::{PageIndexPolicy, ParquetMetaDataReader};
+    use parquet::file::serialized_reader::ReadOptionsBuilder;
+    for (name, file) in pcodec_files() {
+        // the footer alone, with and without page indexes
+        assert_unknown_codec(name, ParquetMetaDataReader::new().parse_and_finish(&file).err());
+        let reader = ParquetMetaDataReader::new().with_page_index_policy(PageIndexPolicy::Optional);
+        assert_unknown_codec(name, reader.parse_and_finish(&file).err());
+        assert_unknown_codec(name, ArrowReaderMetadata::load(&file, ArrowReaderOptions::new()).err());
+        let options = ReadOptionsBuilder::new().with_page_index().build();
+        assert_unknown_codec(name, SerializedFileReader::new_with_options(file.clone(), options).err());
+        // even a projection that only needs other columns, or none
+        let err = ParquetRecordBatchReaderBuilder::try_new(file.clone())
+            .and_then(|b| {
+                let mask = ProjectionMask::leaves(b.parquet_schema(), []);
+                b.with_projection(mask).build().map(|_| ())
+            })
+            .err();
+        assert_unknown_codec(name, err);
+    }
+}
+
+#[test]
+fn upstream_rejects_pcodec_files_however_they_are_cut() {
+    // the footer is where the codec is: every suffix of a PCODEC file that holds its footer
+    // fails the same way; a truncated file fails as truncated, never with data
+    for (name, file) in pcodec_files() {
+        let len = file.len();
+        let footer = 8 + u32::from_le_bytes(file[len - 8..len - 4].try_into().unwrap()) as usize;
+        for cut in [len - footer, len - footer - 1, 0] {
+            let tail = file.slice(cut..);
+            assert_unknown_codec(name, SerializedFileReader::new(tail).err());
+        }
+        assert!(SerializedFileReader::new(file.slice(..len - 1)).is_err(), "{name}");
+    }
+}
+
+#[test]
+fn upstream_does_not_know_the_codec_name() {
+    use parquet::basic::Compression;
+    for name in ["PCODEC", "pcodec", "PCODEC(8)"] {
+        let err = name.parse::<Compression>().unwrap_err();
+        assert!(err.to_string().contains("unsupported compression"), "{name}: {err}");
+    }
+    assert!("ZSTD(3)".parse::<Compression>().is_ok());
+}

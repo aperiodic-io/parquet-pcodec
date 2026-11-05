@@ -120,9 +120,9 @@ fn write_value(a: &dyn Array, i: usize, out: &mut String) -> Result<()> {
             out.push(']');
         }
         DataType::Dictionary(..) => {
-            let d = a.as_any_dictionary();
-            let key = d.normalized_keys()[i];
-            write_value(d.values().as_ref(), key, out)?;
+            // the key of row `i` alone: `normalized_keys` converts every key of its array
+            let key = a.slice(i, 1).as_any_dictionary().normalized_keys()[0];
+            write_value(a.as_any_dictionary().values().as_ref(), key, out)?;
         }
         t => return Err(invalid(format!("canonical JSON does not support {t}"))),
     }
@@ -282,6 +282,44 @@ mod tests {
 
         let d: DictionaryArray<Int8Type> = vec!["x", "y", "x"].into_iter().collect();
         assert_eq!(one(Arc::new(d)), ["\"x\"", "\"y\"", "\"x\""]);
+    }
+
+    #[test]
+    fn dictionaries_of_every_key_type() {
+        let values: ArrayRef = Arc::new(StringArray::from(vec![Some("a"), None, Some("c")]));
+        let keys = [Some(2), Some(0), None, Some(1), Some(2)];
+        let want = ["\"c\"", "\"a\"", "null", "null", "\"c\""];
+        macro_rules! check {
+            ($($t:ty),*) => {$(
+                let k = PrimitiveArray::<$t>::from_iter(keys.iter().map(|k: &Option<u8>| k.map(|k| (k as i8).try_into().unwrap())));
+                assert_eq!(one(Arc::new(DictionaryArray::<$t>::new(k, values.clone()))), want, stringify!($t));
+            )*};
+        }
+        check!(Int8Type, Int16Type, Int32Type, Int64Type, UInt8Type, UInt16Type, UInt32Type, UInt64Type);
+        // a slice: keys are taken at the slice's offset
+        let d = DictionaryArray::<Int32Type>::new(Int32Array::from(vec![0, 2, 0, 2]), values.clone());
+        assert_eq!(one(Arc::new(d.slice(1, 2))), ["\"c\"", "\"a\""]);
+        // a list of dictionary values
+        let d = DictionaryArray::<UInt16Type>::new(UInt16Array::from(vec![2, 0, 2]), values);
+        let list = ListArray::new(
+            Arc::new(Field::new_list_field(d.data_type().clone(), true)),
+            OffsetBuffer::from_lengths([1, 2]),
+            Arc::new(d),
+            None,
+        );
+        assert_eq!(one(Arc::new(list)), ["[\"c\"]", "[\"a\",\"c\"]"]);
+    }
+
+    #[test]
+    fn dictionaries_take_linear_time() {
+        // one value per row, not all the keys for each row (which was quadratic)
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let keys = Int32Array::from_iter_values((0..300_000).map(|i| i % 3));
+            let values: ArrayRef = Arc::new(StringArray::from(vec!["a", "b", "c"]));
+            tx.send(one(Arc::new(DictionaryArray::<Int32Type>::new(keys, values))).len()).unwrap();
+        });
+        assert_eq!(rx.recv_timeout(std::time::Duration::from_secs(60)), Ok(300_000));
     }
 
     #[test]

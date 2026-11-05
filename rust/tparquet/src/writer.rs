@@ -17,7 +17,8 @@ pub struct WriterOptions {
     /// Policy of the eligible columns that `columns` does not name.
     pub policy: Policy,
     /// Per-column policies: a top-level field name, or a dotted leaf path such as
-    /// `book.levels.list.element`. The longest name that covers a leaf wins.
+    /// `book.levels.list.item` (`list.element` with `coerce_types`). The longest name that
+    /// covers a leaf wins; a name is matched against whole field names, which may hold dots.
     pub columns: Vec<(String, Policy)>,
     /// pcodec compression level of the PCODEC columns.
     pub level: PcodecLevel,
@@ -111,6 +112,8 @@ pub struct Writer<W: Write + Send> {
     leaves: Vec<Leaf>,
     /// Per leaf, after the choice: whether it is PCODEC.
     pcodec: Vec<bool>,
+    /// The properties the file is written with, once chosen.
+    chosen: Option<WriterProperties>,
     state: State<W>,
 }
 
@@ -129,19 +132,21 @@ impl<W: Write + Send> Writer<W> {
             .map(|c| Leaf {
                 path: c.path().clone(),
                 policy: eligible(c.physical_type())
-                    .then(|| resolve(&c.path().string(), &options.columns, options.policy)),
+                    .then(|| resolve(c.path().parts(), &options.columns, options.policy)),
             })
             .collect();
         if let Some((name, _)) =
-            options.columns.iter().find(|(name, _)| !leaves.iter().any(|l| covers(name, &l.path.string())))
+            options.columns.iter().find(|(name, _)| !leaves.iter().any(|l| covers(name, l.path.parts())))
         {
             return Err(invalid(format!("no column named {name:?}")));
         }
-        let mut writer = Self { schema, options, pcodec: vec![false; leaves.len()], leaves, state: State::Failed };
+        let mut writer =
+            Self { schema, options, pcodec: vec![false; leaves.len()], leaves, chosen: None, state: State::Failed };
         if writer.leaves.iter().any(|l| l.policy == Some(Policy::Auto)) {
             writer.state = State::Pending(sink);
         } else {
-            writer.open(sink, &[])?;
+            let pcodec = writer.choose(None)?;
+            writer.open(sink, pcodec)?;
         }
         Ok(writer)
     }
@@ -162,29 +167,36 @@ impl<W: Write + Send> Writer<W> {
         b.build()
     }
 
-    /// Chooses the codecs (with `sample` for the Auto columns) and opens the file.
+    /// Which leaves get PCODEC, with `sample` for the Auto columns (without one, they get the
+    /// base codec). It writes nothing, so a batch it refuses leaves the writer as it was.
     ///
     /// Each Auto leaf gets PCODEC when it is smaller than the base codec, both with V2 pages.
     /// A file with PCODEC is written with V2 pages, which can make the base columns larger
     /// (V2 pages store levels uncompressed): when only Auto leaves would use PCODEC, the file
     /// keeps the base codec everywhere if that is smaller in total.
-    fn open(&mut self, sink: W, sample: &[&RecordBatch]) -> Result<()> {
+    fn choose(&self, sample: Option<&RecordBatch>) -> Result<Vec<bool>> {
         let forced: Vec<bool> = self.leaves.iter().map(|l| l.policy == Some(Policy::Pcodec)).collect();
         let auto: Vec<bool> = self.leaves.iter().map(|l| l.policy == Some(Policy::Auto)).collect();
-        self.pcodec = forced.clone();
-        if let [batch] = sample {
-            let none = vec![false; self.leaves.len()];
-            let base_v2 = self.chunk_sizes(batch, &none, true)?;
-            let pcodec = self.chunk_sizes(batch, &auto, true)?;
-            let choice: Vec<bool> =
-                (0..self.leaves.len()).map(|i| forced[i] || (auto[i] && pcodec[i] < base_v2[i])).collect();
-            let v2_total: i64 = (0..choice.len()).map(|i| if choice[i] { pcodec[i] } else { base_v2[i] }).sum();
-            if forced.contains(&true) || v2_total < self.chunk_sizes(batch, &none, false)?.iter().sum() {
-                self.pcodec = choice;
-            }
+        let Some(batch) = sample else { return Ok(forced) };
+        let none = vec![false; self.leaves.len()];
+        let base_v2 = self.chunk_sizes(batch, &none, true)?;
+        let pcodec = self.chunk_sizes(batch, &auto, true)?;
+        let choice: Vec<bool> =
+            (0..self.leaves.len()).map(|i| forced[i] || (auto[i] && pcodec[i] < base_v2[i])).collect();
+        let v2_total: i64 = (0..choice.len()).map(|i| if choice[i] { pcodec[i] } else { base_v2[i] }).sum();
+        if forced.contains(&true) || v2_total < self.chunk_sizes(batch, &none, false)?.iter().sum() {
+            Ok(choice)
+        } else {
+            Ok(forced)
         }
+    }
+
+    /// Opens the file with PCODEC on the `pcodec` leaves.
+    fn open(&mut self, sink: W, pcodec: Vec<bool>) -> Result<()> {
+        self.pcodec = pcodec;
         let props = self.properties(&self.pcodec, false);
-        self.state = State::Open(Box::new(ArrowWriter::try_new(sink, self.schema.clone(), Some(props))?));
+        self.state = State::Open(Box::new(ArrowWriter::try_new(sink, self.schema.clone(), Some(props.clone()))?));
+        self.chosen = Some(props);
         Ok(())
     }
 
@@ -215,8 +227,9 @@ impl<W: Write + Send> Writer<W> {
             if batch.num_rows() == 0 {
                 return Ok(());
             }
+            let pcodec = self.choose(Some(batch))?;
             let State::Pending(sink) = std::mem::replace(&mut self.state, State::Failed) else { unreachable!() };
-            self.open(sink, &[batch])?;
+            self.open(sink, pcodec)?;
         }
         Ok(self.writer()?.write(batch)?)
     }
@@ -229,17 +242,14 @@ impl<W: Write + Send> Writer<W> {
         Ok(self.writer()?.flush()?)
     }
 
-    /// The codec of every leaf column, once chosen (after the first batch with rows).
+    /// The codec of every leaf column, once chosen (after the first batch with rows): PCODEC,
+    /// the base codec, or the column's own codec in the properties.
     pub fn codecs(&self) -> Option<Vec<ColumnCodec>> {
-        match self.state {
-            State::Open(_) => Some(
+        match (&self.state, &self.chosen) {
+            (State::Open(_), Some(props)) => Some(
                 self.leaves
                     .iter()
-                    .zip(&self.pcodec)
-                    .map(|(l, &p)| ColumnCodec {
-                        path: l.path.string(),
-                        codec: if p { Compression::PCODEC(self.options.level) } else { self.options.base },
-                    })
+                    .map(|l| ColumnCodec { path: l.path.string(), codec: props.compression(&l.path) })
                     .collect(),
             ),
             _ => None,
@@ -256,8 +266,9 @@ impl<W: Write + Send> Writer<W> {
     /// (known even when no batch had rows: Auto columns then use the base codec).
     pub fn finish(mut self) -> Result<(ParquetMetaData, Vec<ColumnCodec>)> {
         if let State::Pending(_) = self.state {
+            let pcodec = self.choose(None)?;
             let State::Pending(sink) = std::mem::replace(&mut self.state, State::Failed) else { unreachable!() };
-            self.open(sink, &[])?;
+            self.open(sink, pcodec)?;
         }
         let codecs = self.codecs();
         match (self.state, codecs) {

@@ -494,7 +494,7 @@ index d5d8d7cb3b93fbf046a7f266c84be38eca25b925..6395de3489443d22ad3446af2e2042ad
 +    }
  }
 diff --git upstream/src/file/writer.rs fork/src/file/writer.rs
-index 7030cb28c6715f80b0e29f9f5961b718edce7cb1..add917d728280c841e65e8f7360f18639b41ef68 100644
+index 7030cb28c6715f80b0e29f9f5961b718edce7cb1..66528ed8427e3fc912a9a4021850c07c681d95d5 100644
 --- upstream/src/file/writer.rs
 +++ fork/src/file/writer.rs
 @@ -353,6 +353,8 @@ impl<W: Write + Send> SerializedFileWriter<W> {
@@ -510,8 +510,9 @@ index 7030cb28c6715f80b0e29f9f5961b718edce7cb1..add917d728280c841e65e8f7360f1863
      }
  }
  
-+/// tparquet fork: adds `parquet.pcodec.version = "1"` to the key-value metadata of a
-+/// file with PCODEC column chunks, unless it is already there (spec/FORMAT.md section 2)
++/// tparquet fork: the key-value metadata with `parquet.pcodec.version = "1"` once if the
++/// file has PCODEC column chunks, and without the key otherwise (spec/FORMAT.md section 2);
++/// pairs with that key given by the caller are dropped
 +#[cfg(any(feature = "pcodec", test))]
 +fn with_pcodec_version(
 +    row_groups: &[RowGroupMetaData],
@@ -521,11 +522,10 @@ index 7030cb28c6715f80b0e29f9f5961b718edce7cb1..add917d728280c841e65e8f7360f1863
 +        .iter()
 +        .flat_map(|rg| rg.columns())
 +        .any(|c| matches!(c.compression(), crate::basic::Compression::PCODEC(_)));
-+    let has_version = key_value_metadata
-+        .iter()
-+        .flatten()
-+        .any(|kv| kv.key == tparquet_core::KV_KEY);
-+    if has_pcodec && !has_version {
++    if let Some(kv) = key_value_metadata.as_mut() {
++        kv.retain(|kv| kv.key != tparquet_core::KV_KEY);
++    }
++    if has_pcodec {
 +        key_value_metadata
 +            .get_or_insert_default()
 +            .push(KeyValue::new(
@@ -539,7 +539,7 @@ index 7030cb28c6715f80b0e29f9f5961b718edce7cb1..add917d728280c841e65e8f7360f1863
  /// Serialize all the bloom filters of the given row group to the given buffer,
  /// and returns the updated row group metadata.
  fn write_bloom_filters<W: Write + Send>(
-@@ -2026,6 +2054,139 @@ mod tests {
+@@ -2026,6 +2054,166 @@ mod tests {
          test_kv_metadata(None, Some(vec![]));
      }
  
@@ -662,7 +662,7 @@ index 7030cb28c6715f80b0e29f9f5961b718edce7cb1..add917d728280c841e65e8f7360f1863
 +        );
 +        assert_eq!(
 +            pcodec_kv_metadata(pcodec, 1, None, vec![version.clone()]),
-+            Some(vec![version])
++            Some(vec![version.clone()])
 +        );
 +        // no PCODEC column chunk: no marker
 +        assert_eq!(pcodec_kv_metadata(pcodec, 0, None, vec![]), None);
@@ -672,7 +672,34 @@ index 7030cb28c6715f80b0e29f9f5961b718edce7cb1..add917d728280c841e65e8f7360f1863
 +        );
 +        assert_eq!(
 +            pcodec_kv_metadata(Compression::SNAPPY, 1, Some(vec![kv1.clone()]), vec![]),
++            Some(vec![kv1.clone()])
++        );
++        // the writer owns the key: a stale value is replaced, once, and a file without
++        // PCODEC column chunks does not keep one
++        let stale = KeyValue::new("parquet.pcodec.version".to_string(), "7".to_string());
++        let unset = KeyValue::new("parquet.pcodec.version".to_string(), None);
++        assert_eq!(
++            pcodec_kv_metadata(
++                pcodec,
++                1,
++                Some(vec![stale.clone(), kv1.clone(), version.clone()]),
++                vec![unset.clone()]
++            ),
++            Some(vec![kv1.clone(), version.clone()])
++        );
++        assert_eq!(
++            pcodec_kv_metadata(
++                Compression::SNAPPY,
++                1,
++                Some(vec![version.clone(), kv1.clone()]),
++                vec![stale.clone()]
++            ),
 +            Some(vec![kv1])
++        );
++        // (an empty list stays a list, as upstream writes one given by the caller)
++        assert_eq!(
++            pcodec_kv_metadata(pcodec, 0, Some(vec![version]), vec![stale]),
++            Some(vec![])
 +        );
 +    }
 +

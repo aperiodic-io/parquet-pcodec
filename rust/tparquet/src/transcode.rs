@@ -18,7 +18,9 @@ use std::sync::Arc;
 pub enum Target {
     /// PCODEC where the options select it.
     Pcodec(WriterOptions),
-    /// Standard Parquet: PCODEC columns become `base`, the others keep their codec.
+    /// Standard Parquet: PCODEC columns become `base`, the others keep their codec (with the
+    /// base's level if it is the base's codec, else the codec's default level: the footer
+    /// does not record levels).
     Standard {
         /// The codec that replaces PCODEC.
         base: Compression,
@@ -33,7 +35,8 @@ impl Target {
 }
 
 /// Rewrites `input` to `output`, keeping the schema, the Arrow schema and its metadata, the
-/// other key-value metadata and the row groups. Row groups without rows are dropped.
+/// other key-value metadata, the row groups and their sorting columns (when every row group
+/// has the same). Row groups without rows are dropped.
 pub fn transcode<R: ChunkReader + 'static, W: Write + Send>(
     input: R,
     output: W,
@@ -47,8 +50,9 @@ pub fn transcode<R: ChunkReader + 'static, W: Write + Send>(
     // the Arrow schema as written (without the key-value pairs the reader merges into it)
     let arrow_kv: Vec<KeyValue> = kv.iter().filter(|kv| kv.key == ARROW_SCHEMA_META_KEY).cloned().collect();
     let schema = Arc::new(parquet_to_arrow_schema(file.schema_descr(), Some(&arrow_kv))?);
-    let other_kv: Vec<KeyValue> =
-        kv.into_iter().filter(|kv| kv.key != ARROW_SCHEMA_META_KEY && kv.key != tparquet_core::KV_KEY).collect();
+    // (the parquet writer drops `parquet.pcodec.version` and adds it back if the output has
+    // PCODEC column chunks)
+    let other_kv: Vec<KeyValue> = kv.into_iter().filter(|kv| kv.key != ARROW_SCHEMA_META_KEY).collect();
 
     let mut options = match target {
         Target::Pcodec(o) => o.clone(),
@@ -58,6 +62,9 @@ pub fn transcode<R: ChunkReader + 'static, W: Write + Send>(
                 for c in rg.columns() {
                     let codec = match c.compression() {
                         Compression::PCODEC(_) => *base,
+                        // the footer has no levels (it says ZSTD(1) for any ZSTD): a column of
+                        // the base's codec gets the base's level
+                        other if std::mem::discriminant(&other) == std::mem::discriminant(base) => *base,
                         other => other,
                     };
                     props = props.set_column_compression(c.column_path().clone(), codec);
@@ -66,10 +73,18 @@ pub fn transcode<R: ChunkReader + 'static, W: Write + Send>(
             WriterOptions::default().with_policy(crate::Policy::Base).with_base(*base).with_properties(props.build())
         }
     };
+    // the rows keep their order: row groups that all say how they are sorted still are
+    let groups = metadata.row_groups();
+    let sorting = groups
+        .first()
+        .and_then(|rg| rg.sorting_columns())
+        .filter(|s| groups.iter().all(|rg| rg.sorting_columns() == Some(s)))
+        .cloned();
     options.properties = options
         .properties
         .into_builder()
         .set_key_value_metadata(Some(other_kv))
+        .set_sorting_columns(sorting)
         .set_max_row_group_row_count(None)
         .set_max_row_group_bytes(None)
         .build();
