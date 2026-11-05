@@ -143,9 +143,11 @@ def scan_tparquet(
 ) -> pl.LazyFrame:
     """A LazyFrame over Parquet files (PCODEC or not), read in order.
 
-    `source` is a path, a binary file object, a glob (`*`, `?`, `[...]`; `**` matches
-    directories too), a directory (every `.parquet` file below it), or a list of these. Globs
-    and directories are read in sorted order. All files must have the same schema.
+    `source` is a path (a leading `~` is the home directory), a binary file object, a glob
+    (`*`, `?`, `[...]`; `**` matches directories too), a directory (every `.parquet` file below
+    it, hidden ones skipped), or a list of these. A path that exists is never a glob. Globs and
+    directories are read in sorted order, lists in the order given. A file object is read when
+    scanned, a relative path resolved. All files must have the same schema.
 
     Each file is a Polars IO source: the projection, row limit and predicate of the query reach
     the reader, and the predicate skips row groups whose statistics rule it out. Batches have

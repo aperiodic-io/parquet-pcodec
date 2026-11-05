@@ -29,19 +29,33 @@ Importing `polars_tparquet` registers the `tparquet` namespace on `DataFrame` an
 
 `scan_tparquet(source, *, batch_size=None, include_file_paths=None) -> LazyFrame`
 
-- `source` is a path (`str`, `bytes` or `os.PathLike`; a leading `~` is the home directory), a
-  binary file object, a glob (`*`, `?`, `[...]`; `**` also matches
-  directories), a directory (every `.parquet` file below it), or a list of these. Globs and
-  directories are read in sorted order, lists in the order given. All files must have the
-  same schema; a file that differs raises `SchemaError` naming it.
+- `source` is a path (`str`, `bytes` or `os.PathLike`), a binary file object, a glob, a
+  directory, or a list of these, in any mix. A leading `~` is the home directory.
+  - A path that exists is that file or directory, whatever characters its name holds
+    (`trades[1].parquet`).
+  - Otherwise a path holding `*`, `?` or `[...]` is a glob (`**` also matches directories): the
+    files it matches, in sorted order; directories it matches are skipped.
+  - A directory is every `.parquet` file below it (any case of the suffix), in sorted order.
+    Hidden files and directories (names starting with `.`, such as macOS `._` files or another
+    writer's unfinished file) are skipped, as a glob skips them; symlinks to files are read,
+    symlinks to directories are not followed.
+  - A file object is read to its end once, when scanned (from where it stands; a pipe works);
+    it may be listed more than once. Relative paths are resolved when scanned, so a later
+    `chdir` does not change what is read.
+  - A file named twice (or matched by two globs) is read twice. A list is read in the order
+    given. All files must have the same schema; a file that differs raises `SchemaError`
+    naming it, and a file whose footer cannot be read raises the tparquet error with its name
+    in front.
 - Each file is a Polars IO source. The query's projection, row limit and predicate reach the
   reader, and the predicate also skips row groups whose integer, date and datetime statistics
   rule it out. Nothing is read until the query runs; the schema comes from the footers.
-- `include_file_paths="file"` adds a String column holding each row's file path.
+- `include_file_paths="file"` adds a String column holding each row's file path, as given (or as
+  the glob or directory gave it; a byte of the name that is not UTF-8 shows as U+FFFD).
 - Files without PCODEC (any standard Parquet file) are read too.
 
 `read_tparquet(source, *, columns=None, n_rows=None, batch_size=None, include_file_paths=None)`
-is `scan_tparquet(...)` with the columns (in the order given) and row limit applied, collected.
+is `scan_tparquet(...)` with the columns (names, or indices as `pl.read_parquet` takes them, in the
+order given) and row limit applied, collected.
 
 ## Writing
 
@@ -65,6 +79,15 @@ and the base codec is smaller on the first batch with rows; `"pcodec"` and `"bas
 (0 to 12), `base` the codec of the other columns (`"zstd(3)"`, `"snappy"`, `"uncompressed"`...),
 and `row_group_size` the most rows per row group.
 
+Known bug (tparquet's Polars reader, to be fixed there): over a single file, a row limit before
+a filter, such as `scan_tparquet("one.parquet").head(n).filter(...)`, gives wrong rows: the limit
+is applied after the filter. `filter(...).head(n)`, and scans of several files, are right.
+
+Not supported: `Int128`/`UInt128` (no Parquet Arrow type) and, for now, writing a `Null`
+column or to a path that is not UTF-8 (tparquet's Arrow import and path handling; a `Null`
+column Polars wrote is read). A scan reads the footer when scanned and the pages when the query
+runs: replace a file and a scan made before reads it no more (an error); scan it again.
+
 ## How it works
 
 The package is pure Python. Decoding and encoding are tparquet's Rust core (the `tparquet`
@@ -82,4 +105,6 @@ HYPOTHESIS_PROFILE=mutation TPARQUET_TESTDATA=$PWD/../testdata uv run --no-sync 
 ```
 
 The conformance tests read every vector of `testdata/` through the plugin and compare it with
-what Polars' own reader reads from a standard (non-PCODEC) copy of the same file.
+what Polars' own reader reads from a standard (non-PCODEC) copy of the same file, and with the
+expected rows of `testdata/expected/`, floats bit for bit. `HYPOTHESIS_PROFILE=thorough` runs the
+property tests with 400 examples each (about a minute and a half).
