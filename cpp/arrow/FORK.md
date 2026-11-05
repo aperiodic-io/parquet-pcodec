@@ -110,8 +110,8 @@ Upstream's own tests are not run: they need `ARROW_BUILD_TESTS` (gtest, gmock, B
 ## Mutation testing
 
 No C++ mutation tool is installable here (no `mull` or `dextool` package for Ubuntu 24.04 or on
-PyPI). `cpp/mutants/run.py` applies hand-picked mutations of the fork's changed functions
-(`cpp/mutants/mutants.json`) to `target/cpp/arrow-src` one at a time, rebuilds Arrow
+PyPI). `cpp/mutation/run.py` applies hand-picked mutations of the fork's changed functions
+(`cpp/mutation/mutants.json`) to `target/cpp/arrow-src` one at a time, rebuilds Arrow
 incrementally, runs the C++ tests and requires them to fail (`make -C cpp mutants`).
 
 Result (37 mutants, every one caught; about 40 minutes with 3 jobs): 4 in

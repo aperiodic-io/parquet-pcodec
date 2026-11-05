@@ -163,7 +163,7 @@ jobs:
             target/ccache
           key: cpp-arrow-release-${{ runner.os }}-${{ hashFiles('cpp/arrow/**') }}
           restore-keys: cpp-arrow-release-${{ runner.os }}-
-      - name: the fork's changed functions (cpp/mutants, every mutant caught)
+      - name: the fork's changed functions (cpp/mutation, every mutant caught)
         run: make -C cpp mutants JOBS=4
       - name: cargo mutants on rust/cread
         # exit 3: only timeouts, accepted when nothing was missed (as the root Makefile does)
@@ -173,6 +173,6 @@ jobs:
         with:
           name: cpp-mutants
           path: |
-            target/cpp/mutants.out
+            target/cpp/mutation.out
             mutants.out
           if-no-files-found: ignore

@@ -6,7 +6,7 @@
 #   make -C cpp test         the tests (gtest), the C smoke test of rust/cread
 #   make -C cpp asan         Arrow and the tests with clang, ASan and UBSan; runs the tests
 #   make -C cpp fuzz-smoke   both libFuzzer targets for FUZZ_TIME seconds each (default 60)
-#   make -C cpp mutants      the mutation check of the fork's changed functions (cpp/mutants)
+#   make -C cpp mutants      the mutation check of the fork's changed functions (cpp/mutation)
 #   make -C cpp downstream   installs the package and builds cpp/examples/downstream with it
 #   make -C cpp check-fork   scripts/check-cpp-fork.sh
 ROOT := $(abspath ..)
@@ -67,7 +67,7 @@ fuzz-smoke: fuzz-build
 	  -artifact_prefix=$(T)/fuzz/artifacts/ $(T)/fuzz/files
 
 mutants: build
-	python3 mutants/run.py --root $(ROOT) --jobs $(JOBS)
+	python3 mutation/run.py --root $(ROOT) --jobs $(JOBS)
 
 install: build
 	cmake --install $(T)/build-release

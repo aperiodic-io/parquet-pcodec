@@ -187,8 +187,8 @@ fork, writes it with `Policy::kPcodec` and copies its expected rows.
 
 No C++ mutation tool can be installed on the build machines (no `mull` or `dextool` package for
 Ubuntu 24.04, Mull's package repository is not reachable, nothing on PyPI), so
-[`mutants/run.py`](mutants/run.py) is a small script-based check: it applies the hand-picked
-mutations of [`mutants/mutants.json`](mutants/mutants.json), one at a time, to the fork's
+[`mutation/run.py`](mutation/run.py) is a small script-based check: it applies the hand-picked
+mutations of [`mutation/mutants.json`](mutation/mutants.json), one at a time, to the fork's
 changed functions in `target/cpp/arrow-src` (every function of the patch that is not a
 declaration or build wiring), rebuilds Arrow incrementally, runs the C++ tests and requires them
 to fail. Header-only changes whose mutation would rebuild all of Arrow (the enums, the options
