@@ -111,6 +111,11 @@ or, for a binary distribution (Spark's `jars/`), replace the three jars and add 
   1.17.0 and once against the fork, and `compare.py` requires the same outcome for every test.
   `TestParquetWriterError` is left out of both runs: it writes in a child JVM that gets
   upstream's DEBUG logging configuration and did not finish in 20 minutes here.
+  Result (JDK 21): 649 tests, the same outcome for each against upstream and against the
+  fork: 563 pass, 26 are skipped, 60 fail in both for want of their environment: upstream's
+  source tree (test files under its `src/test`, 14), test resources read through Hadoop from
+  inside the tests jar (`No FileSystem for scheme "jar"`, 15), mockito 1.10 on JDK 21 (13),
+  and interop files downloaded from GitHub (not reachable here, 10), and a few others.
 - `java/acceptance-upstream`: unmodified parquet-java 1.17.0 refuses every PCODEC vector.
 
 ## Mutation testing
