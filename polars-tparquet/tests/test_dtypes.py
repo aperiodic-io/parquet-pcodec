@@ -185,20 +185,15 @@ def test_a_null_column_written_by_polars_is_read() -> None:
     assert_frame_equal(pt.read_tparquet(io.BytesIO(buf.getvalue())), df)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=tparquet.PcodecError,
-    reason="tparquet (python/, Arrow C import) rejects Polars' Null arrays: 'The datatype \"Null\" "
-    "doesn't expect buffer at index 0'",
-)
 def test_a_null_column_is_written(tmp_path: pathlib.Path) -> None:
     df = pl.DataFrame({"n": pl.Series([None] * 3, dtype=pl.Null), "i": [1, 2, 3]})
     df.tparquet.write(tmp_path / "w.parquet")  # type: ignore[attr-defined]
     assert_frame_equal(pt.read_tparquet(tmp_path / "w.parquet"), df)
 
 
-def test_a_null_column_that_cannot_be_written_leaves_no_file(tmp_path: pathlib.Path) -> None:
-    lf = pl.LazyFrame({"i": [1, 2, 3]}).with_columns(n=pl.lit(None))
+def test_a_column_that_cannot_be_written_leaves_no_file(tmp_path: pathlib.Path) -> None:
+    # Int128 has no Arrow type in Rust (Null columns, which used to fail, are written now)
+    lf = pl.LazyFrame({"i": [1, 2, 3]}).with_columns(n=pl.lit(1, dtype=pl.Int128))
     with pytest.raises(tparquet.PcodecError):
         lf.collect().tparquet.write(tmp_path / "w.parquet")  # type: ignore[attr-defined]
     with pytest.raises(tparquet.PcodecError):
