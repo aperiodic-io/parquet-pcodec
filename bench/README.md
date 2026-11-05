@@ -9,8 +9,36 @@ derivatives.
 make bench            # from the repository root: downloads the samples, writes RESULTS.md
 ```
 
-The results of the last run are in [`RESULTS.md`](RESULTS.md) (machine-readable:
-[`results.json`](results.json)).
+## Results
+
+From the last run (31 datasets, 151M rows, 1.2 GB downloaded). Every dataset is in
+[`RESULTS.md`](RESULTS.md), and the codec and encoding of every column are in
+[`results.json`](results.json).
+
+| Data type | Datasets | Rows | ZSTD(9) | ZSTD(9) tuned | tparquet | tparquet / ZSTD(9) | tparquet / tuned |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Trades | 5 | 138.9M | 737.0 MB | 520.0 MB | 362.2 MB | **0.49×** | **0.70×** |
+| Quotes (L1) | 3 | 6.8M | 80.6 MB | 63.3 MB | 51.0 MB | **0.63×** | **0.81×** |
+| Order book (L2) | 3 | 5.5M | 126.4 MB | 109.2 MB | 58.6 MB | **0.46×** | **0.54×** |
+| Bars (OHLCV) | 1 | 8.9K | 296 KB | 160 KB | 108 KB | **0.36×** | **0.67×** |
+| Metrics (5m bars) | 18 | 161K | 10.5 MB | 6.4 MB | 5.8 MB | **0.55×** | **0.91×** |
+| Derivatives | 1 | 119K | 2.2 MB | 1.6 MB | 882 KB | **0.40×** | **0.55×** |
+| **All** | 31 | 151.5M | 957.1 MB | 700.7 MB | 478.6 MB | **0.50×** | **0.68×** |
+
+- tparquet wins on every dataset, against both baselines. The range is 0.17× to 0.70× of
+  untuned ZSTD(9), and 0.49× to 0.96× of tuned ZSTD(9).
+- The order books gain the most: about half of tuned ZSTD(9), because every price and size
+  level is a numeric column.
+- The 5m metrics gain the least against tuned ZSTD(9) (0.91×). They are aggregates such as
+  ratios, volatilities and percentages, often float32, and leave pcodec little structure to use.
+- NYSE quotes gain less than the crypto quotes (0.88× of tuned). One file holds many
+  symbols, interleaved in time, so prices jump between rows.
+- Strings keep tparquet's base codec, ZSTD(3) with the default encoding. On string trade ids
+  (Aperiodic, Tardis.dev) the tuned baseline's DELTA_BYTE_ARRAY is smaller, so tparquet's
+  total there would improve with a better base encoding for strings.
+- Writing tparquet is faster than writing ZSTD(9) on the trades (44 s against 64 s), and
+  2.8× slower on the order books, whose 80 to 100 columns are all PCODEC. Reading takes 1.1×
+  to 1.5× the time of the ZSTD(9) files.
 
 ## What is measured
 

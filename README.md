@@ -46,8 +46,22 @@ scan reads about a third of the bytes. To reproduce the table:
 cargo test --release -p tparquet --test acceptance -- --nocapture
 ```
 
-Synthetic data only goes so far. The quickest way to find out what tparquet does for your data
-is to run it on one of your own files.
+Synthetic data only goes so far, so [`bench/`](bench) measures tparquet on real data. It
+uses the sample and preview data of Aperiodic, Tardis.dev, Crypto Lake and NYSE (and
+Databento's, given an API key): 151M rows across 31 datasets. On these, tparquet is **0.50×** of ZSTD(9) Parquet with the
+writer's defaults, and **0.68×** of ZSTD(9) with the best encoding chosen per column
+(DELTA_BINARY_PACKED, BYTE_STREAM_SPLIT, ...):
+
+| Data | tparquet / ZSTD(9) | tparquet / tuned ZSTD(9) |
+|---|---:|---:|
+| Trades (crypto perps and spot, US equities) | 0.49× | 0.70× |
+| Quotes (top of book) | 0.63× | 0.81× |
+| Order books (L2 snapshots and updates) | 0.46× | 0.54× |
+| Bars, metrics, derivatives | 0.36× to 0.55× | 0.55× to 0.91× |
+
+Every dataset is in [`bench/RESULTS.md`](bench/RESULTS.md); `make bench` reproduces it. The
+quickest way to find out what tparquet does for your data is still to run it on one of your
+own files.
 
 ## Try it on your own file
 
@@ -243,6 +257,7 @@ make datafusion-test  # DataFusion and its parquet 59.3.2 fork
 make cpp-test         # C++ and the Arrow C++ fork (asan, fuzz-smoke, mutants targets in cpp/)
 make acceptance       # cross-language (needs the Python package, the DuckDB extension, the Java
                       # packages and the C++ library built)
+make bench            # the benchmark on providers' sample data (downloads about 1.2 GB)
 ```
 
 CI runs all of it on every pull request (`.github/workflows/`). See [`AGENTS.md`](AGENTS.md) for
