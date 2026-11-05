@@ -35,6 +35,23 @@ pub fn default_base() -> Compression {
     Compression::ZSTD(ZstdLevel::try_new(3).expect("3 is a zstd level"))
 }
 
+/// Parses a base codec as the `parquet` crate names codecs (`zstd(3)`, `SNAPPY`, `gzip(6)`,
+/// `uncompressed`...). PCODEC is not a base codec, and no Parquet writer implements LZO. A
+/// level is in parentheses that end the string: the `parquet` crate's parser takes the last
+/// character for the `)` without looking (it panics on `zstd(` and reads `zstd(3x` as
+/// `zstd(3)`), so anything else is refused before it gets there.
+pub fn parse_base(s: &str) -> Result<Compression> {
+    if s.split_once('(').is_some_and(|(_, level)| !level.ends_with(')')) {
+        return Err(invalid(format!("base codec {s:?}: expected NAME or NAME(LEVEL)")));
+    }
+    match s.parse::<Compression>() {
+        Ok(Compression::PCODEC(_)) => Err(invalid("the base codec cannot be PCODEC")),
+        Ok(Compression::LZO) => Err(invalid("the base codec cannot be LZO: no Parquet writer implements it")),
+        Ok(c) => Ok(c),
+        Err(e) => Err(invalid(format!("base codec {s:?}: {e}"))),
+    }
+}
+
 impl Default for WriterOptions {
     fn default() -> Self {
         Self {

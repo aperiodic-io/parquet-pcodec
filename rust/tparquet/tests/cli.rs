@@ -147,6 +147,12 @@ fn bad_arguments_and_inputs_are_clean_errors() {
     );
     fails(vec![p("encode"), i, o, p("--base"), p("pcodec")], 2, "the base codec cannot be PCODEC");
     fails(vec![p("encode"), i, o, p("--base"), p("lzma")], 2, "unsupported compression lzma");
+    // the parquet crate's parser panics on these, or reads "zstd(3x" as zstd(3)
+    for bad in ["zstd(", "zstd(3", "zstd(3x", "gzip(é", "zstd)("] {
+        fails(vec![p("encode"), i, o, p("--base"), p(bad)], 2, "expected NAME or NAME(LEVEL)");
+    }
+    // no Parquet writer implements LZO
+    fails(vec![p("encode"), i, o, p("--base"), p("lzo")], 2, "the base codec cannot be LZO");
     fails(vec![p("encode"), m, o], 2, &format!("tparquet: {}: No such file", missing.display()));
     fails(vec![p("encode"), g, o], 2, "tparquet: parquet: ");
     fails(vec![p("decode"), g, o], 2, "tparquet: parquet: ");
