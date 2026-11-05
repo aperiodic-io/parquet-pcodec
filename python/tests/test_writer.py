@@ -225,3 +225,16 @@ def test_metadata_and_nullability_need_not_match(tmp_path: pathlib.Path) -> None
     assert back.schema.metadata[b"k"] == b"v"
     with ppc.Writer(path, required) as w, pytest.raises(ppc.PcodecError, match="null"):
         w.write(pa.table({"a": pa.array([None], pa.int64()), "b": pa.array([1], pa.int64())}))
+
+
+def test_unions_are_refused_by_name(tmp_path: pathlib.Path) -> None:
+    table = union_table()
+    u = table["u"].combine_chunks()
+    nested = pa.table({"s": pa.StructArray.from_arrays([u], ["inner"])})
+    listed = pa.table({"i": pa.array([1]), "l": pa.ListArray.from_arrays(pa.array([0, 2], pa.int32()), u)})
+    for data, column in [(table, "u"), (nested, "s.inner"), (listed, "l.item"), (table.to_batches()[0], "u")]:
+        with pytest.raises(ppc.PcodecError, match=rf"^the column {column} is a union, which Parquet cannot store$"):
+            ppc.write_table(data, tmp_path / "x.parquet")
+    with pytest.raises(ppc.PcodecError, match=r"^the column u is a union"):
+        ppc.Writer(tmp_path / "x.parquet", table.schema)
+    assert list(tmp_path.iterdir()) == []

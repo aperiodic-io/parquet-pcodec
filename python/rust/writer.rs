@@ -6,7 +6,7 @@ use crate::file::File;
 use crate::options::{Options, base_codec, codec_map, codec_name};
 use crate::sink::Sink;
 use arrow_array::RecordBatch;
-use arrow_schema::SchemaRef;
+use arrow_schema::{DataType, SchemaRef};
 use pyo3::prelude::*;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -40,9 +40,37 @@ fn discard(path: Option<&PathBuf>) {
     }
 }
 
+/// The dotted path of a union in `fields` (under `prefix`), if any.
+fn union_in(fields: &arrow_schema::Fields, prefix: &str) -> Option<String> {
+    fields.iter().find_map(|f| {
+        let path = if prefix.is_empty() { f.name().clone() } else { format!("{prefix}.{}", f.name()) };
+        match f.data_type() {
+            DataType::Union(..) => Some(path),
+            DataType::Struct(children) => union_in(children, &path),
+            DataType::List(c)
+            | DataType::LargeList(c)
+            | DataType::ListView(c)
+            | DataType::LargeListView(c)
+            | DataType::FixedSizeList(c, _)
+            | DataType::Map(c, _) => union_in(&arrow_schema::Fields::from(vec![c.clone()]), &path),
+            _ => None,
+        }
+    })
+}
+
+/// Refuses a schema with a union, which the parquet crate does not write (it panics with
+/// "not implemented").
+fn refuse_unions(schema: &arrow_schema::Schema) -> PyResult<()> {
+    match union_in(schema.fields(), "") {
+        Some(path) => Err(invalid(format!("the column {path} is a union, which Parquet cannot store"))),
+        None => Ok(()),
+    }
+}
+
 impl Writer {
     fn create(py: Python<'_>, sink: &Bound<'_, PyAny>, schema: SchemaRef, options: &Options) -> PyResult<Self> {
         let options = options.writer_options()?;
+        refuse_unions(&schema)?;
         // what the writer refuses (column names, the schema) is refused before the file is
         // created, or an existing one truncated
         let (s, o) = (schema.clone(), options.clone());
