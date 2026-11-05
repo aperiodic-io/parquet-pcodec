@@ -1,7 +1,7 @@
 //! Reading: an open Parquet file (PCODEC or not), its metadata, and streams of its rows.
 
 use crate::errors::{detached, from_arrow, from_parquet, from_pcodec, invalid, os_error};
-use crate::ffi::{ArrowSchema, RecordBatchStream};
+use crate::ffi::{ArrowSchema, RecordBatchStream, named};
 use crate::options::codec_name;
 use arrow_array::{RecordBatch, RecordBatchIterator, RecordBatchReader};
 use arrow_schema::{ArrowError, SchemaRef};
@@ -28,6 +28,7 @@ enum Source {
     /// file even when its path is replaced later; read at given offsets, so that readers in
     /// other threads do not share a cursor.
     File {
+        path: PathBuf,
         file: Arc<std::fs::File>,
         len: u64,
     },
@@ -115,13 +116,21 @@ impl Source {
     fn open_path(path: PathBuf) -> PyResult<Self> {
         let file = std::fs::File::open(&path).map_err(|e| os_error(&e, &path))?;
         let len = file.metadata().map_err(|e| os_error(&e, &path))?.len();
-        Ok(Self::File { file: Arc::new(file), len })
+        Ok(Self::File { path, file: Arc::new(file), len })
     }
 
     fn reader(&self) -> Reader {
         match self {
             Self::File { file, len, .. } => Reader::File { file: file.clone(), len: *len },
             Self::Bytes(b) => Reader::Bytes(b.clone()),
+        }
+    }
+
+    /// The name read errors give the file: its path, if it has one.
+    fn name(&self) -> Option<String> {
+        match self {
+            Self::File { path, .. } => Some(path.display().to_string()),
+            Self::Bytes(_) => None,
         }
     }
 }
@@ -177,18 +186,24 @@ pub fn open_bytes(py: Python<'_>, data: PyBackedBytes) -> PyResult<File> {
     File::load(py, || Ok(Source::Bytes(Bytes::from_owner(data))))
 }
 
-/// Batches of a projected reader with the columns in the requested order.
+/// Batches of a projected reader with the columns in the requested order; its errors name
+/// the file when it has a name.
 struct Reordered {
     inner: ParquetRecordBatchReader,
     order: Vec<usize>,
     schema: SchemaRef,
+    name: Option<String>,
 }
 
 impl Iterator for Reordered {
     type Item = Result<RecordBatch, ArrowError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next().map(|b| b.and_then(|b| b.project(&self.order)))
+        let batch = self.inner.next()?.and_then(|b| b.project(&self.order));
+        Some(batch.map_err(|e| match &self.name {
+            Some(name) => named(name, e),
+            None => e,
+        }))
     }
 }
 
@@ -255,7 +270,8 @@ impl File {
         let (sorted, order, schema) = self.projection(columns)?;
         let mask = ProjectionMask::roots(self.metadata.parquet_schema(), sorted);
         let inner = builder.with_projection(mask).build().map_err(from_parquet)?;
-        Ok(RecordBatchStream::new(Box::new(Reordered { inner, order, schema })))
+        let name = self.source.name();
+        Ok(RecordBatchStream::new(Box::new(Reordered { inner, order, schema, name })))
     }
 
     /// A stream without rows, with the schema `stream(columns)` has.

@@ -225,13 +225,6 @@ def test_a_query_error_names_the_problem(write: Write) -> None:
         lf.select(pl.col("sym") + 1).collect()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,  # the error is raised, without the name
-    reason="tparquet (python/) does not name the file in the errors it raises while reading pages "
-    "('Parquet error: Unexpected list/set element type 14'); the plugin names it only for errors "
-    "in the footer, which it reads when scanning",
-)
 def test_a_corrupt_page_is_named_in_the_error(write: Write, tmp_path: pathlib.Path) -> None:
     good = write("good.parquet", pl.DataFrame({"a": range(100_000)}))
     data = bytearray(good.read_bytes())

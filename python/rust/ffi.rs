@@ -90,6 +90,33 @@ impl RecordBatchReader for Detached {
     }
 }
 
+/// An error of reading a file with a name: the message starts with the name.
+#[derive(Debug)]
+struct Named(String);
+
+impl std::fmt::Display for Named {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for Named {}
+
+/// `e`, raised while reading the file `name`.
+pub fn named(name: &str, e: ArrowError) -> ArrowError {
+    ArrowError::ExternalError(Box::new(Named(format!("{name}: arrow: {e}"))))
+}
+
+/// A read error as a `PcodecError`; one that names its file keeps the name first.
+fn read_error(e: ArrowError) -> PyErr {
+    if let ArrowError::ExternalError(inner) = &e
+        && let Some(Named(message)) = inner.downcast_ref::<Named>()
+    {
+        return invalid(message.clone());
+    }
+    from_arrow(e)
+}
+
 fn consumed() -> PyErr {
     invalid("the stream was already consumed")
 }
@@ -141,7 +168,7 @@ impl RecordBatchStream {
     /// The next batch, decoded with the GIL released.
     fn __next__(&self, py: Python<'_>) -> PyResult<Option<Batch>> {
         let next = locked(py, &self.reader, |r| match r {
-            Some(r) => r.next().transpose().map_err(from_arrow),
+            Some(r) => r.next().transpose().map_err(read_error),
             None => Err(consumed()),
         })?;
         Ok(next.map(|batch| Batch { batch, schema: self.schema.clone() }))

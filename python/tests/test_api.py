@@ -714,25 +714,6 @@ def test_paths_that_are_not_utf_8(tmp_path: pathlib.Path, numbers: pa.Table) -> 
     assert not os.path.exists(out)
 
 
-def test_paths_that_are_not_utf_8(tmp_path: pathlib.Path, numbers: pa.Table) -> None:
-    raw = os.fsencode(tmp_path) + b"/caf\xe9.parquet"
-    for sink in (raw, os.fsdecode(raw)):
-        assert ppc.write_table(numbers, sink)["i64"] == "PCODEC"
-        assert ppc.read_table(raw).equals(numbers)
-        os.remove(raw)
-    with ppc.Writer(raw, numbers.schema) as w:
-        w.write(numbers)
-    assert ppc.read_table(os.fsdecode(raw)).equals(numbers)
-    out = os.fsencode(tmp_path) + b"/out\xff.parquet"
-    ppc.transcode(raw, out, target="standard")
-    with open(out, "rb") as f:
-        assert pq.read_table(f).equals(numbers)
-    # an aborted writer removes the file it created
-    w = ppc.Writer(os.fsdecode(out), numbers.schema)
-    w.abort()
-    assert not os.path.exists(out)
-
-
 def test_a_file_replaced_after_it_was_opened_reads_as_opened(tmp_path: pathlib.Path, numbers: pa.Table) -> None:
     path = tmp_path / "t.parquet"
     ppc.write_table(numbers, path, row_group_size=500)
@@ -748,3 +729,23 @@ def test_a_file_replaced_after_it_was_opened_reads_as_opened(tmp_path: pathlib.P
     os.remove(path)
     assert f.read(row_groups=[3]).equals(numbers.slice(1500))
     assert f.metadata.num_rows == 2000
+
+
+def test_page_errors_name_the_file(tmp_path: pathlib.Path) -> None:
+    good = tmp_path / "good.parquet"
+    ppc.write_table(pa.table({"a": pa.array(range(100_000), pa.int64())}), good)
+    data = bytearray(good.read_bytes())
+    for i in range(100, 400):  # in the first page, past its header
+        data[i] ^= 0x5A
+    bad = tmp_path / "bad.parquet"
+    bad.write_bytes(bytes(data))
+    with pytest.raises(ppc.PcodecError, match=rf"^{re.escape(str(bad))}: "):
+        ppc.read_table(bad)
+    with pytest.raises(ppc.PcodecError, match=rf"^{re.escape(str(bad))}: "):
+        next(iter(ppc.read_batches(bad)))
+    with pytest.raises(pa.ArrowException, match=re.escape(str(bad))):
+        pa.RecordBatchReader.from_stream(ppc.read_batches(bad)).read_all()
+    # a file read into memory has no name
+    with pytest.raises(ppc.PcodecError) as e:
+        ppc.read_table(io.BytesIO(bytes(data)))
+    assert str(bad) not in str(e.value)
