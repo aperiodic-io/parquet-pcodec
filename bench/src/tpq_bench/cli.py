@@ -90,6 +90,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             except fetch.Unavailable as e:
                 _say(f"not fetched: {s.provider}: {s.data}: {e}")
                 missing.append(s)
+        if missing:
+            _say(f"{len(missing)} of {len(sources)} not fetched: {', '.join(s.key for s in missing)}")
         return 1 if missing else 0
 
     sources += [catalog.dbn_file(p, dbn_schema(p)) for p in args.dbn]

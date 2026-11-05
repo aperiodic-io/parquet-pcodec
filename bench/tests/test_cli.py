@@ -66,7 +66,9 @@ def test_main_fetch_reports_what_it_could_not_fetch(
         catalog, "SOURCES", [catalog.Source("X", "BTC trades", "trades", "x/t.parquet", "parquet", catalog.Local())]
     )
     assert cli.main(["fetch", "--data", str(tmp_path)]) == 1
-    assert "not fetched: X: BTC trades" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "not fetched: X: BTC trades" in err
+    assert err.endswith("1 of 1 not fetched: x/t.parquet\n")
 
 
 def test_main_list(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]) -> None:

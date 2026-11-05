@@ -71,8 +71,9 @@ addopts = "-ra --strict-markers"
 filterwarnings = ["error"]
 
 [tool.mutmut]
-# run from bench/: `uv run --no-sync mutmut run`; the network and the Databento API are left
-# out (see the `# pragma: no mutate` lines), everything else is judged by the offline tests
+# run from bench/: `uv run --no-sync mutmut run`; the offline tests judge every mutant (the
+# network and Databento's client are faked). `# pragma: no mutate` marks the lines whose mutants
+# no test can observe, each with its reason
 source_paths = ["src/tpq_bench"]
 pytest_add_cli_args = ["-p", "no:cacheprovider"]
 pytest_add_cli_args_test_selection = ["tests/"]

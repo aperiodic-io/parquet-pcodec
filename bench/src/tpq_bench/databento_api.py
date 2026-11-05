@@ -1,6 +1,7 @@
 """Databento's historical API: a paid request, so a key, a price check, then the download.
 
-Not run by the tests (it needs a key and spends credits); the loader of its DBN files is.
+The tests fake Databento's client (`tests/test_databento_api.py`): a real request needs a key
+and spends credits.
 """
 
 from __future__ import annotations
