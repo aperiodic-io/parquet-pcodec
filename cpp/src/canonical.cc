@@ -117,16 +117,28 @@ Status WriteValue(const arrow::Array& a, int64_t i, std::string* out) {
       WriteInt<arrow::Int16Array>(a, i, out);
       break;
     case T::INT32:
-    case T::DATE32:
-    case T::TIME32:
       WriteInt<arrow::Int32Array>(a, i, out);
       break;
+    case T::DATE32:
+      WriteInt<arrow::Date32Array>(a, i, out);
+      break;
+    case T::TIME32:
+      WriteInt<arrow::Time32Array>(a, i, out);
+      break;
     case T::INT64:
-    case T::DATE64:
-    case T::TIME64:
-    case T::TIMESTAMP:
-    case T::DURATION:
       WriteInt<arrow::Int64Array>(a, i, out);
+      break;
+    case T::DATE64:
+      WriteInt<arrow::Date64Array>(a, i, out);
+      break;
+    case T::TIME64:
+      WriteInt<arrow::Time64Array>(a, i, out);
+      break;
+    case T::TIMESTAMP:
+      WriteInt<arrow::TimestampArray>(a, i, out);
+      break;
+    case T::DURATION:
+      WriteInt<arrow::DurationArray>(a, i, out);
       break;
     case T::UINT8:
       WriteInt<arrow::UInt8Array>(a, i, out);

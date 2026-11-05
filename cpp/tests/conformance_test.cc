@@ -2,6 +2,7 @@
 // parquet::arrow::FileReader, through tparquet::ReadTable and through the C stream reader
 // (rust/cread) gives exactly expected/<name>.jsonl; the footer, codecs, physical types and page
 // types agree with files/manifest.json.
+#include <cstring>
 #include <map>
 #include <set>
 
@@ -133,6 +134,31 @@ TEST(Conformance, FooterCodecsAndPagesMatchTheManifest) {
   }
   EXPECT_EQ(files, static_cast<int>(VectorFiles().size()));
   EXPECT_GE(pcodec_chunks, 51);
+}
+
+TEST(Conformance, OtherCodecValuesAreStillRefused) {
+  // the fork accepts exactly 20547 beyond the standard range: in the footer of mixed.parquet,
+  // replace the codec values (thrift compact: zigzag varints, 20547 is 86 c1 02) by 20548
+  // (88 c1 02)
+  const std::string file = ReadFile(Testdata() / "files" / "mixed.parquet");
+  uint32_t footer_len;
+  std::memcpy(&footer_len, file.data() + file.size() - 8, 4);
+  const size_t footer = file.size() - 8 - footer_len;
+  const std::string pcodec("\x86\xc1\x02", 3);
+  for (const auto& [other, value] : {std::pair{std::string("\x88\xc1\x02", 3), 20548}}) {
+    std::string bad = file;
+    int replaced = 0;
+    for (size_t at = bad.find(pcodec, footer); at != std::string::npos; at = bad.find(pcodec, at + 3)) {
+      bad.replace(at, 3, other);
+      replaced++;
+    }
+    ASSERT_EQ(replaced, 3) << "ts, price, qty";
+    auto table = ReadBuffer(arrow::Buffer::FromString(bad));
+    ASSERT_FALSE(table.ok());
+    EXPECT_NE(table.status().message().find("Unsupported compression codec value: " + std::to_string(value)),
+              std::string::npos)
+        << table.status().ToString();
+  }
 }
 
 #ifdef TPARQUET_HAVE_READ

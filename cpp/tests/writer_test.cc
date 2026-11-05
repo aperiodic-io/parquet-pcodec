@@ -9,6 +9,7 @@
 #include <arrow/util/compression.h>
 #include <parquet/column_page.h>
 #include <parquet/column_reader.h>
+#include <parquet/arrow/writer.h>
 #include <parquet/schema.h>
 
 #include "common.h"
@@ -230,6 +231,40 @@ TEST(Writer, ThePhysicalTypeIsTheTypeHint) {
     EXPECT_EQ(payload[0], 1);
     EXPECT_EQ(static_cast<int>(payload[1]), mode) << "column " << column;
     EXPECT_EQ(static_cast<int>(payload[2]), dtype) << "column " << column;
+  }
+}
+
+TEST(Writer, PcodecCodecOptionsGivenToParquetKeepTheColumnHint) {
+  // parquet::arrow directly, with the fork's PcodecCodecOptions as the column's codec options:
+  // the page writer keeps their level and decimal flag, and sets the hint from the column
+  arrow::DoubleBuilder b;
+  for (int i = 0; i < 4000; ++i) ASSERT_OK(b.Append((10000 + i % 300) / 100.0));
+  auto table = arrow::Table::Make(arrow::schema({arrow::field("price", arrow::float64(), false)}),
+                                  {b.Finish().ValueOrDie()});
+  for (bool decimal : {true, false}) {
+    auto options = std::make_shared<arrow::util::PcodecCodecOptions>();
+    options->decimal = decimal;
+    options->physical_type = -1;  // replaced by the column's type
+    options->compression_level = 0;
+    auto props = parquet::WriterProperties::Builder()
+                     .compression(Compression::PCODEC)
+                     ->codec_options("price", options)
+                     ->disable_dictionary()
+                     ->encoding(parquet::Encoding::PLAIN)
+                     ->data_page_version(parquet::ParquetDataPageVersion::V2)
+                     ->build();
+    ASSERT_OK_AND_ASSIGN(auto sink, arrow::io::BufferOutputStream::Create());
+    ASSERT_OK(parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), sink, 4000, props));
+    ASSERT_OK_AND_ASSIGN(auto file, sink->Finish());
+    const std::string payload = FirstPayload(file, 0, 4000 * 8);
+    ASSERT_GE(payload.size(), 3u);
+    EXPECT_EQ(static_cast<int>(payload[1]), decimal ? 2 : 1) << "DECIMAL or PCO";
+    EXPECT_EQ(static_cast<int>(payload[2]), 5) << "DOUBLE";
+    // level 0, not the default 8: a different payload
+    options->compression_level = 8;
+    ASSERT_OK_AND_ASSIGN(auto sink8, arrow::io::BufferOutputStream::Create());
+    ASSERT_OK(parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), sink8, 4000, props));
+    EXPECT_NE(FirstPayload(sink8->Finish().ValueOrDie(), 0, 4000 * 8), payload);
   }
 }
 

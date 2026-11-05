@@ -77,6 +77,7 @@ downstream: install
 	  -DCMAKE_PREFIX_PATH="$(T)/install;$(T)/arrow-release/install"
 	cmake --build $(T)/build-downstream
 	$(T)/build-downstream/downstream $(ROOT)/testdata/files/mixed.parquet $(T)/downstream.parquet
+	$(T)/build-downstream/downstream-c $(T)/downstream.parquet
 
 check-fork:
 	$(ROOT)/scripts/check-cpp-fork.sh
