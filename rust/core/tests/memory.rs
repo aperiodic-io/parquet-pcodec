@@ -132,3 +132,45 @@ fn a_lying_chunk_count_allocates_nothing_for_it() {
     assert!(matches!(r, Err(Error::SizeMismatch { expected: 64, .. })), "{r:?}");
     assert!(peak < OVERHEAD, "{peak} bytes");
 }
+
+/// the most any single-bit flip in the first 128 bytes of pcodec files written in Dict mode and
+/// with lookback deltas makes the decoder allocate
+fn worst_bit_flip() -> usize {
+    use pco::standalone::simple_compress;
+    use pco::{ChunkConfig, DeltaSpec, ModeSpec};
+    let dict: Vec<i64> = (0..5_000).map(|i| [5, 77, 1 << 40, -3][i % 4]).collect();
+    let lookback: Vec<i64> = (0..5_000).map(|i| (i % 97 * (i % 13)) as i64).collect();
+    let mut worst = 0;
+    for (v, cfg) in [
+        (dict, ChunkConfig::default().with_mode_spec(ModeSpec::TryDict)),
+        (lookback, ChunkConfig::default().with_delta_spec(DeltaSpec::TryLookback)),
+    ] {
+        let mut p = vec![1, 1, 2];
+        p.extend(simple_compress(&v, &cfg).unwrap());
+        for bit in 0..p.len().min(128) * 8 {
+            let mut q = p.clone();
+            q[bit / 8] ^= 1 << (bit % 8);
+            worst = worst.max(decode_peak(&q, v.len() * 8).1);
+        }
+    }
+    worst
+}
+
+/// pcodec 1.0.4 sizes two buffers from chunk header fields without checking them against the
+/// chunk's value count: a Dict mode dictionary (up to 2^25 entries) and a lookback window (up
+/// to 2^24 values, twice). Both are valid pcodec, so tparquet-core cannot refuse them, and a
+/// lying header makes the decoder allocate up to about 256 MB per decode, whatever the page.
+/// This pins that ceiling (it is pcodec's, not the payload's); the ignored test below is the
+/// bound to reach once pcodec checks the fields.
+#[test]
+fn pcodec_header_fields_cost_at_most_pcodecs_own_caps() {
+    let worst = worst_bit_flip();
+    assert!(worst < 1 << 29, "{worst} bytes");
+}
+
+#[test]
+#[ignore = "pcodec 1.0.4 sizes Dict and lookback buffers from chunk header fields (see above)"]
+fn pcodec_header_fields_cost_no_more_than_the_page() {
+    let worst = worst_bit_flip();
+    assert!(worst < OVERHEAD, "{worst} bytes for a 40000 byte page");
+}
