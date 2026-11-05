@@ -130,7 +130,7 @@ DuckDB 2.0's C API has COPY functions in its stable API (`duckdb_create_copy_fun
 COPY format `tparquet` with a bind, global init, sink and finalize callback. The file is
 written with `tparquet::Writer`, whose `Auto` policy (spec section 6) compares PCODEC and
 the base codec per numeric column on the first batch; the writer holds back the first 128Ki rows
-so that this comparison sees more than one DuckDB vector.
+(or 64 MiB, whichever comes first) so that this comparison sees more than one DuckDB vector.
 
 | option | default | |
 |---|---|---|
