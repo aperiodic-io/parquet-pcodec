@@ -194,19 +194,17 @@ fn footer_settings<R: ChunkReader>(input: &R, metadata: &ParquetMetaData) -> Vec
 
 /// The bloom filter properties with which the writer makes a filter of `bytes` bytes (a
 /// power of two) that it does not fold, for a filter whose estimated false positive
-/// probability is `fpp`; `None` for an empty filter (`fpp` 0), which folds to the smallest
-/// size whatever its properties.
+/// probability is `fpp`; `None` for an empty filter (`fpp` 0, which the builder refuses: an
+/// empty filter folds to the smallest size whatever its properties).
 ///
 /// The writer starts from `-8 ndv / ln(1 - fpp^(1/8))` bits, rounded up to a power of two
 /// bytes, and folds while the estimate after a fold stays within `fpp`. A fold only raises
 /// the estimate of a filter with some bits set and some clear, so with its own estimate as
-/// the target the filter keeps its size.
+/// the target the filter keeps its size. A full filter (estimate 1, which the builder
+/// refuses) gets 0.999: it cannot fold within that either, and the formula still gives its
+/// size (just below 1 it would round to no bits at all).
 fn bloom_filter_properties(bytes: usize, fpp: f64) -> Option<BloomFilterProperties> {
-    if fpp <= 0.0 {
-        return None;
-    }
-    // a full filter (fpp 1) is refused as a target: just below it, nothing folds either
-    let fpp = fpp.min(1.0 - f64::EPSILON);
+    let fpp = fpp.min(0.999);
     let bytes_per_ndv = -1.0 / (1.0 - fpp.powf(1.0 / 8.0)).ln();
     // three quarters of `bytes`: rounding up to a power of two gives `bytes` again
     let ndv = (bytes as f64 * 0.75 / bytes_per_ndv).round().max(1.0) as u64;
@@ -216,4 +214,32 @@ fn bloom_filter_properties(bytes: usize, fpp: f64) -> Option<BloomFilterProperti
 /// A row offset within a batch; negative only when the footer's row counts are wrong.
 fn offset(n: i64) -> Result<usize> {
     usize::try_from(n).map_err(|_| crate::error::invalid("row group sizes do not match the data"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// the size of the filter the writer starts from with `p`
+    fn initial(p: &BloomFilterProperties) -> usize {
+        Sbbf::new_with_ndv_fpp(p.ndv(), p.fpp()).unwrap().num_blocks() * 32
+    }
+
+    #[test]
+    fn bloom_filter_properties_start_from_the_input_size() {
+        for bytes in [32, 64, 1024, 1 << 20] {
+            for fpp in [1e-12, 1e-6, 0.001, 0.05, 0.2, 0.5, 0.9, 0.999, 1.0] {
+                let p = bloom_filter_properties(bytes, fpp).unwrap();
+                assert_eq!((initial(&p), p.fpp()), (bytes, fpp.min(0.999)), "{bytes} {fpp}");
+            }
+        }
+        assert_eq!(bloom_filter_properties(1024, 0.0), None);
+    }
+
+    #[test]
+    fn bloom_filter_properties_aim_at_three_quarters_of_the_size() {
+        // 1024 * 0.75 / (-1 / ln(1 - 0.05^(1/8))) = 893.7, and so on
+        let ndv = |bytes, fpp| bloom_filter_properties(bytes, fpp).unwrap().ndv();
+        assert_eq!([ndv(1024, 0.05), ndv(1 << 20, 0.001), ndv(64, 0.999)], [894, 430695, 431]);
+    }
 }

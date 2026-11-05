@@ -402,6 +402,8 @@ fn statistics_settings_and_bloom_filters_are_kept_both_ways() {
         .set_column_statistics_enabled(col("name"), EnabledStatistics::None)
         .set_offset_index_disabled(true)
         .set_column_bloom_filter_fpp(col("px"), 0.2)
+        // 64 bytes for 3000 values: a full filter
+        .set_column_bloom_filter_max_ndv(col("px"), 64)
         .build();
     for props in [page_stats, no_page_index] {
         let input = written_with(props, 3000);
