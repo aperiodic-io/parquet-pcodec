@@ -4,11 +4,11 @@ Read and write Parquet files that use PCODEC, a Parquet compression codec for nu
 (`CompressionCodec` 20547, see `spec/FORMAT.md`). Any Parquet file reads, PCODEC or not.
 
 ```python
-import tparquet as ppc
+import tparquet as tpq
 
-choice = ppc.write_table(table, "trades.parquet")      # {"price": "PCODEC", "sym": "ZSTD", ...}
-table = ppc.read_table("trades.parquet", columns=["ts", "price"])
-stream = ppc.read_batches("trades.parquet")              # __arrow_c_stream__, for any Arrow library
+choice = tpq.write_table(table, "trades.parquet")      # {"price": "PCODEC", "sym": "ZSTD", ...}
+table = tpq.read_table("trades.parquet", columns=["ts", "price"])
+stream = tpq.read_batches("trades.parquet")              # __arrow_c_stream__, for any Arrow library
 ```
 
 - `write_table(data, path, policy="auto", columns=None, level=8, base="zstd(3)", row_group_size=None)`:
