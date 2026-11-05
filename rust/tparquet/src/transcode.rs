@@ -18,7 +18,9 @@ use std::sync::Arc;
 pub enum Target {
     /// PCODEC where the options select it.
     Pcodec(WriterOptions),
-    /// Standard Parquet: PCODEC columns become `base`, the others keep their codec.
+    /// Standard Parquet: PCODEC columns become `base`, the others keep their codec (with the
+    /// base's level if it is the base's codec, else the codec's default level: the footer
+    /// does not record levels).
     Standard {
         /// The codec that replaces PCODEC.
         base: Compression,
@@ -60,6 +62,9 @@ pub fn transcode<R: ChunkReader + 'static, W: Write + Send>(
                 for c in rg.columns() {
                     let codec = match c.compression() {
                         Compression::PCODEC(_) => *base,
+                        // the footer has no levels (it says ZSTD(1) for any ZSTD): a column of
+                        // the base's codec gets the base's level
+                        other if std::mem::discriminant(&other) == std::mem::discriminant(base) => *base,
                         other => other,
                     };
                     props = props.set_column_compression(c.column_path().clone(), codec);
