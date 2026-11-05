@@ -3,9 +3,10 @@
 //
 // One JSON object per row, with the top-level fields as keys in schema order. Integers of
 // every width, timestamps, dates, times and the unscaled value of decimals are JSON numbers;
-// FLOAT and DOUBLE values are strings of their IEEE bits in lower-case hex ("0x3f800000",
-// "0x3ff0000000000000"); strings are JSON strings, binary values base64 strings, booleans
-// JSON booleans and nulls null; lists are arrays and structs objects in field order.
+// half float, FLOAT and DOUBLE values are strings of their IEEE bits in lower-case hex
+// ("0x3c00", "0x3f800000", "0x3ff0000000000000"); strings are JSON strings, binary values
+// base64 strings, booleans JSON booleans and nulls null; lists are arrays, structs objects in
+// field order, and maps arrays of {"key":...,"value":...} entries in stored order.
 package canonical
 
 import (
@@ -107,6 +108,8 @@ func value(buf *bytes.Buffer, arr arrow.Array, i int) error {
 		b = a.Value(i).BigInt().Append(b, 10)
 	case *array.Decimal256:
 		b = a.Value(i).BigInt().Append(b, 10)
+	case *array.Float16:
+		b = fmt.Appendf(b, `"0x%04x"`, a.Value(i).Uint16())
 	case *array.Float32:
 		b = fmt.Appendf(b, `"0x%08x"`, math.Float32bits(a.Value(i)))
 	case *array.Float64:
@@ -125,6 +128,9 @@ func value(buf *bytes.Buffer, arr arrow.Array, i int) error {
 		return writeBase64(buf, a.Value(i))
 	case *array.FixedSizeBinary:
 		return writeBase64(buf, a.Value(i))
+	case *array.Map: // entries are structs: {"key":...,"value":...}
+		start, end := a.ValueOffsets(i)
+		return list(buf, a.ListValues(), int(start), int(end))
 	case *array.List:
 		start, end := a.ValueOffsets(i)
 		return list(buf, a.ListValues(), int(start), int(end))
