@@ -166,3 +166,13 @@ def test_a_relative_path_is_the_file_it_named_when_scanned(
         assert_frame_equal(out.drop("file"), ticks(3))
         # the path stays relative, as given
         assert [os.path.normpath(p) for p in out["file"]] == ["f.parquet"] * 3
+
+
+def test_a_glob_of_any_kind_of_path(write: Write, tmp_path: pathlib.Path) -> None:
+    parts = [write("d/a.parquet", ticks(2)), write("d/b.parquet", ticks(3, offset=2))]
+    want = pl.concat([ticks(2), ticks(3, offset=2)])
+    pattern = tmp_path / "d" / "*.parquet"
+    for source in (str(pattern), pattern, os.fsencode(pattern), FsPath(str(pattern))):
+        out = pt.scan_tparquet(source, include_file_paths="file").collect()
+        assert_frame_equal(out.drop("file"), want)
+        assert out["file"].unique(maintain_order=True).to_list() == [str(p) for p in parts]

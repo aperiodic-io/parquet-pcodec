@@ -45,7 +45,7 @@ def _expand(source: Source) -> Sequence[Source]:
     if not _is_path(source):
         return [source]
     name = os.path.expanduser(os.fsdecode(source))  # type: ignore[arg-type]
-    if isinstance(source, (str, bytes)) and _GLOB & set(name):
+    if _GLOB & set(name):
         matches = sorted(glob.glob(name, recursive=True))
         if not matches:
             raise FileNotFoundError(f"no file matches {name}")
