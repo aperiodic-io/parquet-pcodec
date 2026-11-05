@@ -10,7 +10,8 @@ UV ?= uv
 JOBS ?= 2
 PYTHON := .venv/bin/python
 ROOT := ..
-TARGET := $(ROOT)/target
+# cargo builds into $CARGO_TARGET_DIR when it is set
+TARGET := $(or $(CARGO_TARGET_DIR),$(ROOT)/target)
 CRATE := -p tparquet-duckdb
 DYLIB := $(if $(filter Darwin,$(shell uname)),libtparquet_duckdb.dylib,libtparquet_duckdb.so)
 EXTENSION := build/tparquet.duckdb_extension
