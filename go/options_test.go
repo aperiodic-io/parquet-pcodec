@@ -292,3 +292,50 @@ func TestArrowWriterPropertiesReachTheFile(t *testing.T) {
 		}
 	}
 }
+
+// TestPcodecDictionaryFallback: a PCODEC column that keeps its dictionary (column properties
+// set by hand) and outgrows it falls back to PLAIN pages mid-chunk; every page kind is
+// PCODEC and the data reads back.
+func TestPcodecDictionaryFallback(t *testing.T) {
+	sc := arrow.NewSchema([]arrow.Field{{Name: "x", Type: arrow.PrimitiveTypes.Int64, Nullable: true}}, nil)
+	b := array.NewRecordBuilder(memory.DefaultAllocator, sc)
+	defer b.Release()
+	for i := 0; i < 20000; i++ {
+		if i%9 == 0 {
+			b.Field(0).AppendNull()
+		} else if i < 5000 {
+			b.Field(0).(*array.Int64Builder).Append(int64(i % 10))
+		} else {
+			b.Field(0).(*array.Int64Builder).Append(int64(i) * 1000)
+		}
+	}
+	rec := b.NewRecordBatch()
+	defer rec.Release()
+	for _, version := range []parquet.DataPageVersion{parquet.DataPageV1, parquet.DataPageV2} {
+		data := writeWithProps(t, []arrow.RecordBatch{rec}, parquet.WithDataPageVersion(version),
+			parquet.WithCompressionFor("x", tparquet.Compression), parquet.WithCompressionLevelFor("x", tparquet.Level(parquet.Types.Int64, 3)),
+			parquet.WithDictionaryPageSizeLimit(4096), parquet.WithDataPageSize(2048))
+		rdr, err := file.NewParquetReader(bytes.NewReader(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		pr, err := rdr.RowGroup(0).GetColumnPageReader(0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		encodings := map[parquet.Encoding]int{}
+		for pr.Next() {
+			if dp, ok := pr.Page().(file.DataPage); ok {
+				encodings[parquet.Encoding(dp.Encoding())]++
+			}
+		}
+		if err := pr.Err(); err != nil {
+			t.Fatal(err)
+		}
+		rdr.Close()
+		if encodings[parquet.Encodings.RLEDict] == 0 || encodings[parquet.Encodings.Plain] == 0 {
+			t.Fatalf("V%d: page encodings %v, want dictionary and plain pages", version+1, encodings)
+		}
+		assertSameData(t, data, rec)
+	}
+}
