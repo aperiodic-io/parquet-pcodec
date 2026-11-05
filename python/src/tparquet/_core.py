@@ -231,7 +231,8 @@ class ParquetFile:
     def integer_bounds(self) -> list[dict[str, tuple[int, int]]]:
         """Per row group, `{leaf path: (min, max)}` from the statistics of its `INT32` and
         `INT64` leaves, as stored (signed; timestamps in their unit, dates in days). Leaves
-        without both bounds are left out."""
+        without both bounds are left out, and so are dotted paths that name two leaves (a
+        top-level column `a.b` and the field `b` of a struct `a`)."""
         return self._file.integer_bounds()
 
     def _column_bounds(self) -> tuple[dict[str, str], list[dict[str, tuple[int, int]]]]:

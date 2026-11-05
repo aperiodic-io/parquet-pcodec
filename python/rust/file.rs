@@ -321,13 +321,21 @@ impl File {
 
     /// Per row group, the bounds its statistics give for each `INT32` and `INT64` leaf:
     /// `{path: (min, max)}`, the values as stored (signed). Leaves without both bounds are left
-    /// out.
+    /// out, and so are dotted paths that name two leaves (a top-level field `a.b` and the field
+    /// `b` of a struct `a`).
     fn integer_bounds(&self) -> Vec<BTreeMap<String, (i64, i64)>> {
         let md = self.metadata.metadata();
+        let paths: Vec<String> =
+            md.file_metadata().schema_descr().columns().iter().map(|c| c.path().string()).collect();
+        let unique = |path: &String| paths.iter().filter(|p| *p == path).count() == 1;
         md.row_groups()
             .iter()
             .map(|rg| {
-                rg.columns().iter().filter_map(|c| Some((c.column_path().string(), bounds(c.statistics()?)?))).collect()
+                rg.columns()
+                    .iter()
+                    .filter_map(|c| Some((c.column_path().string(), bounds(c.statistics()?)?)))
+                    .filter(|(path, _)| unique(path))
+                    .collect()
             })
             .collect()
     }

@@ -791,3 +791,13 @@ def test_lzo_is_refused(tmp_path: pathlib.Path, numbers: pa.Table) -> None:
     with pytest.raises(ppc.PcodecError, match=r"^the base codec cannot be LZO: no Parquet writer implements it$"):
         ppc.write_table(numbers, tmp_path / "x.parquet", base="lzo")
     assert list(tmp_path.iterdir()) == []
+
+
+def test_integer_bounds_leave_out_paths_that_name_two_leaves(tmp_path: pathlib.Path) -> None:
+    inner = pa.StructArray.from_arrays([pa.array(range(1000, 1010), pa.int64())], ["b"])
+    path = tmp_path / "d.parquet"
+    ppc.write_table(pa.table({"a.b": pa.array(range(10), pa.int64()), "a": inner, "c": pa.array(range(10))}), path)
+    # "a.b" is the top-level column and the leaf b of the struct a: whose bounds would it be?
+    assert ppc.ParquetFile(path).integer_bounds() == [{"c": (0, 9)}]
+    ppc.write_table(pa.table({"a": inner, "x": pa.array(range(10), pa.int32())}), path, row_group_size=5)
+    assert ppc.ParquetFile(path).integer_bounds() == [{"a.b": (1000, 1004), "x": (0, 4)}, {"a.b": (1005, 1009), "x": (5, 9)}]
