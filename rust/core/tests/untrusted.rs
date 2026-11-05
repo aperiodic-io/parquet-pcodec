@@ -53,3 +53,25 @@ fn a_zstd_body_needs_a_frame() {
     assert_eq!(decompress(&skippable, 0), Ok(vec![]));
     assert_eq!(decompress(&skippable, 1), Err(Error::SizeMismatch { expected: 1, actual: 0 }));
 }
+
+#[test]
+fn nothing_may_follow_the_pcodec_file() {
+    // spec 4: `pco` is one pcodec standalone file that runs to the end of the payload
+    let src = smooth(PhysicalType::Double, 1_000, 5);
+    let plain = pco_payload(PhysicalType::Double, &src);
+    let dec = decimal_payload(5, 2, &[(3, 7)], &(0..1_000).collect::<Vec<_>>());
+    for (p, n) in [(plain, src.len()), (dec, 8_000)] {
+        assert!(decompress(&p, n).is_ok());
+        for tail in [&[0u8][..], &[0xFF], &[0, 0, 0, 0], b"pco!"] {
+            let mut q = p.clone();
+            q.extend_from_slice(tail);
+            assert_eq!(decompress(&q, n), Err(Error::TrailingBytes(tail.len())), "{tail:?}");
+        }
+        // a second pcodec file is trailing bytes too
+        let mut twice = p.clone();
+        let second = pco(&[1i64]);
+        twice.extend(&second);
+        assert_eq!(decompress(&twice, n), Err(Error::TrailingBytes(second.len())));
+    }
+    assert_eq!(Error::TrailingBytes(3).to_string(), "pcodec payload: 3 bytes after the pcodec file");
+}

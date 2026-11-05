@@ -131,6 +131,8 @@ pub enum Error {
     InvalidLevel(u8),
     /// The expected size given to [`decompress`] cannot be allocated.
     AllocationFailed(usize),
+    /// Bytes after the pcodec file, which must run to the end of the payload.
+    TrailingBytes(usize),
     Pco(String),
     Zstd(String),
 }
@@ -151,6 +153,7 @@ impl fmt::Display for Error {
             }
             Self::InvalidLevel(l) => write!(f, "compression level {l} above {MAX_LEVEL}"),
             Self::AllocationFailed(n) => write!(f, "cannot allocate the expected size of {n} bytes"),
+            Self::TrailingBytes(n) => write!(f, "{n} bytes after the pcodec file"),
             Self::Pco(e) => write!(f, "pcodec: {e}"),
             Self::Zstd(e) => write!(f, "zstd: {e}"),
         }
@@ -337,7 +340,8 @@ fn pco_error(e: pco::errors::PcoError) -> Error {
     Error::Pco(e.to_string())
 }
 
-/// Decodes the pcodec file `src`, which must hold exactly `n` numbers, one batch at a time:
+/// Decodes the pcodec file `src`, which must hold exactly `n` numbers and run to the end of
+/// `src`, one batch at a time:
 /// `put(i, batch)` receives numbers `i..i + batch.len()`. Nothing proportional to `n` or to
 /// what the chunk headers claim is allocated; size errors count `width` bytes per number.
 fn pco_batches<T: Number>(src: &[u8], n: usize, width: usize, mut put: impl FnMut(usize, &[T])) -> Result<(), Error> {
@@ -347,7 +351,8 @@ fn pco_batches<T: Number>(src: &[u8], n: usize, width: usize, mut put: impl FnMu
     loop {
         let mut chunk = match file.chunk_decompressor::<T, _>(src).map_err(pco_error)? {
             DecompressorItem::Chunk(chunk) => chunk,
-            DecompressorItem::EndOfData(_) => break,
+            DecompressorItem::EndOfData([]) => break,
+            DecompressorItem::EndOfData(rest) => return Err(Error::TrailingBytes(rest.len())),
         };
         let end = done + chunk.n();
         if end > n {
