@@ -85,3 +85,12 @@ def test_ensure_downloads_once(tmp_path: pathlib.Path) -> None:
     assert path.read_bytes() == b"abc"
     assert fetch.ensure(s, tmp_path, opener) == path
     assert len(seen) == 1
+
+
+def test_the_tests_cannot_reach_a_provider(tmp_path: pathlib.Path) -> None:
+    with pytest.raises(OSError, match="a test tried to connect to"):
+        fetch.Http("https://datasets.tardis.dev/x")(tmp_path / "x")
+    local = tmp_path / "local.csv"
+    local.write_bytes(b"a,b\n")
+    fetch.Http(local.as_uri())(tmp_path / "copy.csv")
+    assert (tmp_path / "copy.csv").read_bytes() == b"a,b\n"

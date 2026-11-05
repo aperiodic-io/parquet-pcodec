@@ -47,8 +47,8 @@ cargo test --release -p tparquet --test acceptance -- --nocapture
 ```
 
 Synthetic data only goes so far, so [`bench/`](bench) measures tparquet on real data. It
-uses the sample and preview data of Aperiodic, Tardis.dev, Crypto Lake and NYSE (and
-Databento's, given an API key): 151M rows across 31 datasets. On these, tparquet is **0.50×** of ZSTD(9) Parquet with the
+uses the sample and preview data of Aperiodic, Tardis.dev, Crypto Lake and NYSE: 151M rows
+across 31 datasets. On these, tparquet is **0.50×** of ZSTD(9) Parquet with the
 writer's defaults, and **0.68×** of ZSTD(9) with the best encoding chosen per column
 (DELTA_BINARY_PACKED, BYTE_STREAM_SPLIT, ...):
 

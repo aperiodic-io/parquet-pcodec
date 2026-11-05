@@ -2,17 +2,14 @@
 
 Parquet files (Aperiodic, Crypto Lake) are read as delivered. The CSV files get the types
 their documentation gives: Tardis.dev (https://docs.tardis.dev/downloadable-csv-files)
-and the NYSE TAQ client specifications. DBN files are converted by Databento's own client
-(`DBNStore.to_parquet`: prices as floats, timestamps as timestamps).
+and the NYSE TAQ client specifications.
 """
 
 from __future__ import annotations
 
-import contextlib
 import datetime as dt
 import pathlib
 import re
-import warnings
 import zoneinfo
 from collections.abc import Callable, Iterator
 from typing import Any, cast
@@ -183,42 +180,11 @@ def nyse_bbo(path: pathlib.Path) -> pa.RecordBatchReader:
     return _nyse(path, "140", _NYSE_BBO)
 
 
-# --- Databento DBN
-
-
-@contextlib.contextmanager
-def _store(path: pathlib.Path) -> Iterator[Any]:
-    import databento
-
-    # an open file of our own: the client's `from_file` leaves its file to the garbage collector
-    with open(path, "rb") as f:
-        yield databento.DBNStore.from_bytes(f)
-
-
-def dbn_schema(path: pathlib.Path) -> str:
-    with _store(path) as store:
-        return str(store.schema)
-
-
-def dbn(path: pathlib.Path) -> pa.RecordBatchReader:
-    converted = path.with_name(path.name + ".parquet")
-    if not converted.exists():
-        part = converted.with_name(converted.name + ".part")  # pragma: no mutate (any temporary name)
-        with warnings.catch_warnings():
-            # the client's own use of pandas warns on recent pandas
-            warnings.simplefilter("ignore")
-            with _store(path) as store:
-                store.to_parquet(part)
-        part.replace(converted)
-    return parquet(converted)
-
-
 LOADERS: dict[str, Loader] = {
     "parquet": parquet,
     "tardis": tardis,
     "nyse_trades": nyse_trades,
     "nyse_bbo": nyse_bbo,
-    "dbn": dbn,
 }
 
 

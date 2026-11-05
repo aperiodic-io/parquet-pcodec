@@ -10,7 +10,7 @@ import tempfile
 from typing import TYPE_CHECKING
 
 from tpq_bench import catalog, fetch, report
-from tpq_bench.loaders import dbn_schema, load
+from tpq_bench.loaders import load
 from tpq_bench.measure import measure
 
 if TYPE_CHECKING:
@@ -62,13 +62,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="the download cache (default: $TPQ_BENCH_DATA, else bench/data)",  # pragma: no mutate
     )
     parser.add_argument(
-        "--dbn",
-        type=pathlib.Path,
-        nargs="+",
-        default=[],
-        help="DBN files from Databento's portal",  # pragma: no mutate
-    )
-    parser.add_argument(
         "--markdown",
         type=pathlib.Path,
         help="write the report here (default: standard output)",  # pragma: no mutate
@@ -94,7 +87,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             _say(f"{len(missing)} of {len(sources)} not fetched: {', '.join(s.key for s in missing)}")
         return 1 if missing else 0
 
-    sources += [catalog.dbn_file(p, dbn_schema(p)) for p in args.dbn]
     entries, _ = run(sources, args.data)
     if not entries:
         _say("nothing measured")

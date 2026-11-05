@@ -87,13 +87,13 @@ polars-test:
 # the benchmark harness (bench/): its offline tests, then the benchmark itself, which downloads
 # the providers' samples (about 1.2 GB, cached in bench/data) and rewrites bench/RESULTS.md
 bench-test:
-	cd bench && uv sync --python 3.14 --extra databento && uv run --no-sync pytest
+	cd bench && uv sync --python 3.14 && uv run --no-sync pytest
 
 bench-mutants:
 	cd bench && uv run --no-sync python scripts/mutmut_check.py
 
 bench:
-	cd bench && uv sync --python 3.14 --extra databento && \
+	cd bench && uv sync --python 3.14 && \
 	  uv run --no-sync tpq-bench run --markdown RESULTS.md --json results.json
 
 polars-mutants:

@@ -10,10 +10,6 @@ requires-python = ">=3.10"
 license = "Apache-2.0"
 dependencies = ["tparquet[pyarrow]"]
 
-[project.optional-dependencies]
-# Databento's samples come through its API (a key) or as DBN files from its portal
-databento = ["databento>=0.50"]
-
 [project.scripts]
 tpq-bench = "tpq_bench.cli:main"
 
@@ -53,17 +49,13 @@ ignore = [
 "tests/*" = ["TC", "E501"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["tpq_bench"]
+known-first-party = ["tpq_bench", "conftest"]
 
 [tool.mypy]
 strict = true
 python_version = "3.10"
 files = ["src", "tests", "scripts"]
-
-[[tool.mypy.overrides]]
-# no type information published
-module = ["databento.*", "databento_dbn.*"]
-ignore_missing_imports = true
+mypy_path = "tests"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -72,7 +64,7 @@ filterwarnings = ["error"]
 
 [tool.mutmut]
 # run from bench/: `uv run --no-sync python scripts/mutmut_check.py` (fails on a survivor); the offline tests judge every mutant (the
-# network and Databento's client are faked). `# pragma: no mutate` marks the lines whose mutants
+# network is faked). `# pragma: no mutate` marks the lines whose mutants
 # no test can observe, each with its reason
 source_paths = ["src/tpq_bench"]
 pytest_add_cli_args = ["-p", "no:cacheprovider"]

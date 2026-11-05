@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pathlib
-
 import pytest
 
 from tpq_bench import catalog, fetch, report
@@ -12,7 +10,7 @@ from tpq_bench import catalog, fetch, report
 def test_every_source_has_a_known_group_and_loader() -> None:
     for s in catalog.SOURCES:
         assert s.group in report.GROUPS, s.key
-        assert s.loader in {"parquet", "tardis", "nyse_trades", "nyse_bbo", "dbn"}, s.key
+        assert s.loader in {"parquet", "tardis", "nyse_trades", "nyse_bbo"}, s.key
 
 
 def test_keys_are_unique_and_live_under_their_provider() -> None:
@@ -23,7 +21,7 @@ def test_keys_are_unique_and_live_under_their_provider() -> None:
 
 
 def test_the_providers() -> None:
-    assert {s.provider for s in catalog.SOURCES} == {"Aperiodic", "Databento", "Tardis.dev", "Crypto Lake", "NYSE"}
+    assert {s.provider for s in catalog.SOURCES} == {"Aperiodic", "Tardis.dev", "Crypto Lake", "NYSE"}
 
 
 def test_aperiodic_raw_and_metrics() -> None:
@@ -38,17 +36,12 @@ def test_aperiodic_raw_and_metrics() -> None:
     assert all(dict(s.fetch.headers) == {"X-API-KEY": "DEMO-KEY"} for s in ap)  # type: ignore[attr-defined]
 
 
-def test_only_databento_needs_a_key() -> None:
-    for s in catalog.SOURCES:
-        assert (s.needs == "DATABENTO_API_KEY") == (s.provider == "Databento"), s.key
-
-
 @pytest.mark.parametrize(
     ("words", "providers"),
     [
         (["tardis"], {"Tardis.dev"}),
         (["Crypto Lake", "nyse"], {"Crypto Lake", "NYSE"}),
-        (["l2"], {"Tardis.dev", "Crypto Lake", "Databento"}),
+        (["l2"], {"Tardis.dev", "Crypto Lake"}),
     ],
 )
 def test_select(words: list[str], providers: set[str]) -> None:
@@ -67,38 +60,3 @@ def test_select_nothing_is_everything() -> None:
 def test_select_unknown() -> None:
     with pytest.raises(ValueError, match="matches no source"):
         catalog.select(catalog.SOURCES, ["bloomberg"])
-
-
-@pytest.mark.parametrize(
-    ("schema", "group"),
-    [
-        ("trades", "trades"),
-        ("mbp-1", "quotes"),
-        ("tbbo", "quotes"),
-        ("bbo-1s", "quotes"),
-        ("cmbp-1", "quotes"),
-        ("tcbbo", "quotes"),
-        ("cbbo-1m", "quotes"),
-        ("mbp-10", "l2"),
-        ("mbo", "l3"),
-        ("ohlcv-1m", "bars"),
-    ],
-)
-def test_dbn_group(schema: str, group: str) -> None:
-    assert catalog.dbn_group(schema) == group
-
-
-def test_dbn_group_unknown() -> None:
-    with pytest.raises(ValueError, match="statistics"):
-        catalog.dbn_group("statistics")
-
-
-def test_dbn_file_source(tmp_path: pathlib.Path) -> None:
-    s = catalog.dbn_file(tmp_path / "glbx-mdp3-20250602.mbp-10.dbn.zst", "mbp-10")
-    assert (s.provider, s.group, s.loader, s.data) == ("Databento", "l2", "dbn", "glbx-mdp3-20250602.mbp-10.dbn.zst")
-
-
-def test_a_dbn_file_is_not_fetched(tmp_path: pathlib.Path) -> None:
-    s = catalog.dbn_file(tmp_path / "gone.dbn.zst", "trades")
-    with pytest.raises(fetch.Unavailable, match="does not exist"):
-        fetch.ensure(s, tmp_path / "data")

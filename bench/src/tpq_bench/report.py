@@ -16,7 +16,6 @@ GROUPS = {
     "trades": "Trades",
     "quotes": "Quotes (L1, top of book)",
     "l2": "Order book (L2: snapshots and updates)",
-    "l3": "Orders (L3, market by order)",
     "bars": "Bars (OHLCV)",
     "metrics": "Metrics (5m bars)",
     "derivatives": "Derivatives (funding, mark, index, open interest)",

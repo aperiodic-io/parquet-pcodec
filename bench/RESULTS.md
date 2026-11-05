@@ -2,8 +2,7 @@
 
 The last run of `make bench` (2026-11-05; tparquet fec98be, pyarrow 26.0.1,
 Python 3.14.6, on a 4-vCPU cloud VM). How it is measured: [README.md](README.md#what-is-measured).
-Ratios below 1 mean tparquet is smaller. Databento is not in this run (no API key): see
-[README.md](README.md#databento).
+Ratios below 1 mean tparquet is smaller.
 
 | Data type | Datasets | Rows | ZSTD(9) | ZSTD(9) tuned | tparquet | tparquet / ZSTD(9) | tparquet / tuned | Write s: ZSTD(9) / tuned / tparquet | Read s: ZSTD(9) / tuned / tparquet |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|

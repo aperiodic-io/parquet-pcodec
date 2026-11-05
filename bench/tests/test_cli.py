@@ -9,6 +9,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+from conftest import Cached
 from tpq_bench import catalog, cli, fetch
 
 
@@ -29,8 +30,8 @@ def test_run_measures_the_cached_sources_and_skips_the_unavailable(
     trades(data / "x" / "t.parquet")
     # the unavailable one first: the run goes on after it
     sources = [
-        catalog.Source("Y", "ES trades", "trades", "y/t.dbn", "dbn", catalog.Local(), needs="Y_KEY"),
-        catalog.Source("X", "BTC trades", "trades", "x/t.parquet", "parquet", catalog.Local()),
+        catalog.Source("Y", "ES trades", "trades", "y/t.parquet", "parquet", Cached()),
+        catalog.Source("X", "BTC trades", "trades", "x/t.parquet", "parquet", Cached()),
     ]
     entries, skipped = cli.run(sources, data)
     assert [(e.provider, e.data, e.m.rows) for e in entries] == [("X", "BTC trades", 5000)]
@@ -51,7 +52,7 @@ def test_main_writes_markdown_and_json(tmp_path: pathlib.Path, monkeypatch: pyte
     data = tmp_path / "data"
     trades(data / "x" / "t.parquet")
     monkeypatch.setattr(
-        catalog, "SOURCES", [catalog.Source("X", "BTC trades", "trades", "x/t.parquet", "parquet", catalog.Local())]
+        catalog, "SOURCES", [catalog.Source("X", "BTC trades", "trades", "x/t.parquet", "parquet", Cached())]
     )
     md, js = tmp_path / "r.md", tmp_path / "r.json"
     assert cli.main(["run", "--data", str(data), "--markdown", str(md), "--json", str(js)]) == 0
@@ -67,9 +68,9 @@ def test_main_fetch_reports_what_it_could_not_fetch(
         catalog,
         "SOURCES",
         [
-            catalog.Source("X", "BTC trades", "trades", "x/t.parquet", "parquet", catalog.Local()),
-            catalog.Source("X", "ETH trades", "trades", "x/cached.parquet", "parquet", catalog.Local()),
-            catalog.Source("X", "BTC quotes", "quotes", "x/q.parquet", "parquet", catalog.Local()),
+            catalog.Source("X", "BTC trades", "trades", "x/t.parquet", "parquet", Cached()),
+            catalog.Source("X", "ETH trades", "trades", "x/cached.parquet", "parquet", Cached()),
+            catalog.Source("X", "BTC quotes", "quotes", "x/q.parquet", "parquet", Cached()),
         ],
     )
     assert cli.main(["fetch", "--data", str(tmp_path)]) == 1
@@ -87,31 +88,6 @@ def test_main_list(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]) -
     ]
 
 
-def test_dbn_files_are_added(
-    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    monkeypatch.setattr(catalog, "SOURCES", [])
-    f = tmp_path / "glbx.mbp-10.dbn.zst"
-
-    def schema(path: pathlib.Path) -> str:
-        assert path == f
-        return "mbp-10"
-
-    monkeypatch.setattr(cli, "dbn_schema", schema)
-    seen: list[list[catalog.Source]] = []
-
-    def run(sources: list[catalog.Source], data: pathlib.Path) -> tuple[list[object], list[object]]:
-        seen.append(list(sources))
-        return [], []
-
-    monkeypatch.setattr(cli, "run", run)
-    f.write_bytes(b"")
-    # nothing measured (the run is faked): exit status 1
-    assert cli.main(["run", "--data", str(tmp_path), "--dbn", str(f)]) == 1
-    assert capsys.readouterr().err == "nothing measured\n"
-    assert [(s.group, s.key) for s in seen[0]] == [("l2", str(f.resolve()))]
-
-
 def test_run_works_in_the_cache_directory(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     data = tmp_path / "data"
     trades(data / "x" / "t.parquet")
@@ -123,7 +99,7 @@ def test_run_works_in_the_cache_directory(tmp_path: pathlib.Path, monkeypatch: p
         return real(reader, workdir)
 
     monkeypatch.setattr("tpq_bench.cli.measure", spy)
-    cli.run([catalog.Source("X", "t", "trades", "x/t.parquet", "parquet", catalog.Local())], data)
+    cli.run([catalog.Source("X", "t", "trades", "x/t.parquet", "parquet", Cached())], data)
     # on the cache's disk, which has room for files of the source's size
     assert seen[0].parent == data
     assert seen[0].name.startswith("work-")
@@ -135,7 +111,7 @@ def test_main_writes_markdown_to_standard_output(
     data = tmp_path / "data"
     trades(data / "x" / "t.parquet")
     monkeypatch.setattr(
-        catalog, "SOURCES", [catalog.Source("X", "BTC trades", "trades", "x/t.parquet", "parquet", catalog.Local())]
+        catalog, "SOURCES", [catalog.Source("X", "BTC trades", "trades", "x/t.parquet", "parquet", Cached())]
     )
     assert cli.main(["run", "--data", str(data)]) == 0
     assert capsys.readouterr().out.startswith("| Data type |")
@@ -161,8 +137,8 @@ def test_main_list_shows_what_is_cached(
         catalog,
         "SOURCES",
         [
-            catalog.Source("X", "BTC trades", "trades", "x/t.parquet", "parquet", catalog.Local()),
-            catalog.Source("X", "BTC quotes", "quotes", "x/q.parquet", "parquet", catalog.Local()),
+            catalog.Source("X", "BTC trades", "trades", "x/t.parquet", "parquet", Cached()),
+            catalog.Source("X", "BTC quotes", "quotes", "x/q.parquet", "parquet", Cached()),
         ],
     )
     # the cache from the environment
@@ -175,3 +151,13 @@ def test_unknown_command(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit):
         cli.main(["publish"])
     assert "invalid choice: 'publish'" in capsys.readouterr().err
+
+
+def test_main_run_with_nothing_measured(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        catalog, "SOURCES", [catalog.Source("X", "BTC trades", "trades", "x/t.parquet", "parquet", Cached())]
+    )
+    assert cli.main(["run", "--data", str(tmp_path)]) == 1
+    assert capsys.readouterr().err.endswith("nothing measured\n")
