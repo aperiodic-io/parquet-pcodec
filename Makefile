@@ -8,7 +8,7 @@ FUZZ_TIME ?= 60
 
 .PHONY: check fmt fmt-check clippy test c-test check-fork testdata testdata-check fuzz-smoke \
 	mutants fork-mutants fork-upstream-tests python-test python-mutants polars-test polars-mutants acceptance \
-	java-test cpp-test
+	java-test cpp-test trino-test trino-mutants
 
 check: fmt-check clippy test c-test check-fork testdata-check
 
@@ -116,3 +116,10 @@ java-test:
 # the C++ library and the Arrow C++ fork (cpp/README.md)
 cpp-test:
 	$(MAKE) -C cpp test
+
+# Trino (trino/README.md): JDK 25 for its reactor, JDK 21 for the java/ modules it uses
+trino-test:
+	$(MAKE) -C trino test
+
+trino-mutants:
+	$(MAKE) -C trino mutants

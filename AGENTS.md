@@ -16,6 +16,7 @@
 | `duckdb/` | DuckDB loadable extension |
 | `polars-tparquet/` | Polars plugin package: `scan_tparquet`, `read_tparquet`, `tparquet` namespaces |
 | `java/` | Maven: JNI binding, fork of parquet-java 1.17.0 (`java/parquet-java/FORK.md`), `tparquet` library, Spark data source |
+| `trino/` | Trino 484: fork of trino-parquet (`trino/trino-parquet/FORK.md`), plugin install script; uses `java/parquet-java-1.18` |
 | `cpp/` | C++ library and the Arrow C++ 26.0.1 fork, a patch over the release (`cpp/arrow/FORK.md`) |
 | `testdata/` | conformance vectors shared by every implementation |
 | `acceptance/` | cross-language acceptance tests |
@@ -32,7 +33,8 @@
   code. Any exclusion carries a comment that says why.
 - **The forks stay small.** Every change is listed in the fork's `FORK.md` and checked against
   upstream: `scripts/check-fork.sh` (`rust/parquet`), `scripts/check-fork-java.sh`
-  (`java/parquet-java`), `scripts/check-cpp-fork.sh` (`cpp/arrow`).
+  (`java/parquet-java`, `java/parquet-java-1.18`, `trino/trino-parquet`), `scripts/check-cpp-fork.sh`
+  (`cpp/arrow`).
 - **Decoders treat payloads as untrusted.** No panics, no unbounded allocation; fuzz targets in
   `rust/core/fuzz`.
 - Run the checks of what you changed before pushing (`make check` at the root runs everything).

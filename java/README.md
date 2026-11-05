@@ -7,6 +7,7 @@ from Java and Spark, and anything else built on parquet-java.
 |---|---|---|
 | [`tparquet-jni`](tparquet-jni) | `io.aperiodic.tparquet:tparquet-jni` | the PCODEC payload codec over JNI ([`rust/jni`](../rust/jni)); no Parquet dependency |
 | [`parquet-java`](parquet-java) | `org.apache.parquet:parquet-{format-structures,common,hadoop}:1.17.0-tparquet` | a small fork of parquet-java 1.17.0 that adds the codec; changes listed in [`FORK.md`](parquet-java/FORK.md) |
+| [`parquet-java-1.18`](parquet-java-1.18) | `org.apache.parquet:parquet-{format-structures,common}:1.18.1-tparquet` | the codec id in parquet-java 1.18.1, for Trino 484 ([`../trino`](../trino)); changes in [`FORK.md`](parquet-java-1.18/FORK.md) |
 | [`tparquet`](tparquet) | `io.aperiodic.tparquet:tparquet` | `TparquetWriter` (spec section 3's writer recommendations), `TparquetReader`, `Canonical` (rows as canonical JSON), `Inspect` (page modes), the `Vectors` CLI |
 | [`tparquet-spark`](tparquet-spark) | `io.aperiodic.tparquet:tparquet-spark_2.13` | Spark 4.3: the `tparquet` data source |
 | [`acceptance-upstream`](acceptance-upstream) | (tests) | unmodified parquet-java refuses every PCODEC file |
@@ -79,9 +80,10 @@ Write options: `level`, `decimal`, `rowGroupSize`, `pageSize`, `outputTimestampT
 
 ```sh
 make -C java test                  # every module (installs, so the fork is tested as jars)
-make -C java check-fork            # the fork is upstream + FORK.patch (scripts/check-fork-java.sh)
+make -C java check-fork            # every JVM fork is upstream + FORK.patch: parquet-java 1.17.0 and
+                                   # 1.18.1, trino-parquet 484 (scripts/check-fork-java.sh)
 make -C java fork-upstream-tests   # upstream's suite: same outcome for every test, fork and upstream
-make -C java mutants               # PIT, every mutant killed
+make -C java mutants               # PIT, every mutant killed (the 1.18 fork's enums included)
 make -C java jni-mutants           # cargo mutants on rust/jni, judged by the Java suite
 make -C java vectors ARGS="check ../testdata"
 ```

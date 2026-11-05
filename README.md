@@ -28,6 +28,7 @@ The format is specified in [`spec/FORMAT.md`](spec/FORMAT.md).
 | DuckDB | [`duckdb/`](duckdb) | loadable extension: `read_tparquet(...)`, `COPY ... (FORMAT tparquet)` |
 | Java, anything on parquet-java | [`java/`](java) | a small fork of parquet-java 1.17.0 (`parquet-format-structures`, `parquet-common`, `parquet-hadoop`; [`FORK.md`](java/parquet-java/FORK.md)), the codec over JNI ([`tparquet-jni`](java/tparquet-jni), [`rust/jni`](rust/jni)), and [`tparquet`](java/tparquet): `TparquetWriter`, `TparquetReader`, canonical rows |
 | Spark | [`java/tparquet-spark`](java/tparquet-spark) | Spark 4.3 reads PCODEC through the parquet-java fork (every reader); the `tparquet` data source writes it ([Java README](java/README.md#spark)) |
+| Trino | [`trino/`](trino) | Trino 484 reads tparquet through its Hive, Iceberg, Delta Lake and Hudi connectors: [`install-tparquet.sh`](trino/install-tparquet.sh) puts forks of trino-parquet 484 ([`FORK.md`](trino/trino-parquet/FORK.md)) and parquet-java 1.18.1 ([`FORK.md`](java/parquet-java-1.18/FORK.md)) into a Trino install |
 | C++ | [`cpp/`](cpp) | a small fork of Apache Arrow C++ 26.0.1 (a patch over the release, [`FORK.md`](cpp/arrow/FORK.md)) and `tparquet::ReadTable`/`WriteTable`/`FileWriter`; CMake package `tparquet` |
 | C | [`rust/cread`](rust/cread) | reader as an Arrow C stream ([`tparquet_read.h`](rust/cread/include/tparquet_read.h)), `libtparquet_read` |
 | Polars | [`polars-tparquet/`](polars-tparquet) | Polars plugin `polars-tparquet`: `scan_tparquet` over files, lists, globs and directories (lazy, with pushdown), `read_tparquet`, `df.tparquet.write(...)`, `lf.tparquet.sink(...)` (streamed) |
@@ -82,7 +83,7 @@ ARROW_ASSIGN_OR_RAISE(auto table, tparquet::ReadTable("trades.parquet", {"ts", "
 
 Each package's README has the details: [Python](python/README.md),
 [Polars](polars-tparquet/README.md), [Go](go/README.md), [DuckDB](duckdb/README.md),
-[Java and Spark](java/README.md), [C and C++](cpp/README.md).
+[Java and Spark](java/README.md), [Trino](trino/README.md), [C and C++](cpp/README.md).
 
 ## Testing
 
@@ -91,7 +92,8 @@ Each package's README has the details: [Python](python/README.md),
   implementation reads them.
 - **Cross-language acceptance:** [`acceptance/cross/run.sh`](acceptance/cross/run.sh) has Rust, Go,
   Python, DuckDB, Java and C++ each read the files all of them wrote.
-- **Forks:** every fork (arrow-rs `parquet`, parquet-java, Arrow C++) is checked against its
+- **Forks:** every fork (arrow-rs `parquet`, parquet-java 1.17 and 1.18, trino-parquet, Arrow
+  C++) is checked against its
   verified upstream release plus its `FORK.patch`; upstream's own suites run against the forks
   where they can, and unmodified upstream readers are shown to refuse PCODEC files.
 - **Mutation testing** of every package: cargo-mutants (Rust, including the fork's changed
@@ -106,6 +108,7 @@ make polars-test      # the Polars plugin
 make -C duckdb sql    # DuckDB extension
 make java-test        # Java, the parquet-java fork, Spark (JDK 21, Maven)
 make cpp-test         # C++ and the Arrow C++ fork (asan, fuzz-smoke, mutants targets in cpp/)
+make trino-test       # Trino: the trino-parquet fork, conformance, queries through the Hive connector
 make acceptance       # cross-language (needs the Python package, the DuckDB extension, the Java
                       # packages and the C++ library built)
 ```
