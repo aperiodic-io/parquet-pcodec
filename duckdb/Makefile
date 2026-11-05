@@ -3,6 +3,7 @@
 #   make build     release build: build/tparquet.duckdb_extension (and the tparquet CLI)
 #   make test      unit tests, then the SQL tests on the extension cargo builds for them
 #   make sql       the SQL tests on build/tparquet.duckdb_extension
+#   make thorough  the same with many more generated cases (Hypothesis profile `thorough`)
 #   make mutation  cargo mutants on the extension crate (SQL tests without the `slow` ones)
 #   make check     fmt, clippy, one arrow version, test
 CARGO ?= cargo
@@ -19,7 +20,7 @@ MUTANTS_OUT ?= $(TARGET)/mutants-duckdb
 MEMORY_LIMIT_MB ?= 2048
 TEST_TIMEOUT ?= 60
 
-.PHONY: venv build test sql mutation check fmt-check clippy check-arrow clean
+.PHONY: venv build test sql thorough mutation check fmt-check clippy check-arrow clean
 
 venv: .venv/.synced
 
@@ -43,6 +44,12 @@ sql: venv build
 	TPARQUET_DUCKDB_EXTENSION=$(abspath $(EXTENSION)) TPARQUET_CLI=$(abspath $(TARGET)/release/tparquet) \
 		$(PYTHON) -m pytest -q tests
 
+# the SQL tests with many more generated tables, queries and damaged files (minutes)
+thorough: venv build
+	HYPOTHESIS_PROFILE=thorough TPARQUET_DUCKDB_FUZZ_CASES=5000 \
+	TPARQUET_DUCKDB_EXTENSION=$(abspath $(EXTENSION)) TPARQUET_CLI=$(abspath $(TARGET)/release/tparquet) \
+		$(PYTHON) -m pytest -q tests
+
 # Every viable mutant must be caught. The slow memory test is left out of the mutation run:
 # a mutant that only it could catch would also have to keep every other result right.
 mutation: venv
@@ -55,7 +62,7 @@ mutation: venv
 	@# (the suite needs under 1 GB; JOBS processes run at once). TEST_TIMEOUT ends a test process
 	@# when one test takes longer (the slowest takes a few seconds), before cargo mutants' timeout
 	TPARQUET_DUCKDB_MEMORY_LIMIT_MB=$(MEMORY_LIMIT_MB) TPARQUET_DUCKDB_TEST_TIMEOUT=$(TEST_TIMEOUT) \
-	TPARQUET_DUCKDB_PYTEST_MARK="not slow" TPARQUET_DUCKDB_PYTHON=$(abspath $(PYTHON)) \
+	TPARQUET_DUCKDB_PYTEST_MARK="not slow" TPARQUET_DUCKDB_PYTHON=$(abspath $(PYTHON)) HYPOTHESIS_PROFILE=mutation \
 		$(CARGO) mutants --dir $(ROOT) $(CRATE) -j $(JOBS) --output $(MUTANTS_OUT) $(MUTANTS_ARGS) \
 		|| { [ $$? -eq 3 ] && [ ! -s $(MUTANTS_OUT)/mutants.out/missed.txt ]; }
 
