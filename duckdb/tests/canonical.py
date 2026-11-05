@@ -96,6 +96,11 @@ def values(arr: pa.Array, file_type: pa.DataType) -> list:
         return wrap(["null" if v is None else str(v) for v in _rescale(raw, t.unit, want.unit)])
     if pa.types.is_date32(t):
         return wrap(["null" if v is None else str(v) for v in arr.view(pa.int32()).to_pylist()])
+    if pa.types.is_interval(t):
+        # DuckDB's INTERVAL arrives as month-day-nano, the canonical form's fields
+        return wrap(
+            ["null" if v is None else f'{{"months":{v[0]},"days":{v[1]},"nanoseconds":{v[2]}}}' for v in arr.to_pylist()]
+        )
     if pa.types.is_boolean(t):
         return wrap(["null" if v is None else ("true" if v else "false") for v in arr.to_pylist()])
     if pa.types.is_integer(t):

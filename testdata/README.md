@@ -50,6 +50,13 @@ empty `.jsonl`. Each line is one JSON object, written compactly: no whitespace o
   padded: 16 hex digits for doubles, `"0x3ff0000000000000"` for 1.0, 8 for floats,
   `"0x3f800000"` for 1.0f (4 for half floats, `"0x3c00"`). NaN payloads and signed zeros are
   kept bit for bit: `-0.0` is `"0x8000000000000000"`.
+- Intervals, of every interval type (year-month, day-time and month-day-nano), are objects
+  `{"months":m,"days":d,"nanoseconds":n}` with these three members in this order, each an
+  integer as above: the type's own fields, `0` for a field it does not have, and day-time
+  milliseconds as nanoseconds (times 1000000, which is exact). One month is
+  `{"months":1,"days":0,"nanoseconds":0}`, in a year-month or in a month-day-nano array: the
+  same interval has the same form whichever interval type a reader gives a Parquet `INTERVAL`
+  column.
 - Booleans are `true` and `false`.
 - Strings are JSON strings: `"` and `\` are escaped as `\"` and `\\`; U+0008, U+0009, U+000A,
   U+000C and U+000D as `\b`, `\t`, `\n`, `\f`, `\r`; the other characters below U+0020 as
