@@ -156,14 +156,14 @@ def test_list_views_are_lists(t: pa.DataType) -> None:
     assert line(arr) == ['{"x":[1,null,3]}', '{"x":null}', '{"x":[]}', '{"x":[4]}']
     assert line(arr.slice(2)) == ['{"x":[]}', '{"x":[4]}']
     # views may overlap and go in any order
-    shared = pa.ListViewArray.from_arrays(
+    shared = pa.ListViewArray.from_arrays(  # type: ignore[call-overload]
         pa.array([2, 0, 1], pa.int32()), pa.array([1, 3, 2], pa.int32()), pa.array([7, 8, 9])
     )
     assert line(shared) == ['{"x":[9]}', '{"x":[7,8,9]}', '{"x":[8,9]}']
 
 
 def test_run_end_encoded_values_are_decoded() -> None:
-    arr = pa.RunEndEncodedArray.from_arrays([2, 3, 5], pa.array([1, None, 2], pa.int64()))
+    arr = pa.RunEndEncodedArray.from_arrays([2, 3, 5], pa.array([1, None, 2], pa.int64()))  # type: ignore[call-overload]
     assert line(arr) == ['{"x":1}', '{"x":1}', '{"x":null}', '{"x":2}', '{"x":2}']
     assert line(arr.slice(1, 3)) == ['{"x":1}', '{"x":null}', '{"x":2}']
 

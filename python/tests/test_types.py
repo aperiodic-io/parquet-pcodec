@@ -8,7 +8,7 @@ import datetime
 import decimal
 import io
 import pathlib
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import pyarrow as pa
@@ -19,6 +19,7 @@ import tparquet as ppc
 from tparquet import canonical
 
 POLICIES: list[ppc.Policy] = ["auto", "pcodec", "base"]
+TIME_UNITS: list[Literal["s", "ms", "us", "ns"]] = ["s", "ms", "us", "ns"]
 N = 40
 
 
@@ -44,14 +45,18 @@ COLUMNS: dict[str, pa.Array[Any]] = {
     "uint32": pa.array(nulls(ints(0, 2**32 - 1)), pa.uint32()),
     "uint64": pa.array(nulls(ints(0, 2**64 - 1)), pa.uint64()),
     # floats, with the values that are easy to lose
-    "float16": pa.array(np.array(nulls([0.0, -0.0, 1.5, 65504.0, -np.inf, np.nan, 6e-8] * 6)[:N], dtype=object), pa.float16()),
+    "float16": pa.array(
+        np.array(nulls([0.0, -0.0, 1.5, 65504.0, -np.inf, np.nan, 6e-8] * 6)[:N], dtype=object), pa.float16()
+    ),
     "float32": pa.array(nulls([0.0, -0.0, 1.5, 3.4e38, -np.inf, np.nan, 1e-45, 0.1] * 5), pa.float32()),
     "float64": pa.array(nulls([0.0, -0.0, 1.5, 1.7e308, np.inf, np.nan, 5e-324, 0.1] * 5), pa.float64()),
     "float64_nan_payload": pa.array([0x7FF0000000000001 + i for i in range(N)], pa.uint64()).view(pa.float64()),
     "decimal32": pa.array(nulls([decimal.Decimal(i * 37 - 700).scaleb(-2) for i in range(N)]), pa.decimal32(9, 2)),
     "decimal64": pa.array(nulls([decimal.Decimal(i * 10**12 - 7).scaleb(-3) for i in range(N)]), pa.decimal64(18, 3)),
     "decimal128": pa.array(nulls([decimal.Decimal(i * 10**30 + 1).scaleb(-5) for i in range(N)]), pa.decimal128(38, 5)),
-    "decimal256": pa.array(nulls([decimal.Decimal(-i * 10**60 - 1).scaleb(-10) for i in range(N)]), pa.decimal256(76, 10)),
+    "decimal256": pa.array(
+        nulls([decimal.Decimal(-i * 10**60 - 1).scaleb(-10) for i in range(N)]), pa.decimal256(76, 10)
+    ),
     # time
     "date32": pa.array(nulls(ints(-719_162, 2_932_896)), pa.date32()),
     "date64": pa.array(nulls([d * DAY_MS for d in ints(-719_162, 2_932_896)]), pa.date64()),
@@ -63,10 +68,10 @@ COLUMNS: dict[str, pa.Array[Any]] = {
         f"timestamp_{unit}_{tz or 'naive'}".replace("/", "_"): pa.array(
             nulls(ints(-(2**62), 2**62)), pa.timestamp(unit, tz)
         )
-        for unit in ["s", "ms", "us", "ns"]
+        for unit in TIME_UNITS
         for tz in [None, "UTC", "Asia/Kolkata", "+05:45"]
     },
-    **{f"duration_{unit}": pa.array(nulls(ints(-(2**63), 2**63 - 1)), pa.duration(unit)) for unit in ["s", "ms", "us", "ns"]},
+    **{f"duration_{unit}": pa.array(nulls(ints(-(2**63), 2**63 - 1)), pa.duration(unit)) for unit in TIME_UNITS},
     # the rest
     "bool": pa.array(nulls([i % 3 == 0 for i in range(N)])),
     "string": pa.array(nulls([f"s{i}é\x00\n" * (i % 4) for i in range(N)]), pa.string()),
@@ -103,16 +108,21 @@ COLUMNS: dict[str, pa.Array[Any]] = {
         nulls([[{"x": i, "y": None}, None][: i % 3] for i in range(N)]),
         pa.list_(pa.struct([("x", pa.int64()), ("y", pa.float64())])),
     ),
-    "map": pa.array(nulls([[(f"k{j}", None if j == 1 else i * j) for j in range(i % 3)] for i in range(N)]), pa.map_(pa.string(), pa.int64())),
-    "map_int_keys": pa.array(nulls([[(j, j / 2) for j in range(i % 4)] for i in range(N)]), pa.map_(pa.int64(), pa.float64())),
-    "map_of_lists": pa.array(
-        nulls([[("k", [i, None])] for i in range(N)]), pa.map_(pa.string(), pa.list_(pa.int32()))
+    "map": pa.array(
+        nulls([[(f"k{j}", None if j == 1 else i * j) for j in range(i % 3)] for i in range(N)]),
+        pa.map_(pa.string(), pa.int64()),
     ),
+    "map_int_keys": pa.array(
+        nulls([[(j, j / 2) for j in range(i % 4)] for i in range(N)]), pa.map_(pa.int64(), pa.float64())
+    ),
+    "map_of_lists": pa.array(nulls([[("k", [i, None])] for i in range(N)]), pa.map_(pa.string(), pa.list_(pa.int32()))),
     # extension types keep their type
     "uuid": pa.array(nulls([bytes([i]) * 16 for i in range(N)]), pa.uuid()),
     "json": pa.array(nulls([f'{{"a": {i}}}' for i in range(N)]), pa.json_()),
     "bool8": pa.array(nulls([i % 2 for i in range(N)]), pa.int8()).cast(pa.bool8()),
-    "fixed_shape_tensor": pa.FixedShapeTensorArray.from_numpy_ndarray(np.arange(N * 4, dtype=np.int64).reshape(N, 2, 2)),
+    "fixed_shape_tensor": pa.FixedShapeTensorArray.from_numpy_ndarray(
+        np.arange(N * 4, dtype=np.int64).reshape(N, 2, 2)
+    ),
 }
 
 
@@ -137,7 +147,7 @@ def assert_same(back: pa.Table, table: pa.Table) -> None:
 @pytest.mark.parametrize("name", list(COLUMNS))
 def test_each_type_round_trips(name: str, policy: ppc.Policy) -> None:
     table = table_of(name)
-    back, codecs = round_trip(table, policy=policy)
+    back, _ = round_trip(table, policy=policy)
     assert_same(back, table)
     # sliced, and in several row groups
     sliced = table.slice(3, N - 7)
@@ -216,7 +226,7 @@ def test_nested_leaves_are_reported_by_dotted_path() -> None:
 
 def test_nulls_at_every_level() -> None:
     t = pa.list_(pa.struct([("m", pa.map_(pa.string(), pa.list_(pa.int64())))]))
-    values = [
+    values: list[Any] = [
         None,
         [],
         [None],
@@ -243,7 +253,11 @@ def test_required_fields_keep_their_nullability() -> None:
         ]
     )
     table = pa.table(
-        {"a": list(range(N)), "s": [None if i % 3 else {"x": i / 2} for i in range(N)], "l": [[i] * (i % 3) for i in range(N)]},
+        {
+            "a": list(range(N)),
+            "s": [None if i % 3 else {"x": i / 2} for i in range(N)],
+            "l": [[i] * (i % 3) for i in range(N)],
+        },
         schema=schema,
     )
     back, _ = round_trip(table, policy="pcodec")
@@ -252,8 +266,12 @@ def test_required_fields_keep_their_nullability() -> None:
 
 
 def test_metadata_of_schema_and_fields_round_trips() -> None:
+    fields: list[pa.Field[Any]] = [
+        pa.field("a", pa.int64(), metadata={"unit": "kg"}),
+        pa.field("b", pa.string(), metadata={"x": "1"}),
+    ]
     schema = pa.schema(
-        [pa.field("a", pa.int64(), metadata={"unit": "kg"}), pa.field("b", pa.string(), metadata={"x": "1"})],
+        fields,
         metadata={"origin": "test", "empty": ""},
     )
     table = pa.table({"a": [1, 2], "b": ["x", "y"]}, schema=schema)
@@ -284,7 +302,7 @@ def test_user_extension_types() -> None:
     money = Money("EUR")
     arr = pa.ExtensionArray.from_storage(money, pa.array(nulls(list(range(N))), pa.int64()))
     table = pa.table({"m": arr})
-    pa.register_extension_type(money)
+    pa.register_extension_type(money)  # type: ignore[arg-type]  # pyarrow-stubs want a PyExtensionType
     try:
         back, codecs = round_trip(table, policy="pcodec")
         assert codecs == {"m": "PCODEC"}
@@ -296,7 +314,10 @@ def test_user_extension_types() -> None:
     # unregistered, pyarrow reads the storage with the extension metadata
     back, _ = round_trip(table)
     assert back.schema.field("m").type == pa.int64()
-    assert back.schema.field("m").metadata == {b"ARROW:extension:name": b"test.money", b"ARROW:extension:metadata": b"EUR"}
+    assert back.schema.field("m").metadata == {
+        b"ARROW:extension:name": b"test.money",
+        b"ARROW:extension:metadata": b"EUR",
+    }
 
 
 def test_chunked_columns_and_zero_rows() -> None:
@@ -315,7 +336,8 @@ def test_chunked_columns_and_zero_rows() -> None:
 
 def test_a_table_without_columns() -> None:
     table = pa.table({"x": [1, 2, 3]}).select([])
-    for data in [table, table.to_batches()[0]]:
+    both: list[Any] = [table, table.to_batches()[0]]
+    for data in both:
         back, codecs = round_trip(data)
         assert codecs == {}
         assert back.num_columns == 0
@@ -328,9 +350,9 @@ def test_a_table_without_columns() -> None:
 
 def test_run_end_encoded_columns_come_back_decoded() -> None:
     # the parquet crate writes the values and reads them back as their value type
-    ree = pa.RunEndEncodedArray.from_arrays([10, 25, N], pa.array([1, None, 3], pa.int64()))
+    ree = pa.RunEndEncodedArray.from_arrays([10, 25, N], pa.array([1, None, 3], pa.int64()))  # type: ignore[call-overload]
     for policy in POLICIES:
-        back, codecs = round_trip(pa.table({"r": ree}), policy=policy)
+        back, _ = round_trip(pa.table({"r": ree}), policy=policy)
         assert back.schema.field("r").type == pa.int64()
         assert back.column("r").to_pylist() == ree.to_pylist()
         assert canonical.dumps(back) == canonical.dumps(pa.table({"r": ree}))

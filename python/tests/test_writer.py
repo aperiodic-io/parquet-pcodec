@@ -232,7 +232,8 @@ def test_unions_are_refused_by_name(tmp_path: pathlib.Path) -> None:
     u = table["u"].combine_chunks()
     nested = pa.table({"s": pa.StructArray.from_arrays([u], ["inner"])})
     listed = pa.table({"i": pa.array([1]), "l": pa.ListArray.from_arrays(pa.array([0, 2], pa.int32()), u)})
-    for data, column in [(table, "u"), (nested, "s.inner"), (listed, "l.item"), (table.to_batches()[0], "u")]:
+    cases: list[tuple[Any, str]] = [(table, "u"), (nested, "s.inner"), (listed, "l.item"), (table.to_batches()[0], "u")]
+    for data, column in cases:
         with pytest.raises(ppc.PcodecError, match=rf"^the column {column} is a union, which Parquet cannot store$"):
             ppc.write_table(data, tmp_path / "x.parquet")
     with pytest.raises(ppc.PcodecError, match=r"^the column u is a union"):

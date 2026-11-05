@@ -67,7 +67,7 @@ def _values(arr: Any, pa: Any) -> list[str]:
     if pa.types.is_run_end_encoded(t):
         import pyarrow.compute as pc
 
-        return _values(pc.run_end_decode(arr), pa)
+        return _values(pc.run_end_decode(arr), pa)  # type: ignore[attr-defined]  # not in pyarrow-stubs
     if pa.types.is_null(t):
         return ["null"] * len(arr)
     out = _non_null_values(arr, t, pa)
