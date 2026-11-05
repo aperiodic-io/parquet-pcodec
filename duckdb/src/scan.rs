@@ -411,7 +411,10 @@ impl Scan {
     pub fn next(&self, local: &mut Local) -> Result<Option<ScanBatch>, String> {
         loop {
             if let Some(r) = &mut local.reader {
-                match r.reader.next() {
+                // the Parquet reader panics on some damaged pages (its level decoder): say which file
+                let next = crate::ffi::guard(|| Ok(r.reader.next()))
+                    .map_err(|e| format!("cannot read {}: {e}", r.file.path.display()))?;
+                match next {
                     Some(Ok(batch)) if batch.num_rows() > 0 => {
                         let num_rows = batch.num_rows();
                         let columns = r
