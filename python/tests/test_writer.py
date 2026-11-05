@@ -177,3 +177,44 @@ def test_a_transcode_that_fails_leaves_no_file(tmp_path: pathlib.Path) -> None:
         with pytest.raises(ppc.PcodecError):
             ppc.transcode(bad, out, target=target)  # type: ignore[arg-type]
         assert not out.exists()
+
+
+# ---------------------------------------------------------------- the data must match the schema
+
+
+SAME_TYPES = pa.table({"a": pa.array(range(5), pa.int64()), "b": pa.array(range(100, 105), pa.int64())})
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        SAME_TYPES.select(["b", "a"]),
+        SAME_TYPES.rename_columns(["x", "y"]),
+        SAME_TYPES.rename_columns(["a", "B"]),
+        SAME_TYPES.select(["a"]),
+        SAME_TYPES.append_column("c", pa.array(range(5), pa.int64())),
+        pa.table({"a": pa.array(range(5), pa.int32()), "b": SAME_TYPES["b"]}),
+    ],
+    ids=["swapped", "renamed", "case", "fewer", "more", "type"],
+)
+def test_data_that_does_not_match_the_schema_is_refused(tmp_path: pathlib.Path, data: pa.Table) -> None:
+    path = tmp_path / "w.parquet"
+    with ppc.Writer(path, SAME_TYPES.schema) as w:
+        for d in [data, data.to_batches()[0]]:
+            with pytest.raises(ppc.PcodecError, match=r"^the data does not match the writer's schema"):
+                w.write(d)
+        w.write(SAME_TYPES)
+    assert ppc.read_table(path).equals(SAME_TYPES)
+
+
+def test_metadata_and_nullability_need_not_match(tmp_path: pathlib.Path) -> None:
+    path = tmp_path / "w.parquet"
+    required = pa.schema([pa.field("a", pa.int64(), nullable=False), pa.field("b", pa.int64())], metadata={"k": "v"})
+    with ppc.Writer(path, required) as w:
+        w.write(SAME_TYPES)
+        w.write(SAME_TYPES.replace_schema_metadata({"other": "x"}))
+    back = ppc.read_table(path)
+    assert back.schema == required
+    assert back.schema.metadata[b"k"] == b"v"
+    with ppc.Writer(path, required) as w, pytest.raises(ppc.PcodecError, match="null"):
+        w.write(pa.table({"a": pa.array([None], pa.int64()), "b": pa.array([1], pa.int64())}))

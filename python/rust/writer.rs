@@ -80,10 +80,18 @@ impl Writer {
     ) -> PyResult<()> {
         let schema = self.schema.clone();
         self.with_open(py, move |w| {
+            let mismatch = |e: String| invalid(format!("the data does not match the writer's schema ({schema}): {e}"));
             for batch in batches {
                 let batch = batch?;
+                // the types are checked below; columns of the same types in another order or
+                // under other names would be written as the schema's columns
+                let names = |s: &arrow_schema::Schema| s.fields().iter().map(|f| f.name().clone()).collect::<Vec<_>>();
+                let given = names(&batch.schema());
+                if given != names(&schema) {
+                    return Err(mismatch(format!("the data has the columns {given:?}")));
+                }
                 let batch = RecordBatch::try_new(schema.clone(), batch.columns().to_vec())
-                    .map_err(|e| invalid(format!("the data does not match the writer's schema ({schema}): {e}")))?;
+                    .map_err(|e| mismatch(e.to_string()))?;
                 w.write(&batch).map_err(from_pcodec)?;
             }
             Ok(())
