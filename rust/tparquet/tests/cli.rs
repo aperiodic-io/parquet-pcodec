@@ -33,6 +33,14 @@ fn standard(dir: &Path, name: &str, shift: f64) -> PathBuf {
     path
 }
 
+/// No `.*.tmp-tparquet` file is left in `dir`.
+fn assert_no_temporary_files(dir: &Path) {
+    for e in std::fs::read_dir(dir).unwrap() {
+        let name = e.unwrap().file_name().into_string().unwrap();
+        assert!(!name.ends_with(".tmp-tparquet") || !name.starts_with('.'), "{name}");
+    }
+}
+
 fn inspect_json(path: &Path) -> serde_json::Value {
     let out = cli().arg("inspect").arg(path).arg("--json").output().unwrap();
     assert!(out.status.success());
@@ -71,7 +79,7 @@ fn encode_inspect_decode_verify() {
     assert_eq!(codecs(&dec), ["ZSTD", "ZSTD", "ZSTD"]);
     assert_eq!(inspect_json(&dec)["pcodec_version"], serde_json::Value::Null);
     cli().arg("verify").arg(&input).arg(&dec).assert().code(0);
-    assert!(!dir.path().join("enc.tmp-tparquet").exists());
+    assert_no_temporary_files(dir.path());
 }
 
 #[test]
@@ -148,10 +156,11 @@ fn bad_arguments_and_inputs_are_clean_errors() {
     fails(vec![p("verify"), m, i], 2, "No such file");
     fails(vec![p("frobnicate")], 2, "unrecognized subcommand");
     assert!(!out.exists());
-    assert!(!dir.path().join("out.tmp-tparquet").exists());
+    assert_no_temporary_files(dir.path());
 
     let unwritable = dir.path().join("no-such-dir").join("out.parquet");
-    fails(vec![p("encode"), i, unwritable.as_os_str()], 2, "out.tmp-tparquet: No such file");
+    fails(vec![p("encode"), i, unwritable.as_os_str()], 2, ".tmp-tparquet: No such file");
+    fails(vec![p("encode"), i, p("/")], 2, "tparquet: /: not a file name");
 }
 
 #[test]
@@ -201,4 +210,30 @@ fn reader_panics_are_reported_as_errors() {
         .assert()
         .code(2)
         .stderr("tparquet: internal error: offset + len out of bounds\n");
+}
+
+#[test]
+fn the_temporary_file_never_replaces_the_input() {
+    // the output is written next to itself first; that file must not be the input
+    let dir = tempfile::tempdir().unwrap();
+    let input = standard(dir.path(), "x.tmp-tparquet", 0.0);
+    let before = std::fs::read(&input).unwrap();
+    let out = dir.path().join("x.parquet");
+    cli().arg("encode").arg(&input).arg(&out).assert().success();
+    assert_eq!(std::fs::read(&input).unwrap(), before);
+    cli().arg("verify").arg(&input).arg(&out).assert().code(0);
+    // nor an unrelated file of the same name, which stays as it was
+    let other = dir.path().join("y.tmp-tparquet");
+    std::fs::write(&other, b"keep me").unwrap();
+    cli().arg("decode").arg(&out).arg(dir.path().join("y.parquet")).assert().success();
+    assert_eq!(std::fs::read(&other).unwrap(), b"keep me");
+    // encoding a file in place replaces it
+    let copy = dir.path().join("copy.parquet");
+    std::fs::copy(&input, &copy).unwrap();
+    cli().arg("encode").arg(&copy).arg(&copy).assert().success();
+    assert_eq!(codecs(&copy), ["PCODEC", "PCODEC", "ZSTD"]);
+    cli().arg("verify").arg(&input).arg(&copy).assert().code(0);
+    let names: Vec<String> =
+        std::fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
+    assert_eq!(names.len(), 5, "{names:?}");
 }

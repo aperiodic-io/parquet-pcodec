@@ -75,10 +75,20 @@ fn open(path: &Path) -> Result<File, Error> {
     File::open(path).map_err(|e| Error::Invalid(format!("{}: {e}", path.display())))
 }
 
-/// Writes to a temporary file next to `path`, renamed into place once complete.
+/// Writes to a new temporary file next to `path` (`.NAME.PID.tmp-tparquet`), renamed into
+/// place once complete. The temporary file is created only if no file has its name, so it can
+/// never truncate the input or any other file.
 fn write_atomically(path: &Path, f: impl FnOnce(&mut BufWriter<File>) -> Result<(), Error>) -> Result<(), Error> {
-    let tmp = path.with_extension("tmp-tparquet");
-    let file = File::create(&tmp).map_err(|e| Error::Invalid(format!("{}: {e}", tmp.display())))?;
+    let name = path.file_name().ok_or_else(|| Error::Invalid(format!("{}: not a file name", path.display())))?;
+    let mut tmp_name = std::ffi::OsString::from(".");
+    tmp_name.push(name);
+    tmp_name.push(format!(".{}.tmp-tparquet", std::process::id()));
+    let tmp = path.with_file_name(tmp_name);
+    let file = File::options()
+        .write(true)
+        .create_new(true)
+        .open(&tmp)
+        .map_err(|e| Error::Invalid(format!("{}: {e}", tmp.display())))?;
     let mut w = BufWriter::new(file);
     let done = f(&mut w).and_then(|()| Ok(w.flush()?));
     match done {
