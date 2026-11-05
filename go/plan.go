@@ -229,9 +229,14 @@ func smaller(pco, base int64) bool { return pco < base }
 
 // scratch writes sample with the current plan to memory and returns the compressed size of
 // each leaf column, summed over row groups.
+//
+// The scratch files are not encrypted: arrow-go lets FileEncryptionProperties make one
+// file only, and wipes their keys when that file closes. Encryption adds about the same
+// bytes to both candidates.
 func (p *Plan) scratch(sample arrow.RecordBatch) (map[string]int64, error) {
 	var buf bytes.Buffer
-	w, err := p.NewFileWriter(&buf)
+	props := append(p.Properties(), parquet.WithEncryptionProperties(nil))
+	w, err := p.newFileWriter(&buf, props)
 	if err != nil {
 		return nil, err
 	}
@@ -307,7 +312,11 @@ func (p *Plan) Properties() []parquet.WriterProperty {
 // NewFileWriter returns a pqarrow writer of the plan's schema with the plan's properties.
 // If any column uses PCODEC it adds FooterKey = FooterValue to the footer.
 func (p *Plan) NewFileWriter(w io.Writer) (*pqarrow.FileWriter, error) {
-	fw, err := pqarrow.NewFileWriter(p.schema, w, parquet.NewWriterProperties(p.Properties()...), p.cfg.arrowProps)
+	return p.newFileWriter(w, p.Properties())
+}
+
+func (p *Plan) newFileWriter(w io.Writer, props []parquet.WriterProperty) (*pqarrow.FileWriter, error) {
+	fw, err := pqarrow.NewFileWriter(p.schema, w, parquet.NewWriterProperties(props...), p.cfg.arrowProps)
 	if err != nil {
 		return nil, err
 	}
