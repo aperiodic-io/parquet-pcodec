@@ -288,3 +288,15 @@ def test_batch_size_reaches_the_reader_of_every_source(write: Write, reads: Read
     out = pt.scan_tparquet([path, obj, obj], batch_size=7).collect()
     assert out.height == 60
     assert [c["batch_size"] for c in reads.calls] == [7, 7, 7]
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=UnicodeDecodeError,
+    reason="tparquet (python/) calls read() on a text-mode file before it checks for bytes, so the "
+    "error is the UnicodeDecodeError of decoding Parquet as UTF-8, not its TypeError",
+)
+def test_a_text_mode_file_is_refused_with_a_type_error(write: Write) -> None:
+    path = write("a.parquet", ticks(3))
+    with open(path) as text, pytest.raises(TypeError, match="bytes"):
+        pt.scan_tparquet(text)  # type: ignore[arg-type]

@@ -223,3 +223,22 @@ def test_a_query_error_names_the_problem(write: Write) -> None:
         lf.select("nope").collect()
     with pytest.raises(pl.exceptions.InvalidOperationError):
         lf.select(pl.col("sym") + 1).collect()
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,  # the error is raised, without the name
+    reason="tparquet (python/) does not name the file in the errors it raises while reading pages "
+    "('Parquet error: Unexpected list/set element type 14'); the plugin names it only for errors "
+    "in the footer, which it reads when scanning",
+)
+def test_a_corrupt_page_is_named_in_the_error(write: Write, tmp_path: pathlib.Path) -> None:
+    good = write("good.parquet", pl.DataFrame({"a": range(100_000)}))
+    data = bytearray(good.read_bytes())
+    for i in range(100, 400):  # in the first page, past its header
+        data[i] ^= 0x5A
+    bad = tmp_path / "bad.parquet"
+    bad.write_bytes(bytes(data))
+    lf = pt.scan_tparquet([good, bad])  # the footer is intact
+    with pytest.raises(tparquet.PcodecError, match=r"bad\.parquet"):
+        lf.collect()
