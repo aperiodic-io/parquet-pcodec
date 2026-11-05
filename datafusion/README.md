@@ -141,6 +141,20 @@ The integration tests (`tests/it`, one binary):
 - `properties`: random tables round-trip bit for bit with every policy, level, row group
   size and page version (proptest).
 - `vectors_cli`: the acceptance binary below.
+- `api`: the factory's options, the `FileFormat` methods called directly, the sink of a
+  `COPY` plan and the files it reports, encryption options refused.
+
+### Mutation testing
+
+`make mutants` runs cargo-mutants over the connector, `make fork-mutants`
+([`scripts/fork-mutants.sh`](scripts/fork-mutants.sh)) over the fork's changed functions.
+Both test the mutants **in place** (`--in-place`, one at a time, each reverted after its
+test; do not edit the tree meanwhile): cargo-mutants copies the workspace, this directory, to
+a scratch tree, where the fork's path dependency `../../rust/core` does not resolve. The
+exclusions are in [`.cargo/mutants.toml`](.cargo/mutants.toml), each with its reason.
+`fork-mutants.sh` spells out parquet 59.x's `experimental!(mod compression)` for the run
+(cargo-mutants does not expand macros, and would not see `compression.rs` otherwise) and
+restores `lib.rs` afterwards.
 
 ## Cross-language acceptance
 

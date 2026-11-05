@@ -51,16 +51,7 @@ BUILD_TIMEOUT ?= 1200
 mutants:
 	$(CARGO) mutants $(OWN) --in-place --build-timeout $(BUILD_TIMEOUT) $(MUTANTS_OK)
 
-# the fork's changed functions only (parquet/FORK.md); the fork is rebuilt for every mutant,
-# so it is built without optimization here
-FORK_RE := PcodecLevel|PcodecCodec|with_pcodec_version|CodecOptionsBuilder::set_physical_type|CodecOptionsBuilder::build|create_codec|<impl From<CompressionCodec> for Compression>::from|<impl From<Compression> for CompressionCodec>::from|<impl FromStr for Compression>::from_str|write_metadata
+# the fork's changed functions only (parquet/FORK.md), in place; the script spells out the
+# `experimental!(mod compression)` declaration for the run, which cargo-mutants cannot expand
 fork-mutants:
-	CARGO_PROFILE_DEV_PACKAGE_PARQUET_OPT_LEVEL=0 $(CARGO) mutants --no-config -p parquet --in-place \
-	  --build-timeout $(BUILD_TIMEOUT) \
-	  -f parquet/src/basic.rs -f parquet/src/compression.rs \
-	  -f parquet/src/column/writer/mod.rs -f parquet/src/file/writer.rs \
-	  --re '$(FORK_RE)' \
-	  --cargo-arg=--lib -- -- basic:: compression:: column::writer:: file::writer:: \
-	  --skip test_byte_stream_split_extended_roundtrip \
-	  --skip test_rewrite_missing_column_index --skip test_rewrite_no_page_indexes \
-	  $(MUTANTS_OK)
+	BUILD_TIMEOUT=$(BUILD_TIMEOUT) scripts/fork-mutants.sh

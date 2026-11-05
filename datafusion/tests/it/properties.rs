@@ -87,7 +87,8 @@ fn policy() -> impl Strategy<Value = &'static str> {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(32))]
+    // no regression files: the failures cargo mutants provokes are not regressions
+    #![proptest_config(ProptestConfig { failure_persistence: None, ..ProptestConfig::with_cases(32) })]
 
     #[test]
     fn roundtrip_bit_exact(

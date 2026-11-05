@@ -114,7 +114,8 @@ fn targets() -> Vec<Target> {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(64))]
+    // no regression files: the failures cargo mutants provokes are not regressions
+    #![proptest_config(ProptestConfig { failure_persistence: None, ..ProptestConfig::with_cases(64) })]
 
     /// Random bytes written over a random part of a random payload: the read succeeds or is
     /// a DataFusion error.
