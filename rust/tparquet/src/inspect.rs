@@ -88,6 +88,9 @@ pub fn inspect<R: ChunkReader>(reader: &R) -> Result<FileReport> {
             modes: BTreeMap::new(),
         })
         .collect();
+    // the column chunks of a valid file are disjoint: reading more bytes than the file
+    // holds means the footer points several chunks at the same bytes (bounded work)
+    let mut budget = reader.len();
     for rg in metadata.row_groups() {
         for (report, chunk) in columns.iter_mut().zip(rg.columns()) {
             let codec = codec_name(chunk.compression());
@@ -96,7 +99,7 @@ pub fn inspect<R: ChunkReader>(reader: &R) -> Result<FileReport> {
             }
             report.compressed_bytes += chunk.compressed_size();
             report.uncompressed_bytes += chunk.uncompressed_size();
-            scan_pages(reader, chunk, report)?;
+            scan_pages(reader, chunk, report, &mut budget)?;
         }
     }
     let pcodec_version = file
@@ -106,7 +109,13 @@ pub fn inspect<R: ChunkReader>(reader: &R) -> Result<FileReport> {
     Ok(FileReport { rows: file.num_rows(), row_groups: metadata.num_row_groups(), pcodec_version, columns })
 }
 
-fn scan_pages<R: ChunkReader>(reader: &R, chunk: &ColumnChunkMetaData, report: &mut ColumnReport) -> Result<()> {
+/// Counts the pages of `chunk` into `report`; `budget` is the number of bytes left to read.
+fn scan_pages<R: ChunkReader>(
+    reader: &R,
+    chunk: &ColumnChunkMetaData,
+    report: &mut ColumnReport,
+    budget: &mut u64,
+) -> Result<()> {
     let bad = || invalid(format!("column {}: bad column chunk offsets", report.path));
     let start = chunk.dictionary_page_offset().unwrap_or(chunk.data_page_offset());
     let start = u64::try_from(start).map_err(|_| bad())?;
@@ -114,6 +123,9 @@ fn scan_pages<R: ChunkReader>(reader: &R, chunk: &ColumnChunkMetaData, report: &
     if start.checked_add(len as u64).is_none_or(|end| end > reader.len()) {
         return Err(bad());
     }
+    *budget = budget
+        .checked_sub(len as u64)
+        .ok_or_else(|| invalid(format!("column {}: the column chunks add up to more than the file", report.path)))?;
     let bytes = reader.get_bytes(start, len)?;
     let pcodec = matches!(chunk.compression(), Compression::PCODEC(_));
     let mut pos = 0;
@@ -561,17 +573,22 @@ mod tests {
         let n = page.len() as i64;
         let mut r = report("x");
         // a chunk that ends exactly at the end of the input is fine
-        scan_pages(&page, &chunk(0, n), &mut r).unwrap();
+        let mut budget = n as u64;
+        scan_pages(&page, &chunk(0, n), &mut r, &mut budget).unwrap();
+        assert_eq!(budget, 0);
+        // a second chunk over the same bytes is over budget
+        let err = scan_pages(&page, &chunk(0, 1), &mut r, &mut budget).unwrap_err();
+        assert_eq!(err.to_string(), "column x: the column chunks add up to more than the file");
         assert_eq!(r.pages["DATA_PAGE"], 1);
         assert_eq!(r.modes["RAW"], 1);
         for (offset, len) in [(0, n + 1), (1, n), (-1, 2), (0, -1), (i64::MAX, 1)] {
-            let err = scan_pages(&page, &chunk(offset, len), &mut report("x")).unwrap_err();
+            let err = scan_pages(&page, &chunk(offset, len), &mut report("x"), &mut u64::MAX).unwrap_err();
             assert_eq!(err.to_string(), "column x: bad column chunk offsets", "{offset} {len}");
         }
         // a page that runs past its chunk, a broken header
-        let err = scan_pages(&page, &chunk(0, n - 1), &mut report("x")).unwrap_err();
+        let err = scan_pages(&page, &chunk(0, n - 1), &mut report("x"), &mut u64::MAX).unwrap_err();
         assert_eq!(err.to_string(), "column x: page runs past the column chunk");
-        let err = scan_pages(&page, &chunk(1, n - 1), &mut report("x")).unwrap_err();
+        let err = scan_pages(&page, &chunk(1, n - 1), &mut report("x"), &mut u64::MAX).unwrap_err();
         assert!(err.to_string().starts_with("column x: page header: "), "{err}");
     }
 

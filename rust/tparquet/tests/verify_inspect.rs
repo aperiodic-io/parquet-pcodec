@@ -200,3 +200,27 @@ fn inspect_rejects_corrupt_files() {
     }
     assert!(errors > 0);
 }
+
+/// `file` with its footer replaced by one whose row groups are `rgs` copies of its first.
+fn repeat_row_group(file: &Bytes, rgs: usize) -> Bytes {
+    use tparquet::parquet::file::metadata::{ParquetMetaDataReader, ParquetMetaDataWriter};
+    let metadata = ParquetMetaDataReader::new().parse_and_finish(file).unwrap();
+    let footer = 8 + u32::from_le_bytes(file[file.len() - 8..file.len() - 4].try_into().unwrap()) as usize;
+    let rg = metadata.row_group(0).clone();
+    let metadata = metadata.into_builder().set_row_groups(vec![rg; rgs]).build();
+    let mut out = file[..file.len() - footer].to_vec();
+    ParquetMetaDataWriter::new(&mut out, &metadata).finish().unwrap();
+    Bytes::from(out)
+}
+
+#[test]
+fn inspect_work_is_bounded_by_the_file_size() {
+    // a footer whose row groups all point at the same column chunk would make inspect read
+    // the chunk once per row group: work quadratic in the file size
+    let x = Int64Array::from_iter_values((0..100_000).map(|i| i * i));
+    let batch = RecordBatch::try_from_iter([("x", Arc::new(x) as ArrayRef)]).unwrap();
+    let f = write(&[batch], WriterOptions::default().with_policy(Policy::Base)).0;
+    assert_eq!(inspect(&repeat_row_group(&f, 1)).unwrap().row_groups, 1);
+    let err = inspect(&repeat_row_group(&f, 2)).unwrap_err();
+    assert_eq!(err.to_string(), "column x: the column chunks add up to more than the file");
+}
