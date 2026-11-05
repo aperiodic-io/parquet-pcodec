@@ -1,4 +1,4 @@
-// Package pcodec adds PCODEC, pcodec as a Parquet compression codec (spec/FORMAT.md of
+// Package tparquet adds PCODEC, pcodec as a Parquet compression codec (spec/FORMAT.md of
 // github.com/aperiodic-io/tparquet), to Apache arrow-go.
 //
 // # Reading
