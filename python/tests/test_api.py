@@ -312,8 +312,13 @@ def test_bad_path_types(numbers: pa.Table) -> None:
         ppc.read_table(42)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match=r"^expected a path or a binary file object, got int$"):
         ppc.write_table(numbers, 42)  # type: ignore[arg-type]
+
+    class Text:
+        def read(self) -> str:
+            return "PAR1"
+
     with pytest.raises(TypeError, match=r"^the file object must return bytes from read\(\), got str$"):
-        ppc.read_table(io.StringIO("PAR1"))  # type: ignore[arg-type]
+        ppc.read_table(Text())  # type: ignore[arg-type]
 
 
 def test_missing_file_is_os_error(tmp_path: pathlib.Path) -> None:
@@ -667,3 +672,23 @@ def test_stream_options_are_passed_on(tmp_path: pathlib.Path, numbers: pa.Table)
 
 def test_version() -> None:
     assert ppc.__version__ == "0.1.0"
+
+
+def test_text_mode_files_are_refused_with_a_type_error(tmp_path: pathlib.Path, numbers: pa.Table) -> None:
+    path = tmp_path / "t.parquet"
+    ppc.write_table(numbers, path)
+    with (
+        open(path) as text,
+        pytest.raises(
+            TypeError,
+            match=r"^expected a binary file object, got a text file \(TextIOWrapper\): open it in binary mode \('rb'\)$",
+        ),
+    ):
+        ppc.read_table(text)  # type: ignore[arg-type]
+    with pytest.raises(
+        TypeError,
+        match=r"^expected a binary file object, got a text file \(StringIO\): open it in binary mode \('wb'\)$",
+    ):
+        ppc.write_table(numbers, io.StringIO())  # type: ignore[arg-type]
+    with open(tmp_path / "w.parquet", "w") as text, pytest.raises(TypeError, match=r"\('wb'\)$"):
+        ppc.Writer(text, numbers.schema)  # type: ignore[arg-type]

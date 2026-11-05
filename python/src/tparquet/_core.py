@@ -4,6 +4,7 @@ where a function returns pyarrow objects."""
 from __future__ import annotations
 
 import dataclasses
+import io
 import json
 import os
 from typing import TYPE_CHECKING, Any, Literal, Protocol, Union
@@ -70,10 +71,19 @@ def _path(source: object) -> str | None:
     return None
 
 
+def _binary(obj: object, mode: str) -> None:
+    """Refuses a text-mode file object, which cannot hold Parquet bytes."""
+    if isinstance(obj, io.TextIOBase):
+        raise TypeError(
+            f"expected a binary file object, got a text file ({type(obj).__name__}): open it in binary mode ('{mode}')"
+        )
+
+
 def _open(source: Source) -> _lib.File:
     path = _path(source)
     if path is not None:
         return _lib.open_path(path)
+    _binary(source, "rb")
     read = getattr(source, "read", None)
     if read is None:
         raise TypeError(f"expected a path or a binary file object, got {type(source).__name__}")
@@ -88,6 +98,7 @@ def _sink(target: Sink) -> object:
     path = _path(target)
     if path is not None:
         return path
+    _binary(target, "wb")
     if not hasattr(target, "write"):
         raise TypeError(f"expected a path or a binary file object, got {type(target).__name__}")
     return target
