@@ -32,7 +32,7 @@ fork-upstream-tests: install
 
 # PIT on the Java code (every mutant killed; each module's pom says what it mutates and why)
 mutants: install
-	$(MVN) -pl tparquet-jni,parquet-java/parquet-format-structures,parquet-java/parquet-common,parquet-java/parquet-hadoop,tparquet \
+	$(MVN) -pl tparquet-jni,parquet-java/parquet-format-structures,parquet-java/parquet-common,parquet-java/parquet-hadoop,parquet-java-1.18/parquet-format-structures,parquet-java-1.18/parquet-common,tparquet \
 	  test-compile org.pitest:pitest-maven:mutationCoverage
 
 # cargo mutants on rust/jni, judged by the Java suite (rust/jni/tests/java_suite.rs)

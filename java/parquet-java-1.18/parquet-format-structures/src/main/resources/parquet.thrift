@@ -656,6 +656,11 @@ enum CompressionCodec {
   LZ4 = 5;     // DEPRECATED (Added in 2.4)
   ZSTD = 6;    // Added in 2.4
   LZ4_RAW = 7; // Added in 2.9
+  /**
+   * tparquet fork: the PCODEC codec of spec/FORMAT.md, outside the range of the standard
+   * codecs. Readers without it refuse PCODEC column chunks.
+   */
+  PCODEC = 20547;
 }
 
 enum PageType {
