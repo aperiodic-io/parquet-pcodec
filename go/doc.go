@@ -54,4 +54,9 @@
 // or, with the Makefile, make test TPARQUET_LIB_DIR=/path/to. On Linux the library also needs
 // -lgcc_s -lutil -lrt -lpthread -lm -ldl, which the package adds itself. Only linux/amd64 is
 // tested.
+//
+// The library must have the ABI version of the vendored header (PCP_ABI_VERSION). The package
+// checks it once at init without panicking; with another version every codec call fails with
+// an error that says so (Decode and EncodeLevel, which have no error result, panic with it),
+// and NewPlan and NewFileWriter return it, before the library is called.
 package tparquet
