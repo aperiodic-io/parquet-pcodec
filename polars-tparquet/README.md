@@ -47,7 +47,8 @@ is `scan_tparquet(...)` with the columns (in the order given) and row limit appl
 
 `df.tparquet.write(target, *, policy="auto", columns=None, level=8, base="zstd(3)", row_group_size=None)`
 writes a DataFrame and returns the codec of every leaf column. Like `sink` below, it writes a
-path through a temporary file, so a write that fails leaves the target as it was.
+path through a temporary file, so a write that fails leaves the target as it was. A column of
+dtype `Object` is refused (`ComputeError`), as Polars' own writer refuses it.
 
 `lf.tparquet.sink(target, *, ..., chunk_size=None)` runs a lazy query and writes its result
 batch by batch (`LazyFrame.collect_batches`), so a result larger than memory can be written. A

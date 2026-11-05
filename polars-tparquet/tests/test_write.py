@@ -122,3 +122,21 @@ def test_write_errors_name_the_path(tmp_path: pathlib.Path) -> None:
     with pytest.raises(IsADirectoryError):
         ticks(10).tparquet.write(tmp_path / "d")
     assert sorted(os.listdir(tmp_path)) == ["d"]
+
+
+def test_an_object_column_is_refused(tmp_path: pathlib.Path) -> None:
+    """Polars exports an Object column's values as the addresses of the Python objects; its own
+    writer refuses the dtype, and so does this one."""
+    df = pl.DataFrame({"a": [1, 2], "o": pl.Series([object(), 3], dtype=pl.Object)})
+    message = r"^cannot write column 'o' of dtype Object: its values are Python objects$"
+    with pytest.raises(pl.exceptions.ComputeError, match=message):
+        df.tparquet.write(tmp_path / "t.parquet")
+    with pytest.raises(pl.exceptions.ComputeError, match=message):
+        df.tparquet.write(io.BytesIO())
+    with pytest.raises(pl.exceptions.ComputeError, match=message):
+        df.lazy().tparquet.sink(tmp_path / "t.parquet")
+    with pytest.raises(pl.exceptions.ComputeError, match=message):
+        df.lazy().tparquet.sink(io.BytesIO())
+    assert os.listdir(tmp_path) == []
+    # the other columns can be written
+    assert df.drop("o").tparquet.write(tmp_path / "t.parquet") == {"a": "PCODEC"}

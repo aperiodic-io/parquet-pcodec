@@ -86,6 +86,18 @@ def _name(source: Source) -> str:
     return os.fsdecode(source) if _is_path(source) else repr(source)  # type: ignore[arg-type]
 
 
+def _writable(schema: pl.Schema) -> pl.Schema:
+    """`schema`, if it can be written: Polars exports the values of an Object column (which
+    cannot be nested) as the addresses of its Python objects, so those are refused, as Polars'
+    own writer refuses them."""
+    for name, dtype in schema.items():
+        if dtype == pl.Object:
+            raise pl.exceptions.ComputeError(
+                f"cannot write column {name!r} of dtype Object: its values are Python objects"
+            )
+    return schema
+
+
 @contextlib.contextmanager
 def _replacing(target: Sink) -> Iterator[Sink]:
     """Where to write `target`. A file object is written in place. A path is written as a hidden
@@ -211,6 +223,7 @@ class DataFrameNamespace:
         A path is written as a hidden temporary file beside it, which replaces it once complete:
         if writing fails, the target is left as it was.
         """
+        _writable(self._df.schema)
         with _replacing(target) as sink:
             return write_parquet(
                 self._df, sink, policy=policy, columns=columns, level=level, base=base, row_group_size=row_group_size
@@ -246,7 +259,7 @@ class LazyFrameNamespace:
         """
         if chunk_size is not None and chunk_size <= 0:
             raise ValueError(f"chunk_size must be positive, got {chunk_size}")
-        schema = self._lf.collect_schema()
+        schema = _writable(self._lf.collect_schema())
         # the writer is closed on a normal exit and aborted on an exception
         with (
             _replacing(target) as sink,
