@@ -3433,11 +3433,13 @@ dependencies = [
  "base64",
  "bytes",
  "clap",
+ "futures",
  "parquet",
  "predicates",
  "proptest",
  "serde_json",
  "tempfile",
+ "tokio",
  "tparquet-core",
 ]
 
