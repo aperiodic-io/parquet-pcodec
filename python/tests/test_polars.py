@@ -185,21 +185,6 @@ def test_batch_size_hint_and_default(path: pathlib.Path) -> None:
     assert [b.height for b in capped(None, None, None, 300)][:2] == [250, 250]
 
 
-def test_limit_with_predicate_is_counted_on_matching_rows(path: pathlib.Path) -> None:
-    # Polars does not pass n_rows with a predicate today; the generator handles it anyway
-    f = ppc.ParquetFile(path)
-    source = ppl._source(f, None, pl.DataFrame(f.empty()).schema)
-    even = pl.col("seq") % 2 == 0
-    for n in [0, 1, 7, 500, 2000]:
-        out = pl.concat(list(source(["seq"], even, n, 3)), how="vertical")
-        assert out["seq"].to_list() == list(range(0, 1000, 2))[:n]
-    # it stops reading once it has them
-    batches = list(source(["seq"], even, 4, 3))
-    assert len(batches) == 3
-    plain = pl.concat(list(source(["seq"], None, 5, 2)))
-    assert plain["seq"].to_list() == [0, 1, 2, 3, 4]
-
-
 def test_batch_size_one(path: pathlib.Path) -> None:
     assert ppl.scan_parquet(path, batch_size=1).head(3).collect().height == 3
 
@@ -494,3 +479,42 @@ def test_unserializable_predicates_prune_nothing(path: pathlib.Path, monkeypatch
                 raise ValueError("no")
 
     assert ppl._row_groups(ppc.ParquetFile(path), Opaque(), frame().schema) == list(range(10))  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("engine", ["in-memory", "streaming"])
+@pytest.mark.parametrize(
+    "query",
+    [
+        lambda lf: lf.head(3).filter(pl.col("seq") > 1),
+        lambda lf: lf.slice(0, 1).filter(pl.col("seq") != 0),
+        lambda lf: lf.head(5).filter(pl.col("maybe").is_null()),
+        # the limit ends in a row group the predicate rules out, after one it keeps
+        lambda lf: lf.head(150).filter(pl.col("seq") < 120),
+        # the limit takes rows of row groups the statistics skip
+        lambda lf: lf.head(250).filter(pl.col("seq") >= 180),
+        lambda lf: lf.head(250).filter(pl.col("seq") >= 300),
+        lambda lf: lf.head(250).filter(pl.col("seq") >= 180).select("price"),
+    ],
+    ids=["head(3)", "slice(0,1)", "is_null", "ends-in-skipped", "skips-first", "all-skipped", "projected"],
+)
+def test_a_limit_before_a_filter_is_applied_first(path: pathlib.Path, query: Any, engine: Any) -> None:
+    # Polars hands the source both n_rows and the predicate for head(n).filter(p), and means
+    # the limit first (filter(p).head(n) passes no limit)
+    assert_frame_equal(query(ppl.scan_parquet(path)).collect(engine=engine), query(frame().lazy()).collect())
+
+
+def test_a_limit_with_a_predicate_counts_the_rows_read(path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    f = ppc.ParquetFile(path)
+    source = ppl._source(f, None, pl.DataFrame(f.empty()).schema)
+    spy = Spy(monkeypatch)
+    even = pl.col("seq") % 2 == 0
+    for n in [0, 1, 7, 500, 2000]:
+        out = [v for df in source(["seq"], even, n, 3) for v in df["seq"]]
+        assert out == list(range(0, min(n, 1000), 2))
+    # row groups the statistics rule out are skipped, but count toward the limit
+    late = pl.col("seq") >= 180
+    assert pl.concat(list(source(["seq"], late, 250, 100)))["seq"].to_list() == list(range(180, 250))
+    assert spy.calls[-1]["row_groups"] == [1, 2]
+    assert spy.calls[-1]["limit"] == 150
+    assert list(source(["seq"], pl.col("seq") >= 300, 250, 100)) == []
+    assert spy.calls[-1]["row_groups"] == []

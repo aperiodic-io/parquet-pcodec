@@ -191,6 +191,29 @@ def _row_groups(f: ParquetFile, predicate: pl.Expr, schema: pl.Schema) -> list[i
     return [i for i, b in enumerate(bounds) if test is None or test(b)]
 
 
+def _plan(
+    f: ParquetFile, predicate: pl.Expr | None, schema: pl.Schema, n_rows: int | None
+) -> tuple[list[int] | None, int | None]:
+    """The row groups to read and the most rows to read from them: the first `n_rows` rows
+    of the file (Polars means the limit before the predicate), less the row groups whose
+    statistics rule `predicate` out. A skipped row group still takes its part of the limit."""
+    if predicate is None:
+        return None, n_rows
+    kept = _row_groups(f, predicate, schema)
+    if n_rows is None:
+        return kept, None
+    groups: list[int] = []
+    limit = 0
+    left = n_rows
+    for i, rows in enumerate(f.metadata.row_group_rows):
+        take = min(rows, left)
+        left -= take
+        if take and i in kept:
+            groups.append(i)
+            limit += take
+    return groups, limit
+
+
 #: Rows per batch when neither the caller nor the engine asks for a size.
 DEFAULT_BATCH_SIZE = 65536
 
@@ -206,22 +229,14 @@ def _source(
         columns = with_columns
         if columns is not None and predicate is not None:
             columns = list(dict.fromkeys([*columns, *predicate.meta.root_names()]))
-        row_groups = None if predicate is None else _row_groups(f, predicate, schema)
-        # a limit on matching rows cannot go to the reader
-        limit = n_rows if predicate is None else None
-        left = n_rows
+        row_groups, limit = _plan(f, predicate, schema, n_rows)
         for batch in f.stream(columns, row_groups, batch_size or hint or DEFAULT_BATCH_SIZE, limit):
             df = pl.DataFrame(batch)
             if predicate is not None:
                 df = df.filter(predicate)
             if with_columns is not None:
                 df = df.select(with_columns)
-            if left is not None:
-                df = df.head(left)
-                left -= df.height
             yield df
-            if left == 0:
-                return
 
     return source
 
