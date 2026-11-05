@@ -33,7 +33,8 @@ impl Target {
 }
 
 /// Rewrites `input` to `output`, keeping the schema, the Arrow schema and its metadata, the
-/// other key-value metadata and the row groups. Row groups without rows are dropped.
+/// other key-value metadata, the row groups and their sorting columns (when every row group
+/// has the same). Row groups without rows are dropped.
 pub fn transcode<R: ChunkReader + 'static, W: Write + Send>(
     input: R,
     output: W,
@@ -67,10 +68,18 @@ pub fn transcode<R: ChunkReader + 'static, W: Write + Send>(
             WriterOptions::default().with_policy(crate::Policy::Base).with_base(*base).with_properties(props.build())
         }
     };
+    // the rows keep their order: row groups that all say how they are sorted still are
+    let groups = metadata.row_groups();
+    let sorting = groups
+        .first()
+        .and_then(|rg| rg.sorting_columns())
+        .filter(|s| groups.iter().all(|rg| rg.sorting_columns() == Some(s)))
+        .cloned();
     options.properties = options
         .properties
         .into_builder()
         .set_key_value_metadata(Some(other_kv))
+        .set_sorting_columns(sorting)
         .set_max_row_group_row_count(None)
         .set_max_row_group_bytes(None)
         .build();

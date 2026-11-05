@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tparquet::parquet::arrow::ArrowWriter;
 use tparquet::parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use tparquet::parquet::basic::{Compression, GzipLevel};
-use tparquet::parquet::file::metadata::KeyValue;
+use tparquet::parquet::file::metadata::{KeyValue, SortingColumn};
 use tparquet::parquet::file::properties::WriterProperties;
 use tparquet::verify::verify;
 use tparquet::{Policy, Target, WriterOptions, transcode};
@@ -166,4 +166,66 @@ fn row_groups_without_rows_are_dropped() {
     w.close().unwrap();
     let out = run(Bytes::from(buf), &Target::Pcodec(WriterOptions::default()));
     assert_eq!(row_groups(&out), [10]);
+}
+
+/// The Parquet schema of a file, as text.
+fn parquet_schema(file: &Bytes) -> String {
+    let b = ParquetRecordBatchReaderBuilder::try_new(file.clone()).unwrap();
+    let mut s = Vec::new();
+    tparquet::parquet::schema::printer::print_schema(&mut s, b.parquet_schema().root_schema());
+    String::from_utf8(s).unwrap()
+}
+
+fn sorting(file: &Bytes) -> Vec<Option<Vec<SortingColumn>>> {
+    let b = ParquetRecordBatchReaderBuilder::try_new(file.clone()).unwrap();
+    b.metadata().row_groups().iter().map(|rg| rg.sorting_columns().cloned()).collect()
+}
+
+/// A standard file whose row groups say they are sorted by `id`, then `px` descending.
+fn sorted() -> Bytes {
+    let sort = vec![
+        SortingColumn { column_idx: 0, descending: false, nulls_first: false },
+        SortingColumn { column_idx: 1, descending: true, nulls_first: true },
+    ];
+    let props = WriterProperties::builder().set_sorting_columns(Some(sort)).build();
+    let mut out = Vec::new();
+    let mut w = ArrowWriter::try_new(&mut out, batch(0, 1).schema(), Some(props)).unwrap();
+    for (offset, rows) in [(0, 700), (700, 300)] {
+        w.write(&batch(offset, rows)).unwrap();
+        w.flush().unwrap();
+    }
+    w.close().unwrap();
+    Bytes::from(out)
+}
+
+#[test]
+fn sorting_columns_are_kept() {
+    let input = sorted();
+    assert!(sorting(&input).iter().all(|s| s.as_ref().is_some_and(|s| s.len() == 2)));
+    let pcodec = run(input.clone(), &Target::Pcodec(WriterOptions::default()));
+    assert_eq!(sorting(&pcodec), sorting(&input));
+    let back = run(pcodec, &Target::standard());
+    assert_eq!(sorting(&back), sorting(&input));
+    // row groups that disagree say nothing about the output's
+    let mixed = with_row_group_sorting(&input, 1, None);
+    let out = run(mixed.clone(), &Target::Pcodec(WriterOptions::default()));
+    assert_eq!(sorting(&out), [None, None]);
+    assert_eq!(lines(&out), lines(&input));
+    let first_only = with_row_group_sorting(&input, 0, Some(vec![]));
+    assert_eq!(sorting(&run(first_only, &Target::standard())), [None, None]);
+    let unsorted = run(standard(), &Target::Pcodec(WriterOptions::default()));
+    assert!(sorting(&unsorted).iter().all(|s| s.is_none()));
+}
+
+/// `file` with the sorting columns of row group `rg` replaced by `sort` in the footer.
+fn with_row_group_sorting(file: &Bytes, rg: usize, sort: Option<Vec<SortingColumn>>) -> Bytes {
+    use tparquet::parquet::file::metadata::{ParquetMetaDataReader, ParquetMetaDataWriter};
+    let metadata = ParquetMetaDataReader::new().parse_and_finish(file).unwrap();
+    let footer = 8 + u32::from_le_bytes(file[file.len() - 8..file.len() - 4].try_into().unwrap()) as usize;
+    let mut groups = metadata.row_groups().to_vec();
+    groups[rg] = groups[rg].clone().into_builder().set_sorting_columns(sort).build().unwrap();
+    let metadata = metadata.into_builder().set_row_groups(groups).build();
+    let mut out = file[..file.len() - footer].to_vec();
+    ParquetMetaDataWriter::new(&mut out, &metadata).finish().unwrap();
+    Bytes::from(out)
 }
