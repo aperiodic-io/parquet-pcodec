@@ -26,6 +26,9 @@
 
   <modules>
     <module>trino-parquet</module>
+    <module>plugin-jars</module>
+    <module>tests</module>
+    <module>acceptance-upstream</module>
   </modules>
 
   <properties>
