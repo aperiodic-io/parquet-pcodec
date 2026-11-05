@@ -239,3 +239,168 @@ def test_unions_are_refused_by_name(tmp_path: pathlib.Path) -> None:
     with pytest.raises(ppc.PcodecError, match=r"^the column u is a union"):
         ppc.Writer(tmp_path / "x.parquet", table.schema)
     assert list(tmp_path.iterdir()) == []
+
+
+# ---------------------------------------------------------------- policies and options
+
+
+def file_codecs(buf: io.BytesIO) -> dict[str, str]:
+    """Leaf path to the codec of its (one) chunk codec, as the footer says."""
+    codecs = ppc.ParquetFile(io.BytesIO(buf.getvalue())).metadata.codecs
+    assert all(len(c) == 1 for c in codecs.values())
+    return {path: c[0] for path, c in codecs.items()}
+
+
+def written(table: pa.Table, **kwargs: Any) -> tuple[dict[str, str], dict[str, str]]:
+    """(the codecs write_table reports, the codecs the file has)."""
+    buf = io.BytesIO()
+    reported = ppc.write_table(table, buf, **kwargs)
+    assert ppc.read_table(io.BytesIO(buf.getvalue())).equals(table)
+    return reported, file_codecs(buf)
+
+
+NESTED = pa.table(
+    {
+        "a.b": pa.array(range(500), pa.int64()),
+        "a": pa.array([{"b": i, "c": i / 2} for i in range(500)]),
+        "ab": pa.array(range(500), pa.int64()),
+        "l": pa.array([[i, i + 1] for i in range(500)], pa.list_(pa.int64())),
+        "m": pa.array([[("k", float(i))] for i in range(500)], pa.map_(pa.string(), pa.float64())),
+    }
+)
+
+
+@pytest.mark.parametrize(
+    ("columns", "pcodec"),
+    [
+        ({"a": "pcodec"}, {"a.b", "a.c"}),
+        ({"a.c": "pcodec"}, {"a.c"}),
+        # a dotted name names the top-level field "a.b" and the leaf b of "a": both
+        ({"a.b": "pcodec"}, {"a.b"}),
+        ({"ab": "pcodec"}, {"ab"}),
+        ({"l": "pcodec"}, {"l.list.item"}),
+        ({"l.list.item": "pcodec"}, {"l.list.item"}),
+        ({"m.entries.value": "pcodec"}, {"m.entries.value"}),
+        # inner groups of the Parquet schema are whole names too
+        ({"l.list": "pcodec"}, {"l.list.item"}),
+        ({"m.entries": "pcodec"}, {"m.entries.value"}),
+        # the longest name wins
+        ({"a": "pcodec", "a.c": "base"}, {"a.b"}),
+    ],
+    ids=str,
+)
+def test_column_policies_on_nested_and_dotted_names(columns: dict[str, ppc.Policy], pcodec: set[str]) -> None:
+    reported, actual = written(NESTED, policy="base", columns=columns)
+    assert reported == actual
+    # "a.b" is both the top-level column and a's leaf: one key holds both
+    assert {path for path, c in reported.items() if c == "PCODEC"} == pcodec
+    assert ppc.ParquetFile(io.BytesIO(_bytes(NESTED, policy="base", columns=columns))).metadata.codecs.keys() == {
+        "a.b",
+        "a.c",
+        "ab",
+        "l.list.item",
+        "m.entries.key",
+        "m.entries.value",
+    }
+
+
+def _bytes(table: pa.Table, **kwargs: Any) -> bytes:
+    buf = io.BytesIO()
+    ppc.write_table(table, buf, **kwargs)
+    return buf.getvalue()
+
+
+def test_a_name_must_be_a_whole_field(tmp_path: pathlib.Path) -> None:
+    for name in ["a.", "a.b.c", "l.lis", "A", ""]:
+        with pytest.raises(ppc.PcodecError, match=rf"^no column named {name!r}$".replace("'", '"')):
+            ppc.write_table(NESTED, io.BytesIO(), columns={name: "pcodec"})
+
+
+def test_each_policy_and_the_reports_match_the_file() -> None:
+    smooth = pa.table(
+        {
+            "t": pa.array(range(0, 3_000_000, 1000), pa.int64()),
+            "noise": pa.array([(i * 2654435761) % 2**31 for i in range(3000)], pa.int32()),
+            "s": pa.array([str(i % 5) for i in range(3000)]),
+        }
+    )
+    for policy in ["auto", "pcodec", "base"]:
+        reported, actual = written(smooth, policy=policy)
+        assert reported == actual, policy
+        assert reported["s"] == "ZSTD"
+    assert written(smooth, policy="pcodec")[0] == {"t": "PCODEC", "noise": "PCODEC", "s": "ZSTD"}
+    assert written(smooth, policy="base")[0] == {"t": "ZSTD", "noise": "ZSTD", "s": "ZSTD"}
+    assert written(smooth)[0]["t"] == "PCODEC"
+
+
+def test_auto_keeps_the_base_codec_when_it_is_smaller_in_total() -> None:
+    # spec section 6: a file with PCODEC has V2 pages, whose levels are not compressed; when
+    # that costs the other columns more than PCODEC saves, every column keeps the base codec
+    import random
+
+    r = random.Random(12)
+    mid, bids, asks = 6_500_000, [], []
+    for _ in range(4000):
+        mid += r.randrange(5) - 2
+        bids.append([(mid - k) / 100 for k in range(20)])
+        asks.append([(mid + 1 + k) / 100 for k in range(20)])
+    table = pa.table({"t": pa.array(range(4000), pa.int64()), "bids": bids, "asks": asks})
+    auto, base = _bytes(table), _bytes(table, policy="base")
+    pcodec_t = _bytes(table, policy="base", columns={"t": "pcodec"})
+    t_size = {c["path"]: c["compressed_bytes"] for c in ppc.inspect(io.BytesIO(pcodec_t))["columns"]}["t"]
+    assert t_size < {c["path"]: c["compressed_bytes"] for c in ppc.inspect(io.BytesIO(base))["columns"]}["t"]
+    assert len(pcodec_t) > len(base)
+    assert written(table)[0] == {"t": "ZSTD", "bids.list.item": "ZSTD", "asks.list.item": "ZSTD"}
+    assert len(auto) == len(base)
+
+
+def test_the_choice_waits_for_rows() -> None:
+    table = TABLE
+    w = ppc.Writer(io.BytesIO(), table.schema)
+    assert w.codecs is None
+    w.write(table.slice(0, 0))
+    w.flush()
+    assert w.codecs is None
+    w.write(table.slice(0, 50))
+    chosen = w.codecs
+    assert chosen is not None
+    assert w.close() == chosen
+    # forced policies are known at once
+    assert ppc.Writer(io.BytesIO(), table.schema, policy="pcodec").codecs == {"a": "PCODEC", "b": "PCODEC"}
+    assert ppc.Writer(io.BytesIO(), table.schema, policy="base", base="snappy").codecs == {"a": "SNAPPY", "b": "SNAPPY"}
+    # without rows, Auto columns get the base codec
+    empty = ppc.Writer(io.BytesIO(), table.schema)
+    assert empty.close() == {"a": "ZSTD", "b": "ZSTD"}
+
+
+@pytest.mark.parametrize("level", range(13))
+def test_every_level(level: int) -> None:
+    buf = io.BytesIO()
+    ppc.write_table(TABLE, buf, policy="pcodec", level=level)
+    assert ppc.read_table(io.BytesIO(buf.getvalue())).equals(TABLE)
+
+
+def test_levels_change_the_payload() -> None:
+    import random
+
+    r = random.Random(5)
+    table = pa.table({"x": pa.array([int(r.expovariate(1e-4)) for _ in range(50_000)], pa.int64())})
+    sizes = {len(_bytes(table, policy="pcodec", level=level)) for level in [0, 4, 8, 12]}
+    assert len(sizes) > 1
+
+
+@pytest.mark.parametrize("rows", [1, 2, 99, 100, 101, 10**9])
+def test_row_group_sizes(rows: int) -> None:
+    buf = io.BytesIO()
+    ppc.write_table(TABLE, buf, row_group_size=rows)
+    md = ppc.ParquetFile(io.BytesIO(buf.getvalue())).metadata
+    assert md.row_group_rows == [min(rows, 100 - i) for i in range(0, 100, rows)]
+
+
+def test_row_group_size_with_a_writer_and_flush() -> None:
+    buf = io.BytesIO()
+    with ppc.Writer(buf, TABLE.schema, row_group_size=30) as w:
+        w.write(TABLE.slice(0, 40))
+        w.flush()
+        w.write(TABLE.slice(40, 60))
+    assert ppc.ParquetFile(io.BytesIO(buf.getvalue())).metadata.row_group_rows == [30, 10, 30, 30]
