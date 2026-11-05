@@ -23,16 +23,34 @@
 
   <modules>
     <module>tparquet-jni</module>
+    <module>parquet-java/parquet-format-structures</module>
+    <module>parquet-java/parquet-common</module>
+    <module>parquet-java/parquet-hadoop</module>
   </modules>
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <maven.compiler.release>17</maven.compiler.release>
+    <!-- parquet-java 1.17.0 targets Java 11: the fork and the libraries it depends on keep that;
+         tests (and the Spark connector) use 17 -->
+    <maven.compiler.release>11</maven.compiler.release>
+    <maven.compiler.testRelease>17</maven.compiler.testRelease>
     <!-- the repository root: testdata/ and target/release/ (the native library) -->
     <tparquet.root>${maven.multiModuleProjectDirectory}/..</tparquet.root>
     <tparquet.testdata>${tparquet.root}/testdata</tparquet.testdata>
     <!-- the JNI library the tests load; `make -C java` builds it with cargo first -->
     <tparquet.jni.library>${tparquet.root}/target/release/libtparquet_jni.so</tparquet.jni.library>
+
+    <!-- the parquet-java fork (parquet-java/FORK.md) and the upstream release it is built on -->
+    <parquet.upstream.version>1.17.0</parquet.upstream.version>
+    <parquet.fork.version>1.17.0-tparquet</parquet.fork.version>
+    <thrift.version>0.22.0</thrift.version>
+    <slf4j.version>1.7.33</slf4j.version>
+    <hadoop.version>3.3.0</hadoop.version>
+    <!-- upstream relocates these to shaded.parquet.* (parquet-jackson and parquet-column hold the
+         classes); the fork compiles against them and relocates its references the same way -->
+    <parquet.jackson.version>2.19.2</parquet.jackson.version>
+    <parquet.fastutil.version>8.5.15</parquet.fastutil.version>
+    <tparquet.version>0.1.0-SNAPSHOT</tparquet.version>
 
     <junit.version>5.14.4</junit.version>
     <jqwik.version>1.10.2</jqwik.version>
@@ -70,7 +88,43 @@
       <dependency>
         <groupId>io.aperiodic.tparquet</groupId>
         <artifactId>tparquet-jni</artifactId>
-        <version>${project.version}</version>
+        <version>${tparquet.version}</version>
+      </dependency>
+      <!-- the fork's modules; the other parquet-java modules stay upstream -->
+      <dependency>
+        <groupId>org.apache.parquet</groupId>
+        <artifactId>parquet-format-structures</artifactId>
+        <version>${parquet.fork.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.parquet</groupId>
+        <artifactId>parquet-common</artifactId>
+        <version>${parquet.fork.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.parquet</groupId>
+        <artifactId>parquet-hadoop</artifactId>
+        <version>${parquet.fork.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.parquet</groupId>
+        <artifactId>parquet-column</artifactId>
+        <version>${parquet.upstream.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.parquet</groupId>
+        <artifactId>parquet-encoding</artifactId>
+        <version>${parquet.upstream.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.parquet</groupId>
+        <artifactId>parquet-jackson</artifactId>
+        <version>${parquet.upstream.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.slf4j</groupId>
+        <artifactId>slf4j-api</artifactId>
+        <version>${slf4j.version}</version>
       </dependency>
     </dependencies>
   </dependencyManagement>
@@ -98,6 +152,9 @@
               <tparquet.testdata>${tparquet.testdata}</tparquet.testdata>
             </systemPropertyVariables>
             <trimStackTrace>false</trimStackTrace>
+            <!-- a library path without the library, whatever LD_LIBRARY_PATH says (cargo test
+                 sets it): tests load the library through tparquet.jni.library -->
+            <argLine>-Djava.library.path=${project.build.directory}/no-native-library</argLine>
           </configuration>
         </plugin>
         <plugin>
@@ -143,6 +200,7 @@
             <jvmArgs>
               <value>-Dtparquet.jni.library=${tparquet.jni.library}</value>
               <value>-Dtparquet.testdata=${tparquet.testdata}</value>
+              <value>-Djava.library.path=${project.build.directory}/no-native-library</value>
             </jvmArgs>
           </configuration>
         </plugin>

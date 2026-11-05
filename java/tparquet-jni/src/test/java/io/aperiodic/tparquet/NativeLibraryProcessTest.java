@@ -8,6 +8,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -29,12 +32,39 @@ class NativeLibraryProcessTest {
     return new Result(p.waitFor(), out);
   }
 
-  static String classpath(Path... extra) {
-    StringBuilder cp = new StringBuilder(System.getProperty("java.class.path"));
-    for (Path p : extra) {
-      cp.append(File.pathSeparator).append(p);
+  /** The main classes, copied without a bundled library (a packaged build puts one there). */
+  static Path classes;
+
+  @BeforeAll
+  static void classesWithoutTheLibrary(@TempDir Path dir) throws Exception {
+    Path main = Path.of(Pcodec.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+    classes = dir.resolve("classes");
+    try (Stream<Path> files = Files.walk(main)) {
+      for (Path f : (Iterable<Path>) files::iterator) {
+        Path rel = main.relativize(f);
+        if (rel.startsWith(Path.of("io", "aperiodic", "tparquet", "native"))) {
+          continue;
+        }
+        Path to = classes.resolve(rel.toString());
+        if (Files.isDirectory(f)) {
+          Files.createDirectories(to);
+        } else {
+          Files.copy(f, to);
+        }
+      }
     }
-    return cp.toString();
+  }
+
+  /** This JVM's class path with {@link #classes} for the main classes, then {@code extra}. */
+  static String classpath(Path... extra) throws Exception {
+    Path main = Path.of(Pcodec.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+    String cp = Stream.of(System.getProperty("java.class.path").split(File.pathSeparator))
+        .map(e -> Path.of(e).equals(main) ? classes.toString() : e)
+        .collect(Collectors.joining(File.pathSeparator));
+    for (Path p : extra) {
+      cp += File.pathSeparator + p;
+    }
+    return cp;
   }
 
   @Test
