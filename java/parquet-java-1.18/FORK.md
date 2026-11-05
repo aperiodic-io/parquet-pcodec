@@ -57,8 +57,8 @@ exactly the entries of `parquet-common-1.18.1.jar` (124). `parquet-format-struct
 has the entries of upstream's, the shaded thrift classes included, except 59 compiler-synthesized
 switch-map classes (`org/apache/parquet/format/*$1.class`), which upstream's javac emitted and
 javac 21 does not need (472 entries against 531), as for the 1.17.0 fork. The classes are Java 11
-(class file version 55). `trino/tparquet-trino` checks, on Trino's class path, that the thrift
-relocation is in place and that these are the jars Trino's reader loads.
+(class file version 55). `trino/tests` (`ForkJarsTest`) checks, on Trino's class path, that the
+thrift relocation is in place and that these are the jars Trino's reader loads.
 
 ## Using the fork
 
