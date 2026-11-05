@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/apache/arrow-go/v18/parquet"
 	"github.com/apache/arrow-go/v18/parquet/pqarrow"
 
@@ -273,5 +275,72 @@ func TestFileWriterPendingBatchSinkError(t *testing.T) {
 		if err := last(w); err == nil || !strings.Contains(err.Error(), "disk full") {
 			t.Fatalf("err = %v, want the sink's", err)
 		}
+	}
+}
+
+// TestFileWriterSchemaMismatches: the schema is checked on every Write; schema-level
+// metadata is not part of it (pqarrow compares fields), field nullability is.
+func TestFileWriterSchemaMismatches(t *testing.T) {
+	rec := autoRecord(3000)
+	defer rec.Release()
+	md := arrow.NewMetadata([]string{"k"}, []string{"v"})
+	withMeta := array.NewRecordBatch(arrow.NewSchema(rec.Schema().Fields(), &md), rec.Columns(), rec.NumRows())
+	defer withMeta.Release()
+	fields := slices.Clone(rec.Schema().Fields())
+	fields[1].Nullable = true
+	nullable := array.NewRecordBatch(arrow.NewSchema(fields, nil), rec.Columns(), rec.NumRows())
+	defer nullable.Release()
+
+	var buf bytes.Buffer
+	w, err := tparquet.NewFileWriter(rec.Schema(), &buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Write(nullable); err == nil || !strings.Contains(err.Error(), "schema differs") {
+		t.Fatalf("first Write of another schema: %v", err)
+	}
+	if err := w.Write(withMeta); err != nil {
+		t.Fatalf("schema metadata is not part of the schema check: %v", err)
+	}
+	if err := w.Write(nullable); err == nil || !strings.Contains(err.Error(), "schema does not match") {
+		t.Fatalf("later Write of another schema: %v", err)
+	}
+	if err := w.Write(rec); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	assertSameData(t, buf.Bytes(), rec, rec)
+}
+
+// TestFileWriterEmptyFiles: Close with no Write gives a valid file without row groups for
+// every policy; only forced PCODEC columns mark it.
+func TestFileWriterEmptyFiles(t *testing.T) {
+	for _, tc := range []struct {
+		opts   []tparquet.Option
+		marked bool
+	}{
+		{nil, false},
+		{[]tparquet.Option{tparquet.WithDefaultPolicy(tparquet.Base)}, false},
+		{[]tparquet.Option{tparquet.WithDefaultPolicy(tparquet.Pcodec)}, true},
+		{[]tparquet.Option{tparquet.WithPolicy("name", tparquet.Pcodec)}, true},
+	} {
+		var buf bytes.Buffer
+		w, err := tparquet.NewFileWriter(mixedSchema, &buf, tc.opts...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := w.Close(); err != nil {
+			t.Fatal(err)
+		}
+		md := fileMetadata(t, buf.Bytes())
+		if md.NumRows != 0 || md.NumRowGroups() != 0 {
+			t.Fatalf("%d rows, %d row groups", md.NumRows, md.NumRowGroups())
+		}
+		if _, ok := footerValue(md, tparquet.FooterKey); ok != tc.marked || w.Plan().UsesPcodec() != tc.marked {
+			t.Fatalf("footer key %v, plan %v, want %v", ok, w.Plan().PcodecColumns(), tc.marked)
+		}
+		checkReaders(t, buf.Bytes(), nil)
 	}
 }
