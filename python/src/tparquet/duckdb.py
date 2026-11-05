@@ -27,6 +27,8 @@ class ArrowSource:
         self._file = ParquetFile(source)
         self._columns = _names(columns)
         self._batch_size = batch_size
+        # an unknown column is an error now, not when DuckDB first reads the source
+        self._file.empty(self._columns)
 
     def __arrow_c_stream__(self, requested_schema: object | None = None) -> object:
         return self._file.stream(self._columns, None, self._batch_size).__arrow_c_stream__(requested_schema)
