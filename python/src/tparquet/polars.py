@@ -180,9 +180,21 @@ def _test(node: Any, schema: pl.Schema) -> Callable[[dict[str, tuple[int, int]]]
     return None
 
 
+def _same_values(dtype: pl.DataType, stored: str) -> bool:
+    """Whether a Polars column of `dtype` holds the integers a column stored as `stored`
+    (`ParquetFile._column_bounds`) has: Polars reads `timestamp[s]` in milliseconds."""
+    if isinstance(dtype, pl.Datetime):
+        return stored == f"timestamp[{dtype.time_unit}]" or (stored == "date64" and dtype.time_unit == "ms")
+    if dtype == pl.Date:
+        return stored == "date32"
+    return stored == "int"
+
+
 def _row_groups(f: ParquetFile, predicate: pl.Expr, schema: pl.Schema) -> list[int]:
     """The row groups whose statistics do not rule `predicate` out."""
-    bounds = f.integer_bounds()
+    stored, column_bounds = f._column_bounds()
+    usable = {name for name, kind in stored.items() if _same_values(schema[name], kind)}
+    bounds = [{name: b for name, b in rg.items() if name in usable} for rg in column_bounds]
     try:
         tree = json.loads(predicate.meta.serialize(format="json"))
     except Exception:  # the serialized form is not a stable Polars API: then prune nothing

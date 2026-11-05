@@ -518,3 +518,44 @@ def test_a_limit_with_a_predicate_counts_the_rows_read(path: pathlib.Path, monke
     assert spy.calls[-1]["limit"] == 150
     assert list(source(["seq"], pl.col("seq") >= 300, 250, 100)) == []
     assert spy.calls[-1]["row_groups"] == []
+
+
+def kept(lf: pl.LazyFrame, monkeypatch: pytest.MonkeyPatch, predicate: pl.Expr) -> tuple[pl.DataFrame, Any]:
+    spy = Spy(monkeypatch)
+    out = lf.filter(predicate).collect()
+    monkeypatch.undo()
+    return out, spy.calls[0]["row_groups"]
+
+
+def test_timestamps_in_seconds_are_not_pruned_in_milliseconds(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import pyarrow as pa
+
+    # Polars has no seconds: it reads timestamp[s] as Datetime("ms"), but the statistics
+    # bound the stored seconds
+    p = tmp_path / "s.parquet"
+    for tz in [None, "UTC"]:
+        ppc.write_table(pa.table({"t": pa.array(range(0, 50_000, 1000), pa.timestamp("s", tz))}), p, row_group_size=10)
+        after = datetime.datetime(1970, 1, 1, 0, 10, tzinfo=None if tz is None else datetime.timezone.utc)
+        out, groups = kept(ppl.scan_parquet(p), monkeypatch, pl.col("t") > after)
+        assert out.height == 49
+        assert groups == [0, 1, 2, 3, 4]
+    # date64 is stored in milliseconds, as Polars reads it: that is pruned
+    ppc.write_table(pa.table({"d": pa.array([i * 86_400_000 for i in range(50)], pa.date64())}), p, row_group_size=10)
+    out, groups = kept(ppl.scan_parquet(p), monkeypatch, pl.col("d") >= datetime.datetime(1970, 1, 31))
+    assert out.height == 20
+    assert groups == [3, 4]
+
+
+def test_a_dotted_name_is_not_a_nested_leaf(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import pyarrow as pa
+
+    inner = pa.StructArray.from_arrays([pa.array(range(1000, 1050), pa.int64())], ["b"])
+    flat = pa.array(range(50), pa.int64())
+    p = tmp_path / "d.parquet"
+    for table in [pa.table({"a.b": flat, "a": inner}), pa.table({"a": inner, "a.b": flat})]:
+        ppc.write_table(table, p, row_group_size=10)
+        out, groups = kept(ppl.scan_parquet(p), monkeypatch, pl.col("a.b") < 20)
+        assert out["a.b"].to_list() == list(range(20))
+        assert groups == [0, 1]

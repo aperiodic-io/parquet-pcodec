@@ -206,6 +206,12 @@ class ParquetFile:
         without both bounds are left out."""
         return self._file.integer_bounds()
 
+    def _column_bounds(self) -> tuple[dict[str, str], list[dict[str, tuple[int, int]]]]:
+        """How each top-level column of signed integers, dates or timestamps is stored
+        (`int`, `date32`, `date64`, `timestamp[<unit>]`), and per row group `{name: (min,
+        max)}` from its statistics: what `tparquet.polars` prunes row groups with."""
+        return self._file.column_bounds()
+
     def stream(
         self,
         columns: Sequence[str] | None = None,

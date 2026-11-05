@@ -4,7 +4,7 @@ use crate::errors::{detached, from_arrow, from_parquet, from_pcodec, invalid, os
 use crate::ffi::{ArrowSchema, RecordBatchStream, named};
 use crate::options::codec_name;
 use arrow_array::{RecordBatch, RecordBatchIterator, RecordBatchReader};
-use arrow_schema::{ArrowError, SchemaRef};
+use arrow_schema::{ArrowError, DataType, SchemaRef, TimeUnit};
 use bytes::Bytes;
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
@@ -322,19 +322,44 @@ impl File {
         md.row_groups()
             .iter()
             .map(|rg| {
-                rg.columns()
-                    .iter()
-                    .filter_map(|c| {
-                        let bounds = match c.statistics()? {
-                            Statistics::Int32(s) => (i64::from(*s.min_opt()?), i64::from(*s.max_opt()?)),
-                            Statistics::Int64(s) => (*s.min_opt()?, *s.max_opt()?),
-                            _ => return None,
-                        };
-                        Some((c.column_path().string(), bounds))
-                    })
-                    .collect()
+                rg.columns().iter().filter_map(|c| Some((c.column_path().string(), bounds(c.statistics()?)?))).collect()
             })
             .collect()
+    }
+
+    /// The statistics of the top-level columns that hold signed integers, dates or
+    /// timestamps: how each is stored (`int`, `date32`, `date64` or `timestamp[<unit>]`,
+    /// dictionaries by their values), and per row group `{name: (min, max)}` of those whose
+    /// statistics give both bounds. A name is a top-level field, never a nested leaf with the
+    /// same dotted path.
+    #[allow(clippy::type_complexity)]
+    fn column_bounds(&self) -> (BTreeMap<String, String>, Vec<BTreeMap<String, (i64, i64)>>) {
+        let md = self.metadata.metadata();
+        let leaves = md.file_metadata().schema_descr().columns();
+        let mut kinds = BTreeMap::new();
+        let mut columns = vec![];
+        for field in self.metadata.schema().fields() {
+            let kind = match field.data_type() {
+                DataType::Dictionary(_, values) => stored_kind(values),
+                t => stored_kind(t),
+            };
+            let leaf = leaves.iter().position(|c| c.path().parts() == std::slice::from_ref(field.name()));
+            if let (Some(kind), Some(leaf)) = (kind, leaf) {
+                kinds.insert(field.name().clone(), kind);
+                columns.push((field.name().clone(), leaf));
+            }
+        }
+        let bounds = md
+            .row_groups()
+            .iter()
+            .map(|rg| {
+                columns
+                    .iter()
+                    .filter_map(|(name, leaf)| Some((name.clone(), bounds(rg.column(*leaf).statistics()?)?)))
+                    .collect()
+            })
+            .collect();
+        (kinds, bounds)
     }
 
     /// The `tparquet inspect --json` report.
@@ -344,6 +369,34 @@ impl File {
             Ok(report.to_json().to_string())
         })
     }
+}
+
+/// The bounds of `INT32` and `INT64` statistics, as stored (signed).
+fn bounds(s: &Statistics) -> Option<(i64, i64)> {
+    match s {
+        Statistics::Int32(s) => Some((i64::from(*s.min_opt()?), i64::from(*s.max_opt()?))),
+        Statistics::Int64(s) => Some((*s.min_opt()?, *s.max_opt()?)),
+        _ => None,
+    }
+}
+
+/// How a column of type `t` is stored, for the types whose statistics bound signed integers.
+fn stored_kind(t: &DataType) -> Option<String> {
+    Some(match t {
+        DataType::Int8 | DataType::Int16 | DataType::Int32 | DataType::Int64 => "int".into(),
+        DataType::Date32 => "date32".into(),
+        DataType::Date64 => "date64".into(),
+        DataType::Timestamp(unit, _) => format!(
+            "timestamp[{}]",
+            match unit {
+                TimeUnit::Second => "s",
+                TimeUnit::Millisecond => "ms",
+                TimeUnit::Microsecond => "us",
+                TimeUnit::Nanosecond => "ns",
+            }
+        ),
+        _ => return None,
+    })
 }
 
 /// Where `a` and `b` first differ (floats compared bit for bit), or `None`.
