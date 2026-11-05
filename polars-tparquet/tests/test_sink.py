@@ -200,3 +200,103 @@ def test_a_sink_onto_a_directory_fails_and_leaves_no_file(tmp_path: pathlib.Path
         ticks(10).lazy().tparquet.sink(tmp_path / "d")
     assert os.listdir(tmp_path) == ["d"]
     assert os.listdir(tmp_path / "d") == []
+
+
+@pytest.mark.parametrize("chunk_size", [1, 99, 100, 101, 1000])
+def test_chunk_size_boundaries(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, chunk_size: int) -> None:
+    heights: list[int] = []
+    write = tparquet.Writer.write
+
+    def recording(self: tparquet.Writer, data: pl.DataFrame) -> None:
+        heights.append(data.height)
+        write(self, data)
+
+    monkeypatch.setattr(tparquet.Writer, "write", recording)
+    ticks(100).lazy().tparquet.sink(tmp_path / "a.parquet", chunk_size=chunk_size)
+    assert sum(heights) == 100
+    assert max(heights) <= chunk_size
+    assert len(heights) >= -(-100 // chunk_size)
+    assert_frame_equal(pt.read_tparquet(tmp_path / "a.parquet"), ticks(100))
+
+
+def test_a_scan_with_file_paths_sinks_the_paths(tmp_path: pathlib.Path) -> None:
+    a, b = tmp_path / "a.parquet", tmp_path / "b.parquet"
+    ticks(3).tparquet.write(a)
+    ticks(2).tparquet.write(b)
+    lf = pt.scan_tparquet([a, b], include_file_paths="file")
+    assert lf.tparquet.sink(tmp_path / "out.parquet")["file"] == "ZSTD"
+    assert pt.read_tparquet(tmp_path / "out.parquet")["file"].to_list() == [str(a)] * 3 + [str(b)] * 2
+
+
+def test_a_scan_of_the_directory_being_sunk_into_skips_the_unfinished_file(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ticks(10).tparquet.write(tmp_path / "a.parquet")
+    during: list[int] = []
+    write = tparquet.Writer.write
+
+    def scanning(self: tparquet.Writer, data: pl.DataFrame) -> None:
+        write(self, data)
+        self.flush()
+        during.append(pt.scan_tparquet(tmp_path).collect().height)
+
+    monkeypatch.setattr(tparquet.Writer, "write", scanning)
+    pt.scan_tparquet(tmp_path).tparquet.sink(tmp_path / "b.parquet", chunk_size=4)
+    assert during == [10] * len(during)
+    assert len(during) >= 3
+    assert pt.scan_tparquet(tmp_path).collect().height == 20
+
+
+def test_a_file_object_that_fails_raises_its_error(tmp_path: pathlib.Path) -> None:
+    class Full(io.RawIOBase):
+        def __init__(self) -> None:
+            self.written = 0
+
+        def writable(self) -> bool:
+            return True
+
+        def write(self, data: object) -> int:
+            self.written += len(data)  # type: ignore[arg-type]
+            if self.written > 2000:
+                raise OSError(28, "No space left on device")
+            return len(data)  # type: ignore[arg-type]
+
+    with pytest.raises(OSError, match="No space left on device"):
+        ticks(10_000).lazy().tparquet.sink(Full(), chunk_size=100, row_group_size=100)
+    with pytest.raises(OSError, match="No space left on device"):
+        ticks(10_000).tparquet.write(Full(), row_group_size=100)
+
+
+def test_an_empty_result_of_nested_columns(tmp_path: pathlib.Path) -> None:
+    lf = pl.LazyFrame(
+        {
+            "l": [[1.5, None]],
+            "s": [{"a": 1, "b": ["x"]}],
+            "a": pl.Series([[1, 2]], dtype=pl.Array(pl.Int64, 2)),
+            "e": pl.Series(["a"], dtype=pl.Enum(["a", "b"])),
+        }
+    ).filter(pl.lit(False))
+    codecs = lf.tparquet.sink(tmp_path / "empty.parquet")
+    assert codecs == {"a.list.item": "ZSTD", "e": "ZSTD", "l.list.item": "ZSTD", "s.a": "ZSTD", "s.b.list.item": "ZSTD"}
+    out = pt.read_tparquet(tmp_path / "empty.parquet")
+    assert out.schema == lf.collect_schema()
+    assert out.height == 0
+
+
+def test_the_codecs_are_chosen_on_the_first_batch_with_rows(tmp_path: pathlib.Path) -> None:
+    """Auto picks per column on the first batch with rows (an empty first batch does not count),
+    here the first 1000 rows, where qty is smaller with PCODEC than over all 5000."""
+    first = ticks(1000).tparquet.write(io.BytesIO())
+    assert first != ticks(5000).tparquet.write(io.BytesIO())
+    lf = pl.concat([ticks(0).lazy(), ticks(5000).lazy()])
+    assert lf.tparquet.sink(tmp_path / "a.parquet", chunk_size=1000) == first
+
+
+def test_a_sink_on_the_streaming_engine_of_a_large_scan(tmp_path: pathlib.Path) -> None:
+    paths = []
+    for k in range(4):
+        paths.append(tmp_path / f"{k}.parquet")
+        ticks(25_000, offset=25_000 * k).tparquet.write(paths[-1], row_group_size=10_000)
+    lf = pt.scan_tparquet(paths).filter(pl.col("qty") > 25).select("ts", "qty", "sym")
+    lf.tparquet.sink(tmp_path / "out.parquet", row_group_size=8192)
+    assert_frame_equal(pt.read_tparquet(tmp_path / "out.parquet"), lf.collect())
