@@ -26,6 +26,7 @@
     <module>parquet-java/parquet-format-structures</module>
     <module>parquet-java/parquet-common</module>
     <module>parquet-java/parquet-hadoop</module>
+    <module>tparquet</module>
   </modules>
 
   <properties>
@@ -125,6 +126,11 @@
         <groupId>org.slf4j</groupId>
         <artifactId>slf4j-api</artifactId>
         <version>${slf4j.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.aperiodic.tparquet</groupId>
+        <artifactId>tparquet</artifactId>
+        <version>${tparquet.version}</version>
       </dependency>
     </dependencies>
   </dependencyManagement>
