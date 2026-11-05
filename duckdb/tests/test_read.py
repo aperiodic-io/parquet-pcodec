@@ -521,3 +521,15 @@ def test_null_intervals_from_duckdbs_own_parquet_writer_stay_null(con, tmp_path)
         f"TO '{p}' (FORMAT parquet)"
     )
     assert rows(con, f"SELECT v FROM read_tparquet('{p}')") == rows(con, f"SELECT v FROM read_parquet('{p}')")
+
+
+def test_intervals_from_duckdbs_own_parquet_writer_keep_their_months(con, tmp_path):
+    p = tmp_path / "iv.parquet"
+    con.execute(
+        "COPY (SELECT * FROM (VALUES (INTERVAL '1 year 2 months 3 days 04:05:06.789', [INTERVAL '5 months'], "
+        "{'i': INTERVAL '1 month 1 day'}), (INTERVAL '1000 hours', [NULL, INTERVAL '30 days'], NULL), "
+        f"(INTERVAL '0 seconds', NULL, {{'i': NULL}})) t(v, l, s)) TO '{p}' (FORMAT parquet)"
+    )
+    sql = "SELECT v::VARCHAR, l::VARCHAR, s::VARCHAR FROM {}('" + str(p) + "')"
+    assert rows(con, sql.format("read_tparquet")) == rows(con, sql.format("read_parquet"))
+    assert rows(con, sql.format("read_tparquet"))[0][0] == "1 year 2 months 3 days 04:05:06.789"

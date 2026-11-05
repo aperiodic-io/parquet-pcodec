@@ -9,9 +9,9 @@
 //! - [`Scan`] hands out row groups, one at a time, to the threads DuckDB runs, and each thread
 //!   reads its row group in batches of at most one DuckDB vector.
 
-use crate::types::{SqlType, deduplicate, normalize};
+use crate::types::{SqlType, deduplicate, normalize, whole_intervals};
 use arrow_array::{ArrayRef, new_null_array};
-use arrow_schema::{DataType, SchemaRef};
+use arrow_schema::{DataType, Fields, Schema, SchemaRef};
 use parquet::arrow::ProjectionMask;
 use parquet::arrow::arrow_reader::{ArrowReaderMetadata, ArrowReaderOptions, ParquetRecordBatchReaderBuilder};
 use std::fs::File;
@@ -91,10 +91,23 @@ pub enum Slot {
     Other,
 }
 
+/// The footer of a file, with its intervals read whole ([`whole_intervals`]).
 fn open_metadata(path: &Path) -> Result<ArrowReaderMetadata, String> {
     let file = File::open(path).map_err(|e| format!("cannot open {}: {e}", path.display()))?;
-    ArrowReaderMetadata::load(&file, ArrowReaderOptions::new())
-        .map_err(|e| format!("cannot read {} as Parquet: {e}", path.display()))
+    let unreadable = |e: parquet::errors::ParquetError| format!("cannot read {} as Parquet: {e}", path.display());
+    let metadata = ArrowReaderMetadata::load(&file, ArrowReaderOptions::new()).map_err(unreadable)?;
+    let schema = metadata.schema();
+    let fields: Fields = schema
+        .fields()
+        .iter()
+        .map(|f| Arc::new(f.as_ref().clone().with_data_type(whole_intervals(f.data_type()))))
+        .collect();
+    if &fields == schema.fields() {
+        return Ok(metadata);
+    }
+    let hint = Arc::new(Schema::new_with_metadata(fields, schema.metadata().clone()));
+    ArrowReaderMetadata::try_new(metadata.metadata().clone(), ArrowReaderOptions::new().with_schema(hint))
+        .map_err(unreadable)
 }
 
 /// The columns of a file, named as DuckDB names them ([`deduplicate`]).
@@ -432,7 +445,7 @@ impl Scan {
 mod tests {
     use super::*;
     use arrow_array::{Array, Int32Array, Int64Array, RecordBatch, StringArray};
-    use arrow_schema::{Field, Schema};
+    use arrow_schema::Field;
     use parquet::file::properties::WriterProperties;
     use tparquet::{Policy, Writer, WriterOptions};
 

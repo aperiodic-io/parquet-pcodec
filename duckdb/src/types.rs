@@ -338,6 +338,24 @@ pub fn intervals(array: &dyn Array) -> Result<Vec<Interval>, String> {
     }
 }
 
+/// The type to read a column of `data_type` as: every interval becomes `Interval(MonthDayNano)`.
+///
+/// Parquet stores an `INTERVAL` as months, days and milliseconds, and the Parquet reader takes it
+/// for `Interval(DayTime)`, without the months, unless it is asked for `MonthDayNano` (or the
+/// file's own Arrow schema says `YearMonth`, which drops the days). The other types are kept.
+pub fn whole_intervals(data_type: &DataType) -> DataType {
+    let field = |f: &FieldRef| with_type(f, whole_intervals(f.data_type()));
+    match data_type {
+        DataType::Interval(_) => DataType::Interval(arrow_schema::IntervalUnit::MonthDayNano),
+        DataType::List(f) => DataType::List(field(f)),
+        DataType::LargeList(f) => DataType::LargeList(field(f)),
+        DataType::FixedSizeList(f, n) => DataType::FixedSizeList(field(f), *n),
+        DataType::Map(f, sorted) => DataType::Map(field(f), *sorted),
+        DataType::Struct(fields) => DataType::Struct(fields.iter().map(field).collect()),
+        other => other.clone(),
+    }
+}
+
 /// Whether [`normalize`] changes arrays of this type.
 fn needs_normalize(data_type: &DataType) -> bool {
     match data_type {
@@ -529,6 +547,48 @@ mod tests {
         assert_eq!(intervals(&masked).unwrap(), vec![zero, us(1_000_000)]);
         assert_eq!(intervals(&Int64Array::from(vec![1])).unwrap_err(), "Int64 is not an interval");
         assert_eq!(std::mem::size_of::<Interval>(), 16);
+    }
+
+    #[test]
+    fn intervals_are_read_whole_at_any_depth() {
+        use arrow_schema::IntervalUnit::*;
+        let whole = DataType::Interval(MonthDayNano);
+        for unit in [DayTime, YearMonth, MonthDayNano] {
+            assert_eq!(whole_intervals(&DataType::Interval(unit)), whole);
+        }
+        let kv = |v: DataType| {
+            Arc::new(Field::new(
+                "key_value",
+                DataType::Struct(Fields::from(vec![
+                    Field::new("key", DataType::Utf8, false),
+                    Field::new("value", v, true),
+                ])),
+                false,
+            ))
+        };
+        let day_time = DataType::Interval(DayTime);
+        let cases = [
+            (DataType::List(element(day_time.clone())), DataType::List(element(whole.clone()))),
+            (DataType::LargeList(item(day_time.clone())), DataType::LargeList(item(whole.clone()))),
+            (DataType::FixedSizeList(item(day_time.clone()), 3), DataType::FixedSizeList(item(whole.clone()), 3)),
+            (DataType::Map(kv(day_time.clone()), true), DataType::Map(kv(whole.clone()), true)),
+            (
+                DataType::Struct(Fields::from(vec![
+                    Field::new("a", DataType::Int8, false),
+                    Field::new("b", day_time.clone(), true),
+                ])),
+                DataType::Struct(Fields::from(vec![
+                    Field::new("a", DataType::Int8, false),
+                    Field::new("b", whole.clone(), true),
+                ])),
+            ),
+        ];
+        for (t, want) in cases {
+            assert_eq!(whole_intervals(&t), want, "{t}");
+        }
+        for t in [DataType::Int64, DataType::Duration(TimeUnit::Second), DataType::List(item(DataType::Utf8))] {
+            assert_eq!(whole_intervals(&t), t);
+        }
     }
 
     #[test]
