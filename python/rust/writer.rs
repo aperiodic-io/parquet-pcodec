@@ -5,7 +5,7 @@ use crate::ffi::{import_batch, import_schema, import_stream};
 use crate::file::File;
 use crate::options::{Options, base_codec, codec_map, codec_name};
 use crate::sink::Sink;
-use arrow_array::RecordBatch;
+use arrow_array::{RecordBatch, RecordBatchOptions};
 use arrow_schema::{DataType, SchemaRef};
 use pyo3::prelude::*;
 use std::collections::BTreeMap;
@@ -118,7 +118,9 @@ impl Writer {
                 if given != names(&schema) {
                     return Err(mismatch(format!("the data has the columns {given:?}")));
                 }
-                let batch = RecordBatch::try_new(schema.clone(), batch.columns().to_vec())
+                // with its row count, which a batch without columns has only there
+                let rows = RecordBatchOptions::new().with_row_count(Some(batch.num_rows()));
+                let batch = RecordBatch::try_new_with_options(schema.clone(), batch.columns().to_vec(), &rows)
                     .map_err(|e| mismatch(e.to_string()))?;
                 w.write(&batch).map_err(from_pcodec)?;
             }
