@@ -1,19 +1,207 @@
 # tparquet
 
-**Parquet for time series.** [pcodec](https://github.com/pcodec/pcodec) as a Parquet compression codec (`CompressionCodec`
-20547), with readers and writers for Rust, Go, Python, pandas, Polars, DuckDB, Java, Spark, Trino,
-DataFusion, C and C++.
+[![Rust](https://github.com/aperiodic-io/tparquet/actions/workflows/rust.yml/badge.svg)](https://github.com/aperiodic-io/tparquet/actions/workflows/rust.yml)
+[![Go](https://github.com/aperiodic-io/tparquet/actions/workflows/go.yml/badge.svg)](https://github.com/aperiodic-io/tparquet/actions/workflows/go.yml)
+[![Python](https://github.com/aperiodic-io/tparquet/actions/workflows/python.yml/badge.svg)](https://github.com/aperiodic-io/tparquet/actions/workflows/python.yml)
+[![DuckDB](https://github.com/aperiodic-io/tparquet/actions/workflows/duckdb.yml/badge.svg)](https://github.com/aperiodic-io/tparquet/actions/workflows/duckdb.yml)
+[![Java](https://github.com/aperiodic-io/tparquet/actions/workflows/java.yml/badge.svg)](https://github.com/aperiodic-io/tparquet/actions/workflows/java.yml)
+[![Trino](https://github.com/aperiodic-io/tparquet/actions/workflows/trino.yml/badge.svg)](https://github.com/aperiodic-io/tparquet/actions/workflows/trino.yml)
+[![C++](https://github.com/aperiodic-io/tparquet/actions/workflows/cpp.yml/badge.svg)](https://github.com/aperiodic-io/tparquet/actions/workflows/cpp.yml)
+[![Cross-language](https://github.com/aperiodic-io/tparquet/actions/workflows/acceptance.yml/badge.svg)](https://github.com/aperiodic-io/tparquet/actions/workflows/acceptance.yml)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-Numeric columns (`INT32`, `INT64`, `FLOAT`, `DOUBLE`) are compressed with pcodec. Floats that are
-short decimals, such as prices and sizes, are stored as exact integers. Each column gets PCODEC or
-the base codec (ZSTD by default), whichever is smaller on the first batch. On synthetic trades the
-files are 0.27–0.31× the size of pyarrow's ZSTD level 9, bit for bit lossless.
+**Parquet for time series.** Trade and tick files at about a third of their ZSTD size
+(0.31× in our trades benchmark), lossless, and still Parquet: same schema, row groups, statistics
+and page indexes. Read and write them from Python, pandas, Polars, DuckDB, Go, Rust, Java,
+Spark, Trino, C and C++.
 
-**A PCODEC file is not standard Parquet.** Readers without this codec refuse it with an error
-instead of returning wrong data. The acceptance tests check this for pyarrow, pandas, Polars,
-DuckDB's `read_parquet` and the upstream arrow-rs `parquet` crate. `tparquet decode` (or `transcode(..., target="standard")`) writes a standard copy.
+tparquet adds one thing to Parquet: a compression codec, PCODEC, that runs
+[pcodec](https://github.com/pcodec/pcodec) on numeric columns. Prices and sizes that are short
+decimals are stored as exact integers. Everything else in the file stays standard Parquet.
 
-The format is specified in [`spec/FORMAT.md`](spec/FORMAT.md).
+## How much smaller
+
+Deterministic synthetic market data from the acceptance test, against Parquet with ZSTD level 9:
+
+| Data | ZSTD level 9 | tparquet | Size |
+|---|---:|---:|---:|
+| 50,000 trades: ms timestamps, prices on a 0.01 tick, amounts, side, trade ids | 361 KB | 110 KB | **0.31×** |
+| 5,000 L2 book snapshots: lists of bid and ask prices and sizes | 195 KB | 209 KB | 1.07× |
+| Both | 556 KB | 319 KB | 0.57× |
+
+Every value comes back bit for bit. On the trades, timestamps, prices and trade ids get PCODEC;
+amounts and the side flag keep ZSTD because ZSTD is smaller for them. On the book snapshots
+pcodec does not win, so every column keeps ZSTD (at level 3, hence the small gap to level 9).
+tparquet makes this choice per column, on the first batch.
+
+If your files compress like these trades, 1 TB of ZSTD Parquet becomes about 310 GB, and a full
+scan reads about a third of the bytes. To reproduce the table:
+
+```sh
+cargo test --release -p tparquet --test acceptance -- --nocapture
+```
+
+Synthetic data only goes so far. The quickest way to find out what tparquet does for your data
+is to run it on one of your own files.
+
+## Try it on your own file
+
+```sh
+cargo install --path rust/tparquet                          # the tparquet CLI
+
+tparquet encode trades.parquet trades.pcodec.parquet        # standard -> PCODEC, codec chosen per column
+tparquet inspect trades.pcodec.parquet                      # codec and size of every column
+tparquet verify trades.parquet trades.pcodec.parquet        # same data, floats bit for bit
+tparquet decode trades.pcodec.parquet trades.standard.parquet   # and back to standard Parquet
+```
+
+Nothing about your original file changes, and `decode` takes you back whenever you want.
+
+## It's still Parquet
+
+PCODEC is set per column chunk in `ColumnMetaData.codec`, exactly like `ZSTD` or `SNAPPY`.
+Schema, row groups, encodings, statistics, page indexes, bloom filters and key-value metadata
+are untouched, so your files keep their layout, their partitioning and their statistics.
+Strings, booleans and any column pcodec doesn't help keep ZSTD.
+
+The trade-off is that a reader without the codec cannot read the file. It fails with an error
+and never returns wrong data: the acceptance tests check this for pyarrow, pandas, Polars,
+DuckDB's `read_parquet`, the upstream arrow-rs `parquet` crate, parquet-java and Trino. When a file has to go to such
+a reader, `tparquet decode` (or `transcode(..., target="standard")`) writes a standard copy
+and `tparquet verify` confirms it holds the same values.
+
+The codec is specified in [`spec/FORMAT.md`](spec/FORMAT.md), so anyone can implement it.
+
+## Install
+
+The packages are not on PyPI or crates.io yet. Build them from a checkout of this repository
+(the Python and Go packages need a Rust toolchain):
+
+```sh
+cargo install --path rust/tparquet           # CLI
+pip install ./python ./polars-tparquet       # Python, pandas, Polars, DuckDB (Python 3.10+)
+make -C duckdb build                         # DuckDB extension: duckdb/build/tparquet.duckdb_extension
+cargo build --release -p tparquet-capi       # static library for Go; see go/README.md
+make -C java install                         # Java, Spark: the parquet-java fork; see java/README.md
+make -C java spark-jars                      # the jars a Spark 4.3 distribution needs
+make -C trino install TRINO_HOME=...         # Trino 484: the forked jars into its connectors
+make -C cpp build                            # C++: the Arrow C++ fork and tparquet::*; see cpp/README.md
+```
+
+## Use it
+
+Python, with pyarrow, pandas, Polars or DuckDB:
+
+```python
+import tparquet as tpq
+
+tpq.write_table(table, "trades.parquet")          # {"price": "PCODEC", "sym": "ZSTD", ...}
+table = tpq.read_table("trades.parquet", columns=["ts", "price"])
+```
+
+Polars, lazily over many files:
+
+```python
+import polars as pl
+import polars_tparquet as pt
+
+lf = pt.scan_tparquet("trades/**/*.parquet")      # projection and predicate pushdown into every file
+lf.filter(pl.col("qty") > 0).tparquet.sink("out.parquet")
+```
+
+DuckDB:
+
+```sql
+LOAD 'tparquet.duckdb_extension';
+SELECT symbol, avg(price) FROM read_tparquet('trades/*.parquet') GROUP BY ALL;
+COPY (SELECT ts, price, qty FROM ticks) TO 'ticks.parquet' (FORMAT tparquet, COLUMN_NAMES ['ts', 'price', 'qty']);
+```
+
+Go, on arrow-go with no fork:
+
+```go
+import tparquet "github.com/aperiodic-io/tparquet/go" // reading: the import is enough
+
+w, err := tparquet.NewFileWriter(schema, out) // codec chosen per column, base codec ZSTD(3)
+```
+
+Rust:
+
+```rust
+use tparquet::{Writer, WriterOptions};
+
+let mut w = Writer::try_new(File::create("trades.parquet")?, schema, WriterOptions::default())?;
+w.write(&batch)?;                                  // the first batch picks each column's codec
+w.close()?;
+
+let reader = tparquet::read::open("trades.parquet")?.build()?;   // Arrow record batches
+```
+
+```java
+// with the parquet-java fork, any parquet-java reader (and Spark) reads PCODEC files
+try (ParquetWriter<Group> w = TparquetWriter.groups(path, schema, TparquetWriter.Options.defaults())) { ... }
+```
+
+```scala
+df.write.format("tparquet").save("trades")       // Spark: PCODEC, V2 pages, PLAIN numbers
+spark.read.parquet("trades")
+```
+
+```sql
+-- Trino, after trino/install-tparquet.sh: Hive, Iceberg and Delta Lake tables of PCODEC files
+SELECT venue, avg(price) FROM hive.market.trades GROUP BY venue;
+```
+
+```cpp
+ARROW_ASSIGN_OR_RAISE(auto table, tparquet::ReadTable("trades.parquet", {"ts", "price"}));
+```
+
+Each package's README has the details: [Python](python/README.md),
+[Polars](polars-tparquet/README.md), [Go](go/README.md), [DuckDB](duckdb/README.md),
+[Java and Spark](java/README.md), [Trino](trino/README.md), [C and C++](cpp/README.md).
+
+## tparquet or Vortex?
+
+[Vortex](https://github.com/vortex-data/vortex) is a new columnar file format built for fast
+scans and random access on compressed data. tparquet is a smaller change: your files stay
+Parquet and the numeric columns get smaller.
+
+Use tparquet when:
+
+- your data is mostly numeric time series (timestamps, prices, sizes, ids, sensor readings) and
+  storage or transfer cost is what you are trying to cut;
+- your pipelines, catalogs and partition layouts are built around Parquet and you don't want to
+  migrate them to a new format;
+- you write from Go, or from Python, Polars, DuckDB or Rust;
+- you want a one-command way back to plain Parquet.
+
+Use Vortex when scan speed and point lookups matter more than bytes on disk, when your tables
+are mostly strings, or when you need its Spark, Trino or Java integrations. Its default
+compressor [leaves out](https://vortex.dev/blog/btrblocks-compressor) heavyweight codecs such as
+pcodec to keep random access. A tparquet page, like any compressed Parquet page, is decoded
+whole.
+
+Use plain ZSTD Parquet when the files must be read by tools you don't control.
+
+## Why you can trust it
+
+- The format is a short, versioned spec: [`spec/FORMAT.md`](spec/FORMAT.md).
+- Every implementation reads the same conformance vectors in [`testdata/`](testdata/README.md):
+  Parquet files with their expected rows in canonical JSON, and page payloads with their decoded
+  bytes.
+- Rust, Go, Python, DuckDB, Java and C++ each read the files all of them wrote
+  ([`acceptance/cross/run.sh`](acceptance/cross/run.sh)), on every pull request; Spark and
+  Trino read every vector exactly as they read a standard copy of the same rows.
+- Every package is mutation tested: cargo-mutants for Rust (including the forks' changed
+  functions), gremlins for Go, mutmut for Python, PIT for Java, and a scripted mutation check of
+  the Arrow C++ fork. A surviving mutant is a missing test.
+- Decoders treat payloads as untrusted (no panics, no unbounded allocation) and are fuzzed
+  ([`rust/core/fuzz`](rust/core/fuzz), [`cpp/fuzz`](cpp/fuzz)).
+- The forks are small: arrow-rs `parquet` ([`FORK.md`](rust/parquet/FORK.md)), parquet-java
+  1.17 and 1.18 ([`FORK.md`](java/parquet-java/FORK.md)), trino-parquet
+  ([`FORK.md`](trino/trino-parquet/FORK.md)) and Arrow C++ ([`FORK.md`](cpp/arrow/FORK.md)).
+  Every change is listed and checked against the verified upstream release in CI; upstream
+  parquet-java's own suite gives its fork the same outcome for every test.
 
 ## Packages
 
@@ -33,72 +221,7 @@ The format is specified in [`spec/FORMAT.md`](spec/FORMAT.md).
 | C | [`rust/cread`](rust/cread) | reader as an Arrow C stream ([`tparquet_read.h`](rust/cread/include/tparquet_read.h)), `libtparquet_read` |
 | Polars | [`polars-tparquet/`](polars-tparquet) | Polars plugin `polars-tparquet`: `scan_tparquet` over files, lists, globs and directories (lazy, with pushdown), `read_tparquet`, `df.tparquet.write(...)`, `lf.tparquet.sink(...)` (streamed) |
 
-## Quick start
-
-```sh
-tparquet encode trades.parquet trades.pcodec.parquet       # standard -> PCODEC (Auto)
-tparquet inspect trades.pcodec.parquet                     # codecs, sizes, payload modes
-tparquet verify trades.parquet trades.pcodec.parquet       # same data, floats bit for bit
-tparquet decode trades.pcodec.parquet trades.standard.parquet
-```
-
-```python
-import tparquet as ppc
-
-ppc.write_table(table, "trades.parquet")          # {"price": "PCODEC", "sym": "ZSTD", ...}
-table = ppc.read_table("trades.parquet", columns=["ts", "price"])
-```
-
-```python
-import polars_tparquet as pt
-
-lf = pt.scan_tparquet("trades/**/*.parquet")      # lazy; pushdown into every file
-lf.filter(pl.col("qty") > 0).tparquet.sink("out.parquet")
-```
-
-```go
-import tparquet "github.com/aperiodic-io/tparquet/go" // reading: the import is enough
-
-w, err := tparquet.NewFileWriter(schema, out) // Auto, base codec ZSTD(3)
-```
-
-```sql
-LOAD 'tparquet.duckdb_extension';
-SELECT * FROM read_tparquet('trades/*.parquet');
-```
-
-```java
-// with the parquet-java fork, any parquet-java reader (and Spark) reads PCODEC files
-try (ParquetWriter<Group> w = TparquetWriter.groups(path, schema, TparquetWriter.Options.defaults())) { ... }
-```
-
-```scala
-df.write.format("tparquet").save("trades")       // Spark: PCODEC, V2 pages, PLAIN numbers
-spark.read.parquet("trades")
-```
-
-```cpp
-ARROW_ASSIGN_OR_RAISE(auto table, tparquet::ReadTable("trades.parquet", {"ts", "price"}));
-```
-
-Each package's README has the details: [Python](python/README.md),
-[Polars](polars-tparquet/README.md), [Go](go/README.md), [DuckDB](duckdb/README.md),
-[Java and Spark](java/README.md), [Trino](trino/README.md), [C and C++](cpp/README.md).
-
-## Testing
-
-- **Conformance vectors:** [`testdata/`](testdata/README.md) holds Parquet files with their
-  expected rows in canonical JSON, and page payloads with their decoded bytes. Every
-  implementation reads them.
-- **Cross-language acceptance:** [`acceptance/cross/run.sh`](acceptance/cross/run.sh) has Rust, Go,
-  Python, DuckDB, Java and C++ each read the files all of them wrote.
-- **Forks:** every fork (arrow-rs `parquet`, parquet-java 1.17 and 1.18, trino-parquet, Arrow
-  C++) is checked against its
-  verified upstream release plus its `FORK.patch`; upstream's own suites run against the forks
-  where they can, and unmodified upstream readers are shown to refuse PCODEC files.
-- **Mutation testing** of every package: cargo-mutants (Rust, including the fork's changed
-  functions), gremlins (Go), mutmut (Python), PIT (Java) and a scripted mutation check of the
-  Arrow C++ fork. Fuzz targets are in `rust/core/fuzz` and `cpp/fuzz`.
+## Development
 
 ```sh
 make check            # Rust: fmt, clippy, tests, C smoke test, fork check, vectors
@@ -107,8 +230,8 @@ make python-test      # Python (uv, Python 3.14)
 make polars-test      # the Polars plugin
 make -C duckdb sql    # DuckDB extension
 make java-test        # Java, the parquet-java fork, Spark (JDK 21, Maven)
-make cpp-test         # C++ and the Arrow C++ fork (asan, fuzz-smoke, mutants targets in cpp/)
 make trino-test       # Trino: the trino-parquet fork, conformance, queries through the Hive connector
+make cpp-test         # C++ and the Arrow C++ fork (asan, fuzz-smoke, mutants targets in cpp/)
 make acceptance       # cross-language (needs the Python package, the DuckDB extension, the Java
                       # packages and the C++ library built)
 ```
@@ -119,5 +242,6 @@ the rules of the repository.
 ## License
 
 Apache License 2.0 ([`LICENSE`](LICENSE)). `rust/parquet` is a modified copy of the Apache Arrow
-`parquet` crate, `java/parquet-java` of Apache Parquet Java modules, and `cpp/arrow` a patch to
-Apache Arrow C++; see [`NOTICE`](NOTICE).
+`parquet` crate, `java/parquet-java` and `java/parquet-java-1.18` of Apache Parquet Java modules,
+`trino/trino-parquet` of Trino's trino-parquet, and `cpp/arrow` a patch to Apache Arrow C++; see
+[`NOTICE`](NOTICE).
