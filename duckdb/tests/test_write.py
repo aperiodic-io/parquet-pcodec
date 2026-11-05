@@ -255,3 +255,220 @@ def test_infinite_seconds_timestamps_stay_infinite(con, tmp_path):
         ("2025-01-01 00:00:01", "TIMESTAMP_MS"),
     ]
     assert rows(con, f"SELECT count(*) FROM read_tparquet('{path}') WHERE ts = 'infinity'::TIMESTAMP_MS") == [(1,)]
+
+
+# ---------------------------------------------------------------------------------------------
+# COPY targets
+
+
+def test_copy_over_an_existing_file_replaces_it(con, tmp_path):
+    p = copy(con, "SELECT i AS a FROM range(10) r(i)", tmp_path / "f.parquet")
+    copy(con, "SELECT 'x' || i AS b FROM range(3) r(i)", p)
+    assert rows(con, f"SELECT * FROM read_tparquet('{p}')") == [("x0",), ("x1",), ("x2",)]
+
+
+def test_a_query_that_fails_midway_leaves_no_file_and_keeps_an_old_one(con, tmp_path):
+    failing = "SELECT CASE WHEN i < 300000 THEN i ELSE error('boom') END AS a FROM range(400000) r(i)"
+    with pytest.raises(duckdb.Error, match="boom"):
+        copy(con, failing, tmp_path / "new.parquet")
+    assert not (tmp_path / "new.parquet").exists()
+    old = copy(con, "SELECT 42::BIGINT AS a", tmp_path / "old.parquet")
+    with pytest.raises(duckdb.Error, match="boom"):
+        copy(con, failing, old)
+    assert rows(con, f"SELECT * FROM read_tparquet('{old}')") == [(42,)]
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["old.parquet"]
+
+
+def test_a_directory_is_not_a_target(con, tmp_path):
+    (tmp_path / "d.parquet").mkdir()
+    with pytest.raises(duckdb.Error):
+        copy(con, "SELECT 1 AS a", tmp_path / "d.parquet")
+
+
+def test_partition_by_writes_hive_directories_of_the_other_columns(con, tmp_path):
+    con.execute("CREATE TABLE t AS SELECT i AS id, i % 3 AS k, 'v' || i AS s FROM range(9000) r(i)")
+    # DuckDB hands the COPY function the columns without the partition column
+    with pytest.raises(duckdb.Error, match="COLUMN_NAMES has 3 names but the query has 2 columns"):
+        con.execute(f"COPY t TO '{tmp_path}/a' (FORMAT tparquet, COLUMN_NAMES ['id', 'k', 's'], PARTITION_BY (k))")
+    con.execute(
+        f"COPY t TO '{tmp_path}/p' (FORMAT tparquet, COLUMN_NAMES ['id', 's'], PARTITION_BY (k), FILE_EXTENSION 'parquet')"
+    )
+    files = sorted(p.relative_to(tmp_path / "p").as_posix() for p in (tmp_path / "p").rglob("*.parquet"))
+    assert [f.split("/")[0] for f in files] == ["k=0", "k=1", "k=2"]
+    got = rows(
+        con,
+        f"SELECT regexp_extract(filename, 'k=(\\d)', 1)::BIGINT AS k, count(*), sum(id) "
+        f"FROM read_tparquet('{tmp_path}/p/*/*.parquet', filename := true) GROUP BY ALL ORDER BY 1",
+    )
+    assert got == rows(con, "SELECT k, count(*), sum(id) FROM t GROUP BY ALL ORDER BY 1")
+    con.execute(
+        f"COPY t TO '{tmp_path}/w' (FORMAT tparquet, COLUMN_NAMES ['id', 'k', 's'], PARTITION_BY (k), "
+        "WRITE_PARTITION_COLUMNS true, FILE_EXTENSION 'parquet')"
+    )
+    diff = f"SELECT * FROM t EXCEPT ALL SELECT * FROM read_tparquet('{tmp_path}/w/**/*.parquet')"
+    assert rows(con, f"SELECT count(*) FROM ({diff})") == [(0,)]
+
+
+def test_per_thread_output_needs_a_file_extension(con, tmp_path):
+    con.execute("SET threads = 4")
+    q = "SELECT i AS id FROM range(100000) r(i)"
+    con.execute(f"COPY ({q}) TO '{tmp_path}/t' (FORMAT tparquet, COLUMN_NAMES ['id'], PER_THREAD_OUTPUT true)")
+    # the C API has no way to give a COPY function its extension: the files end in "."
+    assert all(p.name.endswith(".") for p in (tmp_path / "t").iterdir())
+    con.execute(
+        f"COPY ({q}) TO '{tmp_path}/e' (FORMAT tparquet, COLUMN_NAMES ['id'], PER_THREAD_OUTPUT true, "
+        "FILE_EXTENSION 'parquet')"
+    )
+    assert rows(con, f"SELECT count(*), sum(id) FROM read_tparquet('{tmp_path}/e/*.parquet')") == [
+        (100000, 4999950000)
+    ]
+
+
+def test_options_duckdb_does_not_implement_for_the_format(con, tmp_path):
+    with pytest.raises(duckdb.Error, match='FILE_SIZE_BYTES not implemented for "tparquet"'):
+        con.execute(f"COPY (SELECT 1 AS a) TO '{tmp_path}/x' (FORMAT tparquet, COLUMN_NAMES ['a'], FILE_SIZE_BYTES 1000)")
+
+
+def test_a_single_row_and_a_single_column(con, tmp_path):
+    p = copy(con, "SELECT 1.5::DOUBLE AS x", tmp_path / "one.parquet", POLICY="'pcodec'")
+    assert rows(con, f"SELECT * FROM read_tparquet('{p}')") == [(1.5,)]
+    assert codecs(p) == {"x": {"PCODEC"}}
+
+
+@pytest.mark.parametrize("rows_per_group", [1, 2047, 2048, 2049, 4096, 10000, 10001])
+def test_row_group_rows_cuts_row_groups_at_any_size(con, tmp_path, rows_per_group):
+    n = 10000
+    p = copy(con, f"SELECT i AS id, i::VARCHAR AS s FROM range({n}) r(i)", tmp_path / "rg.parquet",
+             ROW_GROUP_ROWS=rows_per_group)
+    info = inspect(p)
+    assert info["row_groups"] == -(-n // rows_per_group)
+    meta = pq.ParquetFile(p).metadata
+    assert [meta.row_group(i).num_rows for i in range(meta.num_row_groups)][:-1] == [rows_per_group] * (
+        meta.num_row_groups - 1
+    )
+    con.execute("SET threads = 4")
+    got = rows(con, f"SELECT count(*), count(DISTINCT id), sum(id) FROM read_tparquet('{p}')")
+    assert got == [(n, n, n * (n - 1) // 2)]
+    assert rows(con, f"SELECT count(*) FROM read_tparquet('{p}', file_row_number := true) WHERE id <> file_row_number") == [(0,)]
+
+
+def test_row_groups_larger_than_a_vector_keep_their_order(con, tmp_path):
+    con.execute("SET threads = 1")
+    p = copy(con, "SELECT i AS id FROM range(300000) r(i)", tmp_path / "big.parquet", ROW_GROUP_ROWS=150001)
+    assert inspect(p)["row_groups"] == 2
+    got = [r[0] for r in rows(con, f"SELECT id FROM read_tparquet('{p}')")]
+    assert got == list(range(300000))
+
+
+def test_very_long_strings(con, tmp_path):
+    q = "SELECT i AS id, repeat(chr(65 + i::INTEGER), 4000000 + i::INTEGER) AS s, repeat('\\x00\\xff', 1000000)::BLOB AS b FROM range(6) r(i)"
+    p = copy(con, q, tmp_path / "long.parquet")
+    assert rows(con, f"SELECT id, length(s), s[1], octet_length(b) FROM read_tparquet('{p}') ORDER BY id") == [
+        (i, 4000000 + i, chr(65 + i), 2000000) for i in range(6)
+    ]
+    assert rows(con, f"SELECT count(*) FROM (({q}) EXCEPT ALL SELECT * FROM read_tparquet('{p}'))") == [(0,)]
+
+
+# ---------------------------------------------------------------------------------------------
+# options
+
+
+def test_option_values_may_be_strings_or_numbers(con, tmp_path):
+    q = "SELECT i AS a, i * 2 AS b FROM range(5000) r(i)"
+    p = copy(con, q, tmp_path / "s.parquet", LEVEL="'3'", ROW_GROUP_ROWS="'1000'", POLICY="'PCODEC'", COLUMN_POLICY="'b=BASE'")
+    assert inspect(p)["row_groups"] == 5
+    assert codecs(p) == {"a": {"PCODEC"}, "b": {"ZSTD"}}
+    # a column policy names the column exactly as COLUMN_NAMES does
+    with pytest.raises(duckdb.Error, match='no column named "A"'):
+        copy(con, q, tmp_path / "t.parquet", COLUMN_POLICY="['A=pcodec']")
+
+
+@pytest.mark.parametrize(
+    "options, message",
+    [
+        ("LEVEL 5.5", 'LEVEL must be an integer, not "5.5"'),
+        ("LEVEL -1", "invalid LEVEL -1: expected 0 to 12"),
+        ("LEVEL 'high'", 'LEVEL must be an integer, not "high"'),
+        ("POLICY 1", "POLICY must be a string, not Int\\(1\\)"),
+        ("POLICY 'PCO'", 'unknown policy "pco": expected auto, pcodec or base'),
+        ("ROW_GROUP_ROWS 0", "ROW_GROUP_ROWS must be a positive number of rows"),
+        ("ROW_GROUP_ROWS -3", "ROW_GROUP_ROWS must be a positive number of rows"),
+        ("ROW_GROUP_ROWS 'many'", 'ROW_GROUP_ROWS must be an integer, not "many"'),
+        ("COLUMN_POLICY ['a']", "COLUMN_POLICY: expected NAME=policy"),
+        ("COLUMN_POLICY ['a=fast']", "COLUMN_POLICY: "),
+        ("COLUMN_POLICY [1]", "COLUMN_POLICY must be a string"),
+        ("COMPRESSION 'zstd', COMPRESSION_LEVEL 99", "COPY \\(FORMAT tparquet\\): "),
+        ("COMPRESSION 'gzip', COMPRESSION_LEVEL 10", "COPY \\(FORMAT tparquet\\): "),
+        ("COMPRESSION 'brotli', COMPRESSION_LEVEL 12", "COPY \\(FORMAT tparquet\\): "),
+        ("COMPRESSION 'lz4', COMPRESSION_LEVEL 1", "COMPRESSION 'lz4' takes no COMPRESSION_LEVEL"),
+        ("COMPRESSION 'uncompressed', COMPRESSION_LEVEL 1", "COMPRESSION 'uncompressed' takes no COMPRESSION_LEVEL"),
+        ("COMPRESSION_LEVEL 'x'", 'COMPRESSION_LEVEL must be an integer, not "x"'),
+        ("COMPRESSION 3", "COMPRESSION must be a string"),
+        ("COLUMN_NAMES ['a', '']", "COLUMN_NAMES: name 2 is empty"),
+        ("COLUMN_NAMES 'a'", "COLUMN_NAMES has 1 names but the query has 2 columns"),
+    ],
+)
+def test_invalid_option_values_are_explained(con, tmp_path, options, message):
+    names = "" if "COLUMN_NAMES" in options else "COLUMN_NAMES ['a', 'b'], "
+    with pytest.raises(duckdb.Error, match=message):
+        con.execute(f"COPY (SELECT 1 AS a, 2 AS b) TO '{tmp_path}/x.parquet' (FORMAT tparquet, {names}{options})")
+    assert not (tmp_path / "x.parquet").exists()
+    assert rows(con, "SELECT 1") == [(1,)]
+
+
+def test_a_column_policy_for_a_column_the_query_does_not_have(con, tmp_path):
+    with pytest.raises(duckdb.Error, match='no column named "c"'):
+        copy(con, "SELECT 1 AS a, 2 AS b", tmp_path / "x.parquet", COLUMN_POLICY="['c=pcodec']")
+
+
+def test_a_column_policy_on_a_column_pcodec_does_not_apply_to(con, tmp_path):
+    p = copy(con, "SELECT 'x' || i AS s, i AS n FROM range(1000) r(i)", tmp_path / "x.parquet",
+             COLUMN_POLICY="['s=pcodec']", POLICY="'base'")
+    assert codecs(p) == {"s": {"ZSTD"}, "n": {"ZSTD"}}
+
+
+@pytest.mark.parametrize("codec, name", [("'zstd'", "ZSTD"), ("'snappy'", "SNAPPY"), ("'gzip'", "GZIP"),
+                                         ("'brotli'", "BROTLI"), ("'lz4'", "LZ4_RAW"), ("'uncompressed'", "UNCOMPRESSED")])
+def test_every_base_codec_reads_back(con, tmp_path, codec, name):
+    q = "SELECT i AS a, 'x' || (i % 10) AS s, i * 0.5 AS f FROM range(20000) r(i)"
+    p = copy(con, q, tmp_path / "c.parquet", COMPRESSION=codec, POLICY="'base'")
+    assert codecs(p) == {"a": {name}, "s": {name}, "f": {name}}
+    assert rows(con, f"SELECT count(*) FROM (({q}) EXCEPT ALL SELECT * FROM read_tparquet('{p}'))") == [(0,)]
+    # and DuckDB's own reader reads the standard file
+    assert rows(con, f"SELECT count(*) FROM read_parquet('{p}')") == [(20000,)]
+
+
+@pytest.mark.parametrize("level", [0, 1, 8, 12])
+def test_every_pcodec_level_reads_back(con, tmp_path, level):
+    q = "SELECT i AS a, (100 + (i % 977) * 0.01)::DOUBLE AS price, (i * 0.5)::FLOAT AS f FROM range(20000) r(i)"
+    p = copy(con, q, tmp_path / "l.parquet", LEVEL=level, POLICY="'pcodec'")
+    assert codecs(p) == {"a": {"PCODEC"}, "price": {"PCODEC"}, "f": {"PCODEC"}}
+    assert rows(con, f"SELECT count(*) FROM (({q}) EXCEPT ALL SELECT * FROM read_tparquet('{p}'))") == [(0,)]
+
+
+def test_a_copy_with_many_threads_keeps_the_query_order(con, tmp_path):
+    con.execute("SET threads = 8")
+    con.execute("CREATE TABLE src AS SELECT (i * 7919) % 1000003 AS v FROM range(1000000) r(i)")
+    p = copy(con, "SELECT * FROM src", tmp_path / "o.parquet")
+    a = rows(con, f"SELECT v FROM read_tparquet('{p}', file_row_number := true) ORDER BY file_row_number")
+    assert a == rows(con, "SELECT v FROM src")
+
+
+# ---------------------------------------------------------------------------------------------
+# COPY FROM
+
+
+def test_copy_from_with_a_column_list_a_glob_and_errors(con, tmp_path):
+    copy(con, "SELECT i AS id, 'v' || i AS s FROM range(100) r(i)", tmp_path / "a.parquet")
+    copy(con, "SELECT i + 100 AS id, 'w' AS s FROM range(50) r(i)", tmp_path / "b.parquet")
+    con.execute("CREATE TABLE t (id BIGINT, s VARCHAR, extra INTEGER DEFAULT 7)")
+    con.execute(f"COPY t (id, s) FROM '{tmp_path}/*.parquet' (FORMAT tparquet)")
+    assert rows(con, "SELECT count(*), sum(id), min(extra), max(extra) FROM t") == [(150, 11175, 7, 7)]
+    con.execute("CREATE TABLE swapped (s VARCHAR, id BIGINT)")
+    with pytest.raises(duckdb.Error, match=r"the file columns \(BIGINT, VARCHAR\) do not match the table columns \(VARCHAR, BIGINT\)"):
+        con.execute(f"COPY swapped FROM '{tmp_path}/a.parquet' (FORMAT tparquet)")
+    with pytest.raises(duckdb.Error, match="no such file"):
+        con.execute(f"COPY t FROM '{tmp_path}/missing.parquet' (FORMAT tparquet)")
+    # INSERT ... SELECT maps by name instead
+    con.execute(f"INSERT INTO swapped SELECT s, id FROM read_tparquet('{tmp_path}/a.parquet')")
+    assert rows(con, "SELECT count(*) FROM swapped") == [(100,)]
