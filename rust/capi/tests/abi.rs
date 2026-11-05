@@ -217,3 +217,112 @@ fn calls_during_thread_teardown_do_not_abort() {
     assert_eq!(RC.load(Ordering::SeqCst), PCP_ERR_CORRUPT, "the call still works");
     assert_eq!(LEN.load(Ordering::SeqCst), 0, "with no message to keep");
 }
+
+#[test]
+fn every_error_code() {
+    let size = |p: &[u8], n| decompress(p, n).0;
+    // size errors: the page has a different size, or is not whole values
+    assert_eq!(size(&[1, 0, 1, 2], 1), PCP_ERR_SIZE);
+    let mut pco = vec![1, 1, 2];
+    pco.extend(compress(&(0..100i64).flat_map(|i| i.to_le_bytes()).collect::<Vec<_>>(), 2, -1, 0).1[3..].to_vec());
+    assert_eq!(size(&pco, 800), PCP_OK);
+    assert_eq!(size(&pco, 808), PCP_ERR_SIZE);
+    assert_eq!(size(&pco, 792), PCP_ERR_SIZE);
+    assert_eq!(size(&pco, 801), PCP_ERR_SIZE);
+    assert_eq!(last_error(), "pcodec payload: expected size 801 is not a multiple of the value width 8");
+    // corrupt: every malformed kind
+    for (p, n, msg) in [
+        (&[][..], 0, "pcodec payload: truncated"),
+        (&[1], 0, "pcodec payload: truncated"),
+        (&[0, 0], 0, "pcodec payload: unsupported version 0"),
+        (&[1, 4], 0, "pcodec payload: unknown mode 4"),
+        (&[1, 1, 3], 8, "pcodec payload: unknown dtype 3"),
+        (&[1, 2, 5, 19, 0], 8, "pcodec payload: exponent 19 above 18"),
+        (&[1, 2, 5, 0, 2], 8, "pcodec payload: exception count or position out of range"),
+        (&[1, 3], 0, "pcodec payload: truncated"),
+    ] {
+        assert_eq!(size(p, n), PCP_ERR_CORRUPT, "{p:?}");
+        assert_eq!(last_error(), msg);
+    }
+    let mut trailing = pco.clone();
+    trailing.push(0);
+    assert_eq!(size(&trailing, 800), PCP_ERR_CORRUPT);
+    assert_eq!(last_error(), "pcodec payload: 1 bytes after the pcodec file");
+    assert_eq!(size(&[1, 3, 0x28, 0xB5, 0x2F, 0xFD, 0xFF], 8), PCP_ERR_CORRUPT);
+    assert!(last_error().starts_with("pcodec payload: zstd: "), "{}", last_error());
+    assert_eq!(size(&[1, 1, 2, 0xDE, 0xAD], 8), PCP_ERR_CORRUPT);
+    assert!(last_error().starts_with("pcodec payload: pcodec: "), "{}", last_error());
+}
+
+#[test]
+fn compress_arguments() {
+    let src = doubles(100);
+    // dst_cap exactly the bound is enough, one less is not, even for a payload that would fit
+    let mut dst = vec![0u8; src.len() + 2];
+    let mut written = 77usize;
+    let call = |cap: usize, w: &mut usize, dst: &mut [u8]| unsafe {
+        pcp_compress(src.as_ptr(), src.len(), 5, -1, 1, dst.as_mut_ptr(), cap, w)
+    };
+    assert_eq!(call(src.len() + 1, &mut written, &mut dst), PCP_ERR_ARGUMENT);
+    assert_eq!(written, 77, "written untouched on error");
+    assert_eq!(call(src.len() + 2, &mut written, &mut dst), PCP_OK);
+    assert!(written < src.len());
+    // every level, and the levels around them
+    for level in 0..=12 {
+        assert_eq!(compress(&src, 5, level, 1).0, PCP_OK, "level {level}");
+    }
+    for level in [13, 255, 256, i32::MAX, -2, i32::MIN] {
+        assert_eq!(compress(&src, 5, level, 1).0, PCP_ERR_ARGUMENT, "level {level}");
+    }
+    assert_eq!(last_error(), "pcodec payload: compression level -2147483648 invalid");
+    // any non-zero decimal flag is on
+    for flag in [1, 2, -1, i32::MIN, i32::MAX] {
+        assert_eq!(compress(&src, 5, -1, flag).1[1], 2, "decimal {flag}: DECIMAL mode");
+    }
+    // every physical type value but 1, 2, 4 and 5 is no hint
+    for t in [i32::MIN, -1, 0, 3, 6, 7, 8, i32::MAX] {
+        assert_eq!(compress(&src, t, -1, 1).1[1], 3, "type {t}: ZSTD");
+    }
+    for (t, mode) in [(1, 1), (2, 1), (4, 1), (5, 2)] {
+        assert_eq!(compress(&src, t, -1, 1).1[1..3], [mode, t as u8], "type {t}");
+    }
+}
+
+#[test]
+fn big_pages_round_trip() {
+    let src: Vec<u8> = (0..(1i64 << 19)).flat_map(|i| (i * 1_000 + i % 7).to_le_bytes()).collect();
+    let (rc, p) = compress(&src, 2, -1, 1);
+    assert_eq!(rc, PCP_OK);
+    assert!(p.len() < src.len() / 10);
+    assert_eq!(decompress(&p, src.len()), (PCP_OK, src));
+}
+
+#[test]
+fn last_error_buffers_of_every_size() {
+    assert_eq!(decompress(&[9, 0], 0).0, PCP_ERR_CORRUPT);
+    let msg = b"pcodec payload: unsupported version 9";
+    for cap in 0..msg.len() + 3 {
+        let mut buf = vec![0x55i8; cap + 1];
+        let n = unsafe { pcp_last_error(buf.as_mut_ptr().cast(), cap) };
+        assert_eq!(n, msg.len());
+        let copied = cap.saturating_sub(1).min(msg.len());
+        let got: Vec<u8> = buf[..copied].iter().map(|c| *c as u8).collect();
+        assert_eq!(got, msg[..copied]);
+        if cap > 0 {
+            assert_eq!(buf[copied], 0, "NUL at {copied}");
+        }
+        assert_eq!(buf[cap], 0x55, "nothing written at or past cap {cap}");
+    }
+    // NULL with any capacity writes nothing and still says how long the message is
+    assert_eq!(unsafe { pcp_last_error(ptr::null_mut(), 100) }, msg.len());
+    // reading the message does not clear it
+    assert_eq!(last_error().as_bytes(), msg);
+    assert_eq!(last_error().as_bytes(), msg);
+}
+
+#[test]
+fn a_successful_compress_clears_the_error() {
+    assert_eq!(decompress(&[9, 0], 0).0, PCP_ERR_CORRUPT);
+    assert_eq!(compress(b"abc", -1, -1, 0).0, PCP_OK);
+    assert_eq!(last_error(), "");
+}
