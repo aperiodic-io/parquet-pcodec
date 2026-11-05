@@ -306,22 +306,21 @@ pub fn decompress_into(payload: &[u8], dst: &mut [u8]) -> Result<(), Error> {
     }
 }
 
-/// Zstandard frames into exactly `dst`, reading at most one byte past it
+/// Zstandard frames into exactly `dst`, decoded in one pass straight into it: the frames'
+/// declared window sizes cost no memory, and output past `dst.len()` is never produced
 fn zstd_into(body: &[u8], dst: &mut [u8]) -> Result<(), Error> {
-    use std::io::Read;
-    let zerr = |e: std::io::Error| Error::Zstd(e.to_string());
-    let mut d = zstd::stream::read::Decoder::with_buffer(body).map_err(zerr)?;
-    let mut filled = 0;
-    while filled < dst.len() {
-        match d.read(&mut dst[filled..]).map_err(zerr)? {
-            0 => return Err(Error::SizeMismatch { expected: dst.len(), actual: filled }),
-            r => filled += r,
-        }
+    use zstd::zstd_safe::{self, zstd_sys::ZSTD_ErrorCode};
+    if body.is_empty() {
+        // no frame at all (spec 4.4: one frame or several)
+        return Err(Error::Truncated);
     }
-    let mut extra = [0u8; 1];
-    match d.read(&mut extra).map_err(zerr)? {
-        0 => Ok(()),
-        _ => Err(Error::SizeMismatch { expected: dst.len(), actual: dst.len() + 1 }),
+    // zstd's error codes are the negated ZSTD_ErrorCode values (zstd_errors.h)
+    let too_small = (ZSTD_ErrorCode::ZSTD_error_dstSize_tooSmall as usize).wrapping_neg();
+    match zstd_safe::decompress(dst, body) {
+        Ok(n) => check(dst.len(), n),
+        // the frames hold more than the page: at least one byte more
+        Err(code) if code == too_small => Err(Error::SizeMismatch { expected: dst.len(), actual: dst.len() + 1 }),
+        Err(code) => Err(Error::Zstd(zstd_safe::get_error_name(code).to_string())),
     }
 }
 
