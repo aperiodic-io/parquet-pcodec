@@ -57,6 +57,18 @@ def test_tardis_empty_numbers_are_null(tmp_path: pathlib.Path) -> None:
     assert table.column("open_interest").to_pylist() == [None, 81000.5]
 
 
+def test_tardis_option_expirations_are_timestamps(tmp_path: pathlib.Path) -> None:
+    f = gz(
+        tmp_path / "options_chain.csv.gz",
+        "exchange,symbol,timestamp,local_timestamp,type,strike_price,expiration\n"
+        "deribit,BTC-27JUN25-100000-C,1,2,call,100000,1751011200000000\n",
+    )
+    table = loaders.read_all(loaders.load("tardis", f))
+    assert table.schema.field("expiration").type == pa.timestamp("us", tz="UTC")
+    assert table.schema.field("type").type == pa.string()
+    assert table.column("expiration")[0].value == 1751011200000000
+
+
 def test_tardis_book_columns_keep_their_names(tmp_path: pathlib.Path) -> None:
     f = gz(
         tmp_path / "book.csv.gz",
@@ -139,6 +151,14 @@ def test_nyse_refuses_a_day_with_a_clock_change(tmp_path: pathlib.Path) -> None:
     f = gz(tmp_path / "EQY_US_TAQ_NYSE_1_TRADES_20260308.gz", NYSE)
     with pytest.raises(ValueError, match="clock"):
         loaders.read_all(loaders.load("nyse_trades", f))
+
+
+def test_nyse_takes_the_day_before_a_clock_change(tmp_path: pathlib.Path) -> None:
+    f = gz(tmp_path / "EQY_US_TAQ_NYSE_1_TRADES_20260307.gz", NYSE)
+    table = loaders.read_all(loaders.load("nyse_trades", f))
+    # 07:00 New York on 2026-03-07 is 12:00 UTC (EST)
+    noon = dt.datetime(2026, 3, 7, 12, tzinfo=dt.timezone.utc)
+    assert table.column("time")[0].value == int(noon.timestamp()) * 10**9 + 131306712
 
 
 def test_parquet_is_read_as_delivered(tmp_path: pathlib.Path) -> None:

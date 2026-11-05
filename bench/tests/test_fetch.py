@@ -17,6 +17,7 @@ from tpq_bench.catalog import Source
 
 def fake(responses: dict[str, bytes], seen: list[urllib.request.Request]) -> Callable[..., IO[bytes]]:
     def opener(request: urllib.request.Request, timeout: float | None = None) -> IO[bytes]:
+        assert timeout == fetch.TIMEOUT
         seen.append(request)
         if request.full_url not in responses:
             raise OSError(f"no {request.full_url}")
@@ -27,7 +28,7 @@ def fake(responses: dict[str, bytes], seen: list[urllib.request.Request]) -> Cal
 
 def test_download_writes_the_file(tmp_path: pathlib.Path) -> None:
     seen: list[urllib.request.Request] = []
-    dest = tmp_path / "a" / "b.csv.gz"
+    dest = tmp_path / "a" / "b" / "c.csv.gz"
     fetch.Http("https://x/b", headers=(("X-API-KEY", "k"),))(dest, fake({"https://x/b": b"data"}, seen))
     assert dest.read_bytes() == b"data"
     assert seen[0].get_header("X-api-key") == "k"

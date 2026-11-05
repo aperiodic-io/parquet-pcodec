@@ -37,14 +37,15 @@ def _reader(schema: pa.Schema, batches: Iterator[pa.RecordBatch]) -> pa.RecordBa
 
 def parquet(path: pathlib.Path) -> pa.RecordBatchReader:
     f = pq.ParquetFile(path)
-    return _reader(f.schema_arrow, f.iter_batches(batch_size=1 << 16))
+    # any batch size reads the same rows: a memory and speed knob
+    return _reader(f.schema_arrow, f.iter_batches(batch_size=1 << 16))  # pragma: no mutate
 
 
 def _number(column: pa.Array[Any], type: pa.DataType) -> pa.Array[Any]:
     """A CSV string column as `type`, empty fields as nulls."""
     empty = pc.equal(column, pa.scalar(""))
-    # (the stubs make a cast of an array a scalar)
-    return cast("pa.Array[Any]", pc.cast(pc.if_else(empty, pa.scalar(None, pa.string()), column), type))
+    # (the stubs make a cast of an array a scalar; typing.cast does nothing at run time)
+    return cast("pa.Array[Any]", pc.cast(pc.if_else(empty, None, column), type))  # pragma: no mutate
 
 
 # --- Tardis.dev: these columns are strings, `*timestamp` columns µs since the epoch (UTC), and
@@ -62,12 +63,13 @@ def _tardis_type(name: str) -> pa.DataType:
 
 def tardis(path: pathlib.Path) -> pa.RecordBatchReader:
     # every column read as text: empty fields become nulls of the column's type below
-    with pa.input_stream(str(path), compression="detect") as head:
-        names = head.read(1 << 20).split(b"\n", 1)[0].decode().strip().split(",")
+    with pa.input_stream(str(path)) as head:  # the compression is detected from the extension
+        # the header line, within the first MB (a 25-level book's is 2 KB)
+        names = head.read(1 << 20).partition(b"\n")[0].decode().strip().split(",")  # pragma: no mutate
     stream = csv.open_csv(
         path,
-        read_options=csv.ReadOptions(block_size=BLOCK),
-        convert_options=csv.ConvertOptions(column_types={n: pa.string() for n in names}, strings_can_be_null=False),
+        read_options=csv.ReadOptions(block_size=BLOCK),  # pragma: no mutate (batch size: speed, memory)
+        convert_options=csv.ConvertOptions(column_types={n: pa.string() for n in names}),
     )
     schema = pa.schema([(n, _tardis_type(n)) for n in names])
 
@@ -125,7 +127,7 @@ def _midnight_ns(day: dt.date) -> int:
     """New York midnight of `day`, ns since the epoch; refuses a day whose UTC offset changes."""
     zone = zoneinfo.ZoneInfo(NEW_YORK)
     start = dt.datetime.combine(day, dt.time(0), zone)
-    end = dt.datetime.combine(day, dt.time(23, 59, 59), zone)
+    end = dt.datetime.combine(day + dt.timedelta(days=1), dt.time(0), zone)
     if start.utcoffset() != end.utcoffset():
         raise ValueError(f"{day}: New York's clock changes that day; the loader assumes one UTC offset")
     return int(start.timestamp()) * 10**9
@@ -136,8 +138,9 @@ def _nyse_time(column: pa.Array[Any], midnight: int) -> pa.Array[Any]:
         return pc.cast(pc.utf8_slice_codeunits(column, start, stop), pa.int64())
 
     seconds = pc.add(pc.multiply(pc.add(pc.multiply(part(0, 2), 60), part(3, 5)), 60), part(6, 8))
-    ns = pc.add(pc.add(pc.multiply(seconds, 10**9), part(9, 18)), midnight)
-    return pc.cast(ns, pa.timestamp("ns", tz=NEW_YORK))
+    # the nine digits after the point (any stop past them is the same)
+    ns = pc.add(pc.add(pc.multiply(seconds, 10**9), part(9, 18)), midnight)  # pragma: no mutate
+    return pc.cast(ns, TIME)
 
 
 def _nyse(path: pathlib.Path, message: str, fields: Fields) -> pa.RecordBatchReader:
@@ -148,10 +151,10 @@ def _nyse(path: pathlib.Path, message: str, fields: Fields) -> pa.RecordBatchRea
     names = [n for n, _ in fields]
     stream = csv.open_csv(
         path,
-        read_options=csv.ReadOptions(column_names=names, block_size=BLOCK),
+        read_options=csv.ReadOptions(column_names=names, block_size=BLOCK),  # pragma: no mutate (speed, memory)
         # lines of the other messages have another number of fields
         parse_options=csv.ParseOptions(invalid_row_handler=lambda row: "skip"),
-        convert_options=csv.ConvertOptions(column_types={n: pa.string() for n in names}, strings_can_be_null=False),
+        convert_options=csv.ConvertOptions(column_types={n: pa.string() for n in names}),
     )
     schema = pa.schema([pa.field(n, t) for n, t in fields if t is not None])
 
@@ -200,7 +203,7 @@ def dbn_schema(path: pathlib.Path) -> str:
 def dbn(path: pathlib.Path) -> pa.RecordBatchReader:
     converted = path.with_name(path.name + ".parquet")
     if not converted.exists():
-        part = converted.with_name(converted.name + ".part")
+        part = converted.with_name(converted.name + ".part")  # pragma: no mutate (any temporary name)
         with warnings.catch_warnings():
             # the client's own use of pandas warns on recent pandas
             warnings.simplefilter("ignore")

@@ -29,17 +29,18 @@ class Fetcher(Protocol):
 
 
 def _get(url: str, headers: tuple[tuple[str, str], ...], opener: Opener) -> IO[bytes]:
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, **dict(headers)})
+    # urllib normalises the case of header names
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, **dict(headers)})  # pragma: no mutate
     return opener(request, timeout=TIMEOUT)
 
 
 def download(url: str, dest: pathlib.Path, headers: tuple[tuple[str, str], ...], opener: Opener) -> None:
     """Streams `url` to `dest` through `dest.part`, renamed once complete."""
     dest.parent.mkdir(parents=True, exist_ok=True)
-    part = dest.with_name(dest.name + ".part")
+    part = dest.with_name(dest.name + ".part")  # pragma: no mutate (any temporary name)
     try:
         with _get(url, headers, opener) as response, open(part, "wb") as out:
-            shutil.copyfileobj(response, out, 1 << 20)
+            shutil.copyfileobj(response, out, 1 << 20)  # pragma: no mutate (buffer size: speed)
         part.replace(dest)
     finally:
         part.unlink(missing_ok=True)

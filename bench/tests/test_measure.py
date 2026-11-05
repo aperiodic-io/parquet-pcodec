@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pathlib
 import random
+import time
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -126,3 +127,47 @@ def test_the_smallest_encoding_is_chosen() -> None:
         "flag": "dictionary",
     }
     assert set(sizes["text_id"]) == {"dictionary", "DELTA_BYTE_ARRAY", "DELTA_LENGTH_BYTE_ARRAY"}
+
+
+def test_times_are_the_writers_and_readers_own(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # a clock that ticks once per reading: each timed call takes exactly one tick
+    ticks_ = iter(range(10**6))
+    monkeypatch.setattr(time, "perf_counter", lambda: float(next(ticks_)))
+    m = measure.measure(reader(ticks(5_000)), tmp_path, batch_rows=2_000)
+    # three batches and the footer, for each writer; one full read of each file
+    assert (m.write_s_zstd9, m.write_s_tuned, m.write_s_tparquet) == (4.0, 4.0, 4.0)
+    assert (m.read_s_zstd9, m.read_s_tuned, m.read_s_tparquet) == (1.0, 1.0, 1.0)
+
+
+def test_the_tuned_file_is_zstd_level_9() -> None:
+    rng, n = random.Random(3), 20_000
+    # noisy enough data for ZSTD levels 9 and 10 to differ
+    table = pa.table(
+        {
+            "ts": pa.array([1_700_000_000_000 + rng.randrange(1000) * i for i in range(n)], pa.int64()),
+            "price": [round(100 + rng.gauss(0, 1), 2) for _ in range(n)],
+            "side": [rng.choice(["buy", "sell", "x"]) for _ in range(n)],
+        }
+    )
+    encodings = {"ts": "DELTA_BINARY_PACKED", "price": "BYTE_STREAM_SPLIT", "side": "dictionary"}
+
+    def written(level: int | None = None) -> bytes:
+        sink = pa.BufferOutputStream()
+        with pq.ParquetWriter(
+            sink,
+            table.schema,
+            compression="zstd",
+            use_dictionary=["side"],  # type: ignore[arg-type]  # a list of columns, as documented
+            column_encoding={"ts": "DELTA_BINARY_PACKED", "price": "BYTE_STREAM_SPLIT"},
+            compression_level=level,
+        ) as w:
+            w.write_table(table)
+        return bytes(sink.getvalue())
+
+    sink = pa.BufferOutputStream()
+    with measure._write_tuned(sink, table.schema, encodings) as w:
+        w.write_table(table)
+    tuned = bytes(sink.getvalue())
+    assert tuned == written(9)
+    assert tuned != written(10)
+    assert tuned != written()

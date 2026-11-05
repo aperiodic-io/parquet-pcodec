@@ -36,7 +36,18 @@ ENTRIES = [
 
 @pytest.mark.parametrize(
     ("n", "text"),
-    [(999, "999 B"), (1_000, "1 KB"), (361_499, "361 KB"), (12_345_678, "12.3 MB"), (3_600_000_000, "3.60 GB")],
+    [
+        (999, "999 B"),
+        (1_000, "1 KB"),
+        (361_499, "361 KB"),
+        (999_000, "999 KB"),
+        (1_000_000, "1.0 MB"),
+        (12_345_678, "12.3 MB"),
+        (100_050_050, "100.1 MB"),
+        (1_000_000_000, "1.00 GB"),
+        (2_005_000_001, "2.01 GB"),
+        (3_600_000_000, "3.60 GB"),
+    ],
 )
 def test_size(n: int, text: str) -> None:
     assert report.size(n) == text
@@ -100,3 +111,11 @@ def test_json_round_trips_every_field() -> None:
             "tuned_encodings": {"ts": "DELTA_BINARY_PACKED", "price": "dictionary", "side": "dictionary"},
         }
     ]
+
+
+def test_json_is_indented_and_keeps_unicode() -> None:
+    entry = report.Entry("Tardis.dev", "BTCUSDT, Binance USDⓈ-M", "trades", 1, m(10, 10, 5))
+    text = report.to_json([entry])
+    assert text.startswith('[\n  {\n    "provider": "Tardis.dev",\n')
+    assert '"data": "BTCUSDT, Binance USDⓈ-M"' in text
+    assert text.endswith("}\n]\n")

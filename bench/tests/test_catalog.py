@@ -93,3 +93,9 @@ def test_dbn_group_unknown() -> None:
 def test_dbn_file_source(tmp_path: pathlib.Path) -> None:
     s = catalog.dbn_file(tmp_path / "glbx-mdp3-20250602.mbp-10.dbn.zst", "mbp-10")
     assert (s.provider, s.group, s.loader, s.data) == ("Databento", "l2", "dbn", "glbx-mdp3-20250602.mbp-10.dbn.zst")
+
+
+def test_a_dbn_file_is_not_fetched(tmp_path: pathlib.Path) -> None:
+    s = catalog.dbn_file(tmp_path / "gone.dbn.zst", "trades")
+    with pytest.raises(fetch.Unavailable, match="does not exist"):
+        fetch.ensure(s, tmp_path / "data")

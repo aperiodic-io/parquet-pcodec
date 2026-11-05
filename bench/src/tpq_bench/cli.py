@@ -20,7 +20,7 @@ DEFAULT_DATA = pathlib.Path(__file__).resolve().parents[2] / "data"
 
 
 def _say(text: str) -> None:
-    print(text, file=sys.stderr, flush=True)
+    print(text, file=sys.stderr, flush=True)  # pragma: no mutate (progress shows as it happens)
 
 
 def run(
@@ -47,18 +47,33 @@ def run(
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="tpq-bench", description=__doc__)
+    # the program name and the help texts are for people only
+    parser = argparse.ArgumentParser(prog="tpq-bench", description=__doc__)  # pragma: no mutate
     parser.add_argument("command", choices=["list", "fetch", "run"])
-    parser.add_argument("only", nargs="*", help="providers, data types or parts of cache keys (default: all)")
+    parser.add_argument(
+        "only",
+        nargs="*",
+        help="providers, data types or parts of cache keys (default: all)",  # pragma: no mutate
+    )
     parser.add_argument(
         "--data",
         type=pathlib.Path,
         default=pathlib.Path(os.environ.get("TPQ_BENCH_DATA", DEFAULT_DATA)),
-        help="the download cache (default: $TPQ_BENCH_DATA, else bench/data)",
+        help="the download cache (default: $TPQ_BENCH_DATA, else bench/data)",  # pragma: no mutate
     )
-    parser.add_argument("--dbn", type=pathlib.Path, nargs="+", default=[], help="DBN files from Databento's portal")
-    parser.add_argument("--markdown", type=pathlib.Path, help="write the report here (default: standard output)")
-    parser.add_argument("--json", type=pathlib.Path, help="also write the results as JSON here")
+    parser.add_argument(
+        "--dbn",
+        type=pathlib.Path,
+        nargs="+",
+        default=[],
+        help="DBN files from Databento's portal",  # pragma: no mutate
+    )
+    parser.add_argument(
+        "--markdown",
+        type=pathlib.Path,
+        help="write the report here (default: standard output)",  # pragma: no mutate
+    )
+    parser.add_argument("--json", type=pathlib.Path, help="also write the results as JSON here")  # pragma: no mutate
     args = parser.parse_args(argv)
 
     sources = catalog.select(catalog.SOURCES, args.only)
@@ -68,13 +83,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     args.data.mkdir(parents=True, exist_ok=True)
     if args.command == "fetch":
-        failed = 0
+        failed = False
         for s in sources:
             try:
                 fetch.ensure(s, args.data)
             except fetch.Unavailable as e:
                 _say(f"not fetched: {s.provider}: {s.data}: {e}")
-                failed += 1
+                failed = True
         return 1 if failed else 0
 
     sources += [catalog.dbn_file(p, dbn_schema(p)) for p in args.dbn]

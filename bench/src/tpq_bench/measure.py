@@ -69,7 +69,7 @@ def _write_tuned(where: pathlib.Path | pa.NativeFile, schema: pa.Schema, encodin
     return pq.ParquetWriter(
         where,
         schema,
-        compression="zstd",
+        compression="zstd",  # pragma: no mutate (pyarrow ignores the case)
         compression_level=9,
         # a list of columns, as documented (the stubs only know bool)
         use_dictionary=[f.name for f in schema if f.name not in column_encoding],  # type: ignore[arg-type]
@@ -140,7 +140,12 @@ def measure(
     of the tuned encodings is not timed either.
     """
     paths = {name: workdir / f"{name}.parquet" for name in ("zstd9", "tuned", "tparquet")}
-    z9 = tpq.Writer(paths["zstd9"], reader.schema, policy="base", base="zstd(9)")
+    z9 = tpq.Writer(
+        paths["zstd9"],
+        reader.schema,
+        policy="base",
+        base="zstd(9)",  # pragma: no mutate (tparquet ignores the case of the codec name)
+    )
     auto = tpq.Writer(paths["tparquet"], reader.schema)
     tuned: pq.ParquetWriter | None = None
     encodings: dict[str, str] = {}
@@ -166,7 +171,7 @@ def measure(
             raise ValueError("the source has no rows")
         timed("zstd9", z9.close)
         timed("tuned", tuned.close)
-        codecs = cast("dict[str, str]", timed("tparquet", auto.close))
+        codecs = cast("dict[str, str]", timed("tparquet", auto.close))  # pragma: no mutate (typing only)
         for name in ("tuned", "tparquet"):
             difference = tpq.verify(paths["zstd9"], paths[name])
             if difference is not None:
