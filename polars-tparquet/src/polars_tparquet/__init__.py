@@ -24,7 +24,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from typing import Union
 
 import polars as pl
-from tparquet import Policy, Sink, Source, Writer
+from tparquet import PcodecError, Policy, Sink, Source, Writer
 from tparquet.polars import scan_parquet, write_parquet
 
 __all__ = ["DataFrameNamespace", "LazyFrameNamespace", "read_tparquet", "scan_tparquet"]
@@ -109,6 +109,16 @@ def _replacing(target: Sink) -> Iterator[Sink]:
         raise
 
 
+def _scan(f: Source, batch_size: int | None) -> pl.LazyFrame:
+    """One file as a LazyFrame; an error in its footer names the file."""
+    # every path is a str here; tparquet opens it again for every read, so a relative one is
+    # made absolute: a chdir before the query runs does not change the file
+    try:
+        return scan_parquet(os.path.abspath(f) if isinstance(f, str) else f, batch_size=batch_size)
+    except PcodecError as e:
+        raise PcodecError(f"{_name(f)}: {e}") from e
+
+
 def scan_tparquet(
     source: Sources, *, batch_size: int | None = None, include_file_paths: str | None = None
 ) -> pl.LazyFrame:
@@ -129,12 +139,10 @@ def scan_tparquet(
     objects: dict[int, pl.LazyFrame] = {}
     for f in _files(source):
         if isinstance(f, str):
-            # every path is a str here; tparquet opens it again for every read, so a relative one
-            # is made absolute: a chdir before the query runs does not change the file
-            lf = scan_parquet(os.path.abspath(f), batch_size=batch_size)
+            lf = _scan(f, batch_size)
         else:
             if id(f) not in objects:
-                objects[id(f)] = scan_parquet(f, batch_size=batch_size)
+                objects[id(f)] = _scan(f, batch_size)
             lf = objects[id(f)]
         schema = lf.collect_schema()
         if first is None:

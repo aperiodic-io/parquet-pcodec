@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import os
 import pathlib
+import re
 import threading
 from collections.abc import Callable
 
@@ -262,3 +263,20 @@ def test_a_file_object_listed_twice_is_read_twice(write: Write) -> None:
     other = io.BytesIO(write("b.parquet", ticks(2, offset=3)).read_bytes())
     out = pt.scan_tparquet([obj, other, obj]).collect()
     assert_frame_equal(out, pl.concat([ticks(3), ticks(2, offset=3), ticks(3)]))
+
+
+def test_a_file_that_is_not_parquet_is_named(write: Write, tmp_path: pathlib.Path) -> None:
+    a = write("a.parquet", ticks(3))
+    bad = tmp_path / "bad.parquet"
+    bad.write_bytes(b"this is not a Parquet file")
+    with pytest.raises(tparquet.PcodecError, match=rf"^{re.escape(str(bad))}: parquet: .*Corrupt footer"):
+        pt.scan_tparquet([a, bad])
+    with pytest.raises(tparquet.PcodecError, match=r"^<_io\.BytesIO object at 0x[0-9a-f]+>: parquet: .*too small"):
+        pt.scan_tparquet([a, io.BytesIO(b"PAR1")])
+    truncated = tmp_path / "truncated.parquet"
+    truncated.write_bytes(a.read_bytes()[:-20])
+    with pytest.raises(tparquet.PcodecError, match=rf"^{re.escape(str(truncated))}: "):
+        pt.scan_tparquet(tmp_path / "trunc*.parquet")
+    # an error that is not the file's is not wrapped
+    with pytest.raises(ValueError, match=r"^batch_size must be positive, got 0$"):
+        pt.scan_tparquet(a, batch_size=0)
