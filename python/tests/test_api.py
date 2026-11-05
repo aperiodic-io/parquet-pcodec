@@ -712,3 +712,39 @@ def test_paths_that_are_not_utf_8(tmp_path: pathlib.Path, numbers: pa.Table) -> 
     w = ppc.Writer(os.fsdecode(out), numbers.schema)
     w.abort()
     assert not os.path.exists(out)
+
+
+def test_paths_that_are_not_utf_8(tmp_path: pathlib.Path, numbers: pa.Table) -> None:
+    raw = os.fsencode(tmp_path) + b"/caf\xe9.parquet"
+    for sink in (raw, os.fsdecode(raw)):
+        assert ppc.write_table(numbers, sink)["i64"] == "PCODEC"
+        assert ppc.read_table(raw).equals(numbers)
+        os.remove(raw)
+    with ppc.Writer(raw, numbers.schema) as w:
+        w.write(numbers)
+    assert ppc.read_table(os.fsdecode(raw)).equals(numbers)
+    out = os.fsencode(tmp_path) + b"/out\xff.parquet"
+    ppc.transcode(raw, out, target="standard")
+    with open(out, "rb") as f:
+        assert pq.read_table(f).equals(numbers)
+    # an aborted writer removes the file it created
+    w = ppc.Writer(os.fsdecode(out), numbers.schema)
+    w.abort()
+    assert not os.path.exists(out)
+
+
+def test_a_file_replaced_after_it_was_opened_reads_as_opened(tmp_path: pathlib.Path, numbers: pa.Table) -> None:
+    path = tmp_path / "t.parquet"
+    ppc.write_table(numbers, path, row_group_size=500)
+    f = ppc.ParquetFile(path)
+    stream = f.stream(columns=["i64"])
+    # replaced (a new file renamed over it) and removed: what was opened is still read
+    other = tmp_path / "other.parquet"
+    ppc.write_table(numbers.slice(0, 10).select(["s"]), other)
+    os.replace(other, path)
+    assert f.read().equals(numbers)
+    assert pa.RecordBatchReader.from_stream(stream).read_all().equals(numbers.select(["i64"]))
+    assert ppc.inspect(path)["rows"] == 10
+    os.remove(path)
+    assert f.read(row_groups=[3]).equals(numbers.slice(1500))
+    assert f.metadata.num_rows == 2000

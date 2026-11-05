@@ -177,7 +177,7 @@ pub fn transcode(
     };
     let pending = Pending::default();
     let mut sink = Sink::new(sink, &pending)?;
-    let reader = input.reader()?;
+    let reader = input.reader();
     detached(py, move || {
         let metadata = tparquet::transcode(reader, &mut sink, &target).map_err(from_pcodec)?;
         std::io::Write::flush(&mut sink).map_err(|e| invalid(e.to_string()))?;

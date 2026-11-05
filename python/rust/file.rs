@@ -17,28 +17,55 @@ use tparquet::parquet::arrow::ProjectionMask;
 use tparquet::parquet::arrow::arrow_reader::{
     ArrowReaderMetadata, ArrowReaderOptions, ParquetRecordBatchReader, ParquetRecordBatchReaderBuilder,
 };
-use tparquet::parquet::errors::Result as ParquetResult;
+use tparquet::parquet::errors::{ParquetError, Result as ParquetResult};
 use tparquet::parquet::file::reader::{ChunkReader, Length};
 use tparquet::parquet::file::statistics::Statistics;
 
 /// Where the file's bytes are.
 #[derive(Clone)]
 enum Source {
-    /// Opened again for every read, so that readers in other threads do not share a cursor.
-    Path(PathBuf),
+    /// The file opened when the footer was read, kept open so that every read sees that
+    /// file even when its path is replaced later; read at given offsets, so that readers in
+    /// other threads do not share a cursor.
+    File {
+        file: Arc<std::fs::File>,
+        len: u64,
+    },
     Bytes(Bytes),
 }
 
-/// One open handle on a [`Source`].
+/// One handle on a [`Source`].
 pub enum Reader {
-    File(std::fs::File),
+    File { file: Arc<std::fs::File>, len: u64 },
     Bytes(Bytes),
+}
+
+/// Reads `buf.len()` bytes of `file` (or fewer at its end) at `offset`, without its cursor.
+fn read_at(file: &std::fs::File, buf: &mut [u8], offset: u64) -> std::io::Result<usize> {
+    #[cfg(unix)]
+    return std::os::unix::fs::FileExt::read_at(file, buf, offset);
+    #[cfg(windows)]
+    return std::os::windows::fs::FileExt::seek_read(file, buf, offset);
+}
+
+/// A reader of a file from an offset, with a position of its own.
+struct ReadAt {
+    file: Arc<std::fs::File>,
+    pos: u64,
+}
+
+impl Read for ReadAt {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = read_at(&self.file, buf, self.pos)?;
+        self.pos += n as u64;
+        Ok(n)
+    }
 }
 
 impl Length for Reader {
     fn len(&self) -> u64 {
         match self {
-            Self::File(f) => Length::len(f),
+            Self::File { len, .. } => *len,
             Self::Bytes(b) => Length::len(b),
         }
     }
@@ -49,25 +76,53 @@ impl ChunkReader for Reader {
 
     fn get_read(&self, start: u64) -> ParquetResult<Self::T> {
         Ok(match self {
-            Self::File(f) => Box::new(f.get_read(start)?),
+            Self::File { file, .. } => Box::new(ReadAt { file: file.clone(), pos: start }),
             Self::Bytes(b) => Box::new(b.get_read(start)?),
         })
     }
 
     fn get_bytes(&self, start: u64, length: usize) -> ParquetResult<Bytes> {
         match self {
-            Self::File(f) => f.get_bytes(start, length),
+            Self::File { file, len } => {
+                // the length comes from the footer: it is checked against the file before
+                // anything is allocated
+                if start.checked_add(length as u64).is_none_or(|end| end > *len) {
+                    return Err(ParquetError::EOF(format!(
+                        "{length} bytes at {start} are past the end of the file ({len} bytes)"
+                    )));
+                }
+                let mut buf = vec![0; length];
+                let mut done = 0;
+                while done < length {
+                    match read_at(file, &mut buf[done..], start + done as u64)? {
+                        0 => {
+                            return Err(ParquetError::EOF(format!(
+                                "the file ends before {} bytes",
+                                start + length as u64
+                            )));
+                        }
+                        n => done += n,
+                    }
+                }
+                Ok(buf.into())
+            }
             Self::Bytes(b) => b.get_bytes(start, length),
         }
     }
 }
 
 impl Source {
-    fn open(&self) -> PyResult<Reader> {
-        Ok(match self {
-            Self::Path(p) => Reader::File(std::fs::File::open(p).map_err(|e| os_error(&e, p))?),
+    fn open_path(path: PathBuf) -> PyResult<Self> {
+        let file = std::fs::File::open(&path).map_err(|e| os_error(&e, &path))?;
+        let len = file.metadata().map_err(|e| os_error(&e, &path))?.len();
+        Ok(Self::File { file: Arc::new(file), len })
+    }
+
+    fn reader(&self) -> Reader {
+        match self {
+            Self::File { file, len, .. } => Reader::File { file: file.clone(), len: *len },
             Self::Bytes(b) => Reader::Bytes(b.clone()),
-        })
+        }
     }
 }
 
@@ -79,16 +134,17 @@ pub struct File {
 }
 
 impl File {
-    fn load(py: Python<'_>, source: Source) -> PyResult<Self> {
+    fn load(py: Python<'_>, source: impl FnOnce() -> PyResult<Source> + Send) -> PyResult<Self> {
         detached(py, || {
-            let reader = source.open()?;
+            let source = source()?;
+            let reader = source.reader();
             let metadata = ArrowReaderMetadata::load(&reader, ArrowReaderOptions::new()).map_err(from_parquet)?;
             Ok(Self { source, metadata })
         })
     }
 
-    pub fn reader(&self) -> PyResult<Reader> {
-        self.source.open()
+    pub fn reader(&self) -> Reader {
+        self.source.reader()
     }
 
     /// For the top-level `columns` (all by default): their root indices in file order, where
@@ -112,13 +168,13 @@ impl File {
 /// Opens the Parquet file at `path`.
 #[pyfunction]
 pub fn open_path(py: Python<'_>, path: PathBuf) -> PyResult<File> {
-    File::load(py, Source::Path(path))
+    File::load(py, || Source::open_path(path))
 }
 
 /// Opens a Parquet file held in `data`.
 #[pyfunction]
 pub fn open_bytes(py: Python<'_>, data: PyBackedBytes) -> PyResult<File> {
-    File::load(py, Source::Bytes(Bytes::from_owner(data)))
+    File::load(py, || Ok(Source::Bytes(Bytes::from_owner(data))))
 }
 
 /// Batches of a projected reader with the columns in the requested order.
@@ -176,7 +232,7 @@ impl File {
             .ok()
             .filter(|n| *n > 0)
             .ok_or_else(|| invalid(format!("batch_size must be positive, got {batch_size}")))?;
-        let mut builder = ParquetRecordBatchReaderBuilder::new_with_metadata(self.reader()?, self.metadata.clone())
+        let mut builder = ParquetRecordBatchReaderBuilder::new_with_metadata(self.reader(), self.metadata.clone())
             .with_batch_size(batch_size);
         if let Some(rgs) = row_groups {
             let n = self.metadata.metadata().num_row_groups();
@@ -268,7 +324,7 @@ impl File {
     /// The `tparquet inspect --json` report.
     fn inspect(&self, py: Python<'_>) -> PyResult<String> {
         detached(py, || {
-            let report = tparquet::inspect::inspect(&self.reader()?).map_err(from_pcodec)?;
+            let report = tparquet::inspect::inspect(&self.reader()).map_err(from_pcodec)?;
             Ok(report.to_json().to_string())
         })
     }
@@ -278,7 +334,7 @@ impl File {
 #[pyfunction]
 pub fn verify(py: Python<'_>, a: &File, b: &File) -> PyResult<Option<String>> {
     detached(py, || {
-        let d = tparquet::verify::verify(a.reader()?, b.reader()?).map_err(from_pcodec)?;
+        let d = tparquet::verify::verify(a.reader(), b.reader()).map_err(from_pcodec)?;
         Ok(d.map(|d| d.to_string()))
     })
 }

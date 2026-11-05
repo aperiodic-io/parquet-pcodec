@@ -302,13 +302,6 @@ def test_a_sink_on_the_streaming_engine_of_a_large_scan(tmp_path: pathlib.Path) 
     assert_frame_equal(pt.read_tparquet(tmp_path / "out.parquet"), lf.collect())
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=tparquet.PcodecError,
-    reason="tparquet (python/) reads the footer when a file is scanned but opens the path again for "
-    "every read: once the file is replaced, a scan made before reads the new file's pages with the "
-    "old footer ('EOF: Invalid page header', or wrong rows)",
-)
 def test_a_scan_made_before_its_file_was_replaced_reads_what_it_scanned(tmp_path: pathlib.Path) -> None:
     path = tmp_path / "t.parquet"
     ticks(1000).tparquet.write(path, row_group_size=100)
