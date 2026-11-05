@@ -384,19 +384,27 @@ func TestPlanRejectsBadBaseCodecs(t *testing.T) {
 		{tparquet.Compression, "pcodec: the base codec cannot be PCODEC; use WithDefaultPolicy(Pcodec)"},
 		{compress.Codecs.Lzo, "pcodec: base codec: compression for LZO unimplemented"},
 		{compress.Codecs.Lz4, "pcodec: base codec: compression for LZ4 unimplemented"},
+		// arrow-go's gzip codec panics on the first page with a level gzip refuses.
+		{compress.Codecs.Gzip, "pcodec: base codec GZIP at level 99: gzip: invalid compression level: 99"},
 	}
 	for _, tc := range cases {
-		if _, err := tparquet.NewPlan(mixedSchema, nil, tparquet.WithBaseCodec(tc.codec, 3)); err == nil || err.Error() != tc.msg {
+		level := 3
+		if tc.codec == compress.Codecs.Gzip {
+			level = 99
+		}
+		if _, err := tparquet.NewPlan(mixedSchema, nil, tparquet.WithBaseCodec(tc.codec, level)); err == nil || err.Error() != tc.msg {
 			t.Errorf("NewPlan: err = %v, want %q", err, tc.msg)
 		}
-		if _, err := tparquet.NewFileWriter(mixedSchema, &bytes.Buffer{}, tparquet.WithBaseCodec(tc.codec, 3)); err == nil || err.Error() != tc.msg {
+		if _, err := tparquet.NewFileWriter(mixedSchema, &bytes.Buffer{}, tparquet.WithBaseCodec(tc.codec, level)); err == nil || err.Error() != tc.msg {
 			t.Errorf("NewFileWriter: err = %v, want %q", err, tc.msg)
 		}
 	}
 	for _, c := range []compress.Compression{compress.Codecs.Uncompressed, compress.Codecs.Snappy, compress.Codecs.Gzip,
 		compress.Codecs.Brotli, compress.Codecs.Zstd, compress.Codecs.Lz4Raw} {
-		if _, err := tparquet.NewPlan(mixedSchema, nil, tparquet.WithBaseCodec(c, compress.DefaultCompressionLevel)); err != nil {
-			t.Errorf("%v: %v", c, err)
+		for _, level := range []int{compress.DefaultCompressionLevel, 1, 9} {
+			if _, err := tparquet.NewPlan(mixedSchema, nil, tparquet.WithBaseCodec(c, level)); err != nil {
+				t.Errorf("%v level %d: %v", c, level, err)
+			}
 		}
 	}
 }

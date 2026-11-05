@@ -66,7 +66,8 @@ func WithPolicy(path string, p Policy) Option { return func(c *config) { c.polic
 
 // WithBaseCodec sets the codec and level of the columns that do not use PCODEC; ZSTD level
 // 3 if unset. Set it here rather than with parquet.WithCompression. It must be a codec
-// arrow-go implements, and not PCODEC (use WithDefaultPolicy(Pcodec) for that).
+// arrow-go implements, at a level it accepts, and not PCODEC (use WithDefaultPolicy(Pcodec)
+// for that).
 func WithBaseCodec(codec compress.Compression, level int) Option {
 	return func(c *config) { c.baseCodec, c.baseLevel = codec, level }
 }
@@ -135,8 +136,12 @@ func NewPlan(sc *arrow.Schema, sample arrow.RecordBatch, opts ...Option) (*Plan,
 	if cfg.baseCodec == Compression {
 		return nil, errors.New("pcodec: the base codec cannot be PCODEC; use WithDefaultPolicy(Pcodec)")
 	}
-	if _, err := compress.GetCodec(cfg.baseCodec); err != nil {
+	base, err := compress.GetCodec(cfg.baseCodec)
+	if err != nil {
 		return nil, fmt.Errorf("pcodec: base codec: %w", err)
+	}
+	if err := tryLevel(base, cfg.baseLevel); err != nil {
+		return nil, fmt.Errorf("pcodec: base codec %v at level %d: %w", cfg.baseCodec, cfg.baseLevel, err)
 	}
 	if sample != nil && !sample.Schema().Equal(sc) {
 		return nil, errSampleSchema
@@ -176,6 +181,18 @@ func NewPlan(sc *arrow.Schema, sample arrow.RecordBatch, opts ...Option) (*Plan,
 		}
 	}
 	return p, nil
+}
+
+// tryLevel compresses one byte with codec at level: arrow-go's codecs panic on a level they
+// refuse (gzip does), at the first page; this finds it before any file is written.
+func tryLevel(codec compress.Codec, level int) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%v", r)
+		}
+	}()
+	codec.EncodeLevel(nil, []byte{0}, level)
+	return nil
 }
 
 var errSampleSchema = errors.New("pcodec: the sample's schema differs from the file's")
