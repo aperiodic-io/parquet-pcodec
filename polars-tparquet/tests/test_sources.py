@@ -255,3 +255,10 @@ def test_a_directory_follows_symlinked_files_not_directories(
     assert _files_read("d") == ["d/b.parquet", "d/link.parquet"]
     # a symlinked directory named is read
     assert _files_read("d/sub") == ["d/sub/a.parquet"]
+
+
+def test_a_file_object_listed_twice_is_read_twice(write: Write) -> None:
+    obj = io.BytesIO(write("a.parquet", ticks(3)).read_bytes())
+    other = io.BytesIO(write("b.parquet", ticks(2, offset=3)).read_bytes())
+    out = pt.scan_tparquet([obj, other, obj]).collect()
+    assert_frame_equal(out, pl.concat([ticks(3), ticks(2, offset=3), ticks(3)]))
