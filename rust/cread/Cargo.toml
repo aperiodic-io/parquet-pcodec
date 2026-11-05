@@ -1,0 +1,25 @@
+[package]
+name = "tparquet-cread"
+version = "0.1.0"
+description = "C reading API for Parquet files with the PCODEC codec, as Arrow C streams (include/tparquet_read.h)"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+name = "tparquet_read"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+tparquet = { path = "../tparquet" }
+arrow-array = { workspace = true, features = ["ffi"] }
+arrow-schema = { workspace = true, features = ["ffi"] }
+arrow-data = { workspace = true, features = ["ffi"] }
+
+[dev-dependencies]
+proptest.workspace = true
+tempfile = "3"
+serde_json = "1"
+bytes = "1"

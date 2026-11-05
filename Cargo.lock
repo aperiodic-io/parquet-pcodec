@@ -3489,6 +3489,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "tparquet-cread"
+version = "0.1.0"
+dependencies = [
+ "arrow-array",
+ "arrow-data",
+ "arrow-schema",
+ "bytes",
+ "proptest",
+ "serde_json",
+ "tempfile",
+ "tparquet",
+]
+
+[[package]]
 name = "tparquet-duckdb"
 version = "0.1.0"
 dependencies = [
