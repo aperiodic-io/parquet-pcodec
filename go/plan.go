@@ -65,7 +65,8 @@ func WithDefaultPolicy(p Policy) Option { return func(c *config) { c.defPolicy =
 func WithPolicy(path string, p Policy) Option { return func(c *config) { c.policies[path] = p } }
 
 // WithBaseCodec sets the codec and level of the columns that do not use PCODEC; ZSTD level
-// 3 if unset. Set it here rather than with parquet.WithCompression.
+// 3 if unset. Set it here rather than with parquet.WithCompression. It must be a codec
+// arrow-go implements, and not PCODEC (use WithDefaultPolicy(Pcodec) for that).
 func WithBaseCodec(codec compress.Compression, level int) Option {
 	return func(c *config) { c.baseCodec, c.baseLevel = codec, level }
 }
@@ -130,6 +131,12 @@ func NewPlan(sc *arrow.Schema, sample arrow.RecordBatch, opts ...Option) (*Plan,
 	}
 	if cfg.pcoLevel < compress.DefaultCompressionLevel || cfg.pcoLevel > MaxPcodecLevel {
 		return nil, fmt.Errorf("pcodec: pcodec level %d is not in 0..%d", cfg.pcoLevel, MaxPcodecLevel)
+	}
+	if cfg.baseCodec == Compression {
+		return nil, errors.New("pcodec: the base codec cannot be PCODEC; use WithDefaultPolicy(Pcodec)")
+	}
+	if _, err := compress.GetCodec(cfg.baseCodec); err != nil {
+		return nil, fmt.Errorf("pcodec: base codec: %w", err)
 	}
 	if sample != nil && !sample.Schema().Equal(sc) {
 		return nil, errSampleSchema
