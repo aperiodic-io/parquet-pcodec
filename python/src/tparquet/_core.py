@@ -75,7 +75,8 @@ def _binary(obj: object, mode: str) -> None:
     """Refuses a text-mode file object, which cannot hold Parquet bytes."""
     if isinstance(obj, io.TextIOBase):
         raise TypeError(
-            f"expected a binary file object, got a text file ({type(obj).__name__}): open it in binary mode ('{mode}')"
+            f"expected a binary file object, got a text file ({type(obj).__name__}), which holds str, not bytes: "
+            f"open it in binary mode ('{mode}')"
         )
 
 

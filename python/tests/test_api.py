@@ -681,13 +681,13 @@ def test_text_mode_files_are_refused_with_a_type_error(tmp_path: pathlib.Path, n
         open(path) as text,
         pytest.raises(
             TypeError,
-            match=r"^expected a binary file object, got a text file \(TextIOWrapper\): open it in binary mode \('rb'\)$",
+            match=r"^expected a binary file object, got a text file \(TextIOWrapper\), which holds str, not bytes: open it in binary mode \('rb'\)$",
         ),
     ):
         ppc.read_table(text)  # type: ignore[arg-type]
     with pytest.raises(
         TypeError,
-        match=r"^expected a binary file object, got a text file \(StringIO\): open it in binary mode \('wb'\)$",
+        match=r"^expected a binary file object, got a text file \(StringIO\), which holds str, not bytes: open it in binary mode \('wb'\)$",
     ):
         ppc.write_table(numbers, io.StringIO())  # type: ignore[arg-type]
     with open(tmp_path / "w.parquet", "w") as text, pytest.raises(TypeError, match=r"\('wb'\)$"):
