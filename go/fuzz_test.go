@@ -112,7 +112,7 @@ func FuzzPageInFile(f *testing.F) {
 // version, read back as written.
 func FuzzWriteRead(f *testing.F) {
 	f.Add(ramp(64), uint8(0), false)
-	f.Add(float64Bytes(0.1, 0.25, -0.0, 1e300), uint8(1), true)
+	f.Add(float64Bytes(0.1, 0.25, math.Copysign(0, -1), 1e300), uint8(1), true)
 	f.Add([]byte{}, uint8(2), true)
 	sc := arrow.NewSchema([]arrow.Field{
 		{Name: "i", Type: arrow.PrimitiveTypes.Int64, Nullable: true},
