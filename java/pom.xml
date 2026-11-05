@@ -27,7 +27,18 @@
     <module>parquet-java/parquet-common</module>
     <module>parquet-java/parquet-hadoop</module>
     <module>tparquet</module>
+    <module>acceptance-upstream</module>
   </modules>
+
+  <profiles>
+    <!-- upstream parquet-java's suite against the fork (make -C java fork-upstream-tests) -->
+    <profile>
+      <id>fork-upstream-tests</id>
+      <modules>
+        <module>parquet-java/upstream-tests</module>
+      </modules>
+    </profile>
+  </profiles>
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
