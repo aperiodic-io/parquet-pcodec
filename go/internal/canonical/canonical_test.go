@@ -150,6 +150,25 @@ func TestMapsAndHalfFloats(t *testing.T) {
 	}
 }
 
+// TestNullType: every value of a null column is null, though arrow-go gives it no validity
+// bitmap.
+func TestNullType(t *testing.T) {
+	rec := record(t, []arrow.Field{{Name: "n", Type: arrow.Null, Nullable: true}, {Name: "l", Type: arrow.ListOf(arrow.Null)}},
+		func(b *array.RecordBuilder) {
+			b.Field(0).AppendNull()
+			b.Field(0).AppendNull()
+			lb := b.Field(1).(*array.ListBuilder)
+			lb.Append(true)
+			lb.ValueBuilder().AppendNull()
+			lb.Append(true)
+		})
+	defer rec.Release()
+	want := "{\"n\":null,\"l\":[null]}\n{\"n\":null,\"l\":[]}\n"
+	if got := jsonl(t, rec); got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
 func TestUnsupportedType(t *testing.T) {
 	rec := record(t, []arrow.Field{{Name: "m", Type: arrow.FixedWidthTypes.MonthInterval}},
 		func(b *array.RecordBuilder) { b.Field(0).(*array.MonthIntervalBuilder).Append(1) })

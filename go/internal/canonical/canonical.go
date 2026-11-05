@@ -70,7 +70,7 @@ func writeString(buf *bytes.Buffer, s string) {
 }
 
 func value(buf *bytes.Buffer, arr arrow.Array, i int) error {
-	if arr.IsNull(i) {
+	if arr.IsNull(i) || arr.DataType().ID() == arrow.NULL { // a null array has no bitmap
 		buf.WriteString("null")
 		return nil
 	}
