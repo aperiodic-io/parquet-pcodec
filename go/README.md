@@ -63,4 +63,5 @@ clash on Rust runtime symbols.
 | `make vectors OUT=dir` | write the Go-produced conformance vectors (`cmd/tparquet-go-gen`) |
 
 `TestConformanceVectors` checks every `../testdata/files/*.parquet` against
-`../testdata/expected/<name>.jsonl` (or `$TPARQUET_TESTDATA`) and skips while there are none.
+`../testdata/expected/<name>.jsonl` (or `$TPARQUET_TESTDATA`) and skips while there are none;
+`TestPayloadVectors` decodes every payload of `../testdata/payloads/manifest.json`.
