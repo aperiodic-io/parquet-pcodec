@@ -35,7 +35,7 @@ fork-upstream-tests: install
 # stops before `package`, parquet-format-structures is its unshaded target/classes, which
 # parquet-hadoop (compiled against the shaded jar, as upstream's is) cannot link against
 PIT_MODULES := tparquet-jni parquet-java/parquet-format-structures parquet-java/parquet-common \
-  parquet-java/parquet-hadoop tparquet
+  parquet-java/parquet-hadoop parquet-java-1.18/parquet-format-structures parquet-java-1.18/parquet-common tparquet
 mutants: install
 	for m in $(PIT_MODULES); do $(MVN) -pl $$m test-compile org.pitest:pitest-maven:mutationCoverage || exit 1; done
 

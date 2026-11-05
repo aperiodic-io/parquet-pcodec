@@ -26,6 +26,8 @@
     <module>parquet-java/parquet-format-structures</module>
     <module>parquet-java/parquet-common</module>
     <module>parquet-java/parquet-hadoop</module>
+    <module>parquet-java-1.18/parquet-format-structures</module>
+    <module>parquet-java-1.18/parquet-common</module>
     <module>tparquet</module>
     <module>acceptance-upstream</module>
     <module>tparquet-spark</module>
@@ -57,6 +59,11 @@
     <parquet.upstream.version>1.17.0</parquet.upstream.version>
     <parquet.fork.version>1.17.0-tparquet</parquet.fork.version>
     <thrift.version>0.22.0</thrift.version>
+    <!-- the parquet-java 1.18.1 fork (parquet-java-1.18/FORK.md): format-structures and common
+         for Trino 484, whose reader is built on 1.18.1 (trino/README.md) -->
+    <parquet118.upstream.version>1.18.1</parquet118.upstream.version>
+    <parquet118.fork.version>1.18.1-tparquet</parquet118.fork.version>
+    <thrift118.version>0.23.0</thrift118.version>
     <slf4j.version>1.7.33</slf4j.version>
     <hadoop.version>3.3.0</hadoop.version>
     <!-- upstream relocates these to shaded.parquet.* (parquet-jackson and parquet-column hold the
