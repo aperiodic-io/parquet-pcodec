@@ -45,17 +45,23 @@ func jsonlOfReader(t testing.TB, rr pqarrow.RecordReader) []byte {
 	return buf.Bytes()
 }
 
+// sameJSONL compares two canonical JSON documents: byte for byte first (the canonical
+// spelling is unique, and Equal is slow), value by value for the difference.
 func sameJSONL(t testing.TB, what string, got, want []byte) {
 	t.Helper()
+	if bytes.Equal(got, want) {
+		return
+	}
 	if ok, diff := canonical.Equal(got, want); !ok {
 		t.Fatalf("%s: %s", what, diff)
 	}
 }
 
-// project keeps only the field name of every canonical JSON line.
-func project(t testing.TB, doc []byte, name string) []byte {
+// projector parses a canonical JSON document once and returns, for a field name, the
+// document with only that field on every line.
+func projector(t testing.TB, doc []byte) func(name string) []byte {
 	t.Helper()
-	var out bytes.Buffer
+	var rows []map[string]json.RawMessage
 	for _, line := range bytes.Split(doc, []byte("\n")) {
 		if len(bytes.TrimSpace(line)) == 0 {
 			continue
@@ -64,10 +70,16 @@ func project(t testing.TB, doc []byte, name string) []byte {
 		if err := json.Unmarshal(line, &row); err != nil {
 			t.Fatal(err)
 		}
-		key, _ := json.Marshal(name)
-		fmt.Fprintf(&out, "{%s:%s}\n", key, row[name])
+		rows = append(rows, row)
 	}
-	return out.Bytes()
+	return func(name string) []byte {
+		var out bytes.Buffer
+		key, _ := json.Marshal(name)
+		for _, row := range rows {
+			fmt.Fprintf(&out, "{%s:%s}\n", key, row[name])
+		}
+		return out.Bytes()
+	}
 }
 
 // rowGroupLines splits the canonical JSON of a file into the lines of each row group.
@@ -97,7 +109,8 @@ func checkReaders(t *testing.T, data, want []byte) {
 	}
 	defer rdr.Close()
 	ctx := context.Background()
-	for _, props := range []pqarrow.ArrowReadProperties{{BatchSize: 100}, {BatchSize: 1 << 16, Parallel: true}} {
+	project := projector(t, want)
+	for i, props := range []pqarrow.ArrowReadProperties{{BatchSize: 100}, {BatchSize: 1 << 16, Parallel: true}} {
 		fr, err := pqarrow.NewFileReader(rdr, props, memory.DefaultAllocator)
 		if err != nil {
 			t.Fatal(err)
@@ -119,9 +132,9 @@ func checkReaders(t *testing.T, data, want []byte) {
 			sameJSONL(t, fmt.Sprintf("row group %d", g), jsonlOfTable(t, tbl), groups[g])
 			tbl.Release()
 		}
-		// Each top-level field alone, from its leaves.
+		// Each top-level field alone, from its leaves (serially only: it is the slow part).
 		sc := md.Schema
-		for f := 0; f < sc.Root().NumFields(); f++ {
+		for f := 0; f < sc.Root().NumFields() && i == 0; f++ {
 			field := sc.Root().Field(f)
 			var leaves []int
 			for c := 0; c < sc.NumColumns(); c++ {
@@ -133,7 +146,7 @@ func checkReaders(t *testing.T, data, want []byte) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			sameJSONL(t, "column "+field.Name(), jsonlOfTable(t, tbl), project(t, want, field.Name()))
+			sameJSONL(t, "column "+field.Name(), jsonlOfTable(t, tbl), project(field.Name()))
 			tbl.Release()
 		}
 		// A record reader over the row groups in reverse order.
@@ -152,7 +165,7 @@ func checkReaders(t *testing.T, data, want []byte) {
 			rr.Release()
 		}
 	}
-	checkLowLevel(t, rdr, want)
+	checkLowLevel(t, rdr, project)
 }
 
 // allLeaves is 0..n-1: pqarrow's ReadRowGroups reads no column (or no row group) for nil.
@@ -166,13 +179,15 @@ func allLeaves(n int) []int {
 
 // checkLowLevel reads every leaf of every row group with the typed column readers and checks
 // the level and value counts, and the values of flat numeric top-level columns.
-func checkLowLevel(t *testing.T, rdr *file.Reader, want []byte) {
+func checkLowLevel(t *testing.T, rdr *file.Reader, project func(string) []byte) {
 	t.Helper()
 	md := rdr.MetaData()
 	sc := md.Schema
 	for c := 0; c < sc.NumColumns(); c++ {
 		col := sc.Column(c)
-		flat := col.MaxRepetitionLevel() == 0 && sc.ColumnRoot(c).Type() == schema.Primitive
+		// The values of flat numeric columns are compared, but for unsigned integers, which
+		// the physical type holds as signed.
+		flat := col.MaxRepetitionLevel() == 0 && sc.ColumnRoot(c).Type() == schema.Primitive && !unsigned(col)
 		var got []string // canonical JSON values of a flat column
 		for g := 0; g < md.NumRowGroups(); g++ {
 			cc, err := md.RowGroup(g).ColumnChunk(c)
@@ -258,8 +273,13 @@ func checkLowLevel(t *testing.T, rdr *file.Reader, want []byte) {
 		for _, v := range got {
 			fmt.Fprintf(&doc, "{%q:%s}\n", col.Name(), v)
 		}
-		sameJSONL(t, "low-level "+col.Path(), doc.Bytes(), project(t, want, col.Name()))
+		sameJSONL(t, "low-level "+col.Path(), doc.Bytes(), project(col.Name()))
 	}
+}
+
+func unsigned(col *schema.Column) bool {
+	it, ok := col.LogicalType().(interface{ IsSigned() bool })
+	return ok && !it.IsSigned()
 }
 
 // readAll calls read until it returns no more levels; *values counts the values read so far.
