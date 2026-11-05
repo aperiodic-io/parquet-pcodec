@@ -10,6 +10,7 @@ from collections.abc import Callable
 
 import polars as pl
 import pytest
+import tparquet
 from polars.testing import assert_frame_equal
 
 import polars_tparquet as pt
@@ -32,8 +33,8 @@ def test_every_kind_of_path(write: Write) -> None:
     df = ticks(10)
     path = write("a.parquet", df)
     for source in (str(path), path, os.fsencode(path), FsPath(str(path))):
-        assert_frame_equal(pt.scan_tparquet(source).collect(), df)  # type: ignore[arg-type]
-        out = pt.scan_tparquet(source, include_file_paths="file").collect()  # type: ignore[arg-type]
+        assert_frame_equal(pt.scan_tparquet(source).collect(), df)
+        out = pt.scan_tparquet(source, include_file_paths="file").collect()
         assert out["file"].to_list() == [str(path)] * 10
 
 
@@ -65,7 +66,7 @@ def test_a_list_mixes_paths_globs_directories_and_file_objects(write: Write, tmp
     write("g/c.parquet", parts[2])
     write("d/e/f.parquet", parts[3])
     obj = io.BytesIO(write("obj.parquet", parts[4]).read_bytes())
-    sources = [a, str(tmp_path / "g" / "*.parquet"), tmp_path / "d", obj]
+    sources: list[tparquet.Source] = [a, str(tmp_path / "g" / "*.parquet"), tmp_path / "d", obj]
     assert_frame_equal(pt.scan_tparquet(sources).collect(), pl.concat(parts))
 
 
@@ -134,7 +135,7 @@ def test_an_object_with_only_read(write: Write) -> None:
         def read(self) -> bytes:
             return data
 
-    assert_frame_equal(pt.scan_tparquet(Reader()).collect(), ticks(10))  # type: ignore[arg-type]
+    assert_frame_equal(pt.scan_tparquet(Reader()).collect(), ticks(10))
 
 
 def test_what_is_not_a_source(write: Write, tmp_path: pathlib.Path) -> None:
