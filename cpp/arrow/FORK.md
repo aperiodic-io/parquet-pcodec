@@ -112,5 +112,19 @@ Upstream's own tests are not run: they need `ARROW_BUILD_TESTS` (gtest, gmock, B
 No C++ mutation tool is installable here (no `mull` or `dextool` package for Ubuntu 24.04 or on
 PyPI). `cpp/mutants/run.py` applies hand-picked mutations of the fork's changed functions
 (`cpp/mutants/mutants.json`) to `target/cpp/arrow-src` one at a time, rebuilds Arrow
-incrementally, runs the C++ tests and requires them to fail; see `cpp/README.md` for the
-result.
+incrementally, runs the C++ tests and requires them to fail (`make -C cpp mutants`).
+
+Result (37 mutants, every one caught; about 40 minutes with 3 jobs): 4 in
+`thrift_internal.h` (`LoadEnumSafe` rejecting PCODEC and accepting every value,
+`FromThriftUnsafe` and `ToThrift` mapping PCODEC to another codec), 1 in `types.cc`, 4 in
+`SerializedPageWriter`'s constructor (no hint, level dropped, `decimal` flag dropped, the
+user's options passed through unchanged), 6 in `metadata.cc` (key on every file, never,
+twice, without the user's metadata, value "2", `Finish` without `WithPcodecVersion`), 16 in
+`compression_pcodec.cc` and 6 in `compression.cc` (names, parsing, levels, hint and
+`decimal` flag in `Create`, availability). Two tests were added while writing the list, for
+mutants that no existing test would have caught (the run was made after they were added):
+the `decimal` flag of a user's `PcodecCodecOptions` in the page writer
+(`Writer.PcodecCodecOptionsGivenToParquetKeepTheColumnHint`) and `LoadEnumSafe` accepting
+every value (`Conformance.OtherCodecValuesAreStillRefused`). The first mutant,
+`load-enum-rejects-pcodec`, is upstream's behaviour: the conformance tests fail with
+"Unsupported compression codec value: 20547".

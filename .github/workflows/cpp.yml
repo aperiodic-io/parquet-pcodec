@@ -1,0 +1,178 @@
+name: cpp
+
+# C and C++: the Arrow C++ fork (cpp/arrow), the tparquet C++ library and CLI (cpp/), and the
+# C stream reader (rust/cread). See cpp/README.md.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "cpp/**"
+      - "rust/core/**"
+      - "rust/capi/**"
+      - "rust/cread/**"
+      - "rust/parquet/**"
+      - "rust/tparquet/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "testdata/**"
+      - "scripts/check-cpp-fork.sh"
+      - ".github/workflows/cpp.yml"
+  pull_request:
+    paths:
+      - "cpp/**"
+      - "rust/core/**"
+      - "rust/capi/**"
+      - "rust/cread/**"
+      - "rust/parquet/**"
+      - "rust/tparquet/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "testdata/**"
+      - "scripts/check-cpp-fork.sh"
+      - ".github/workflows/cpp.yml"
+  schedule:
+    - cron: "41 3 * * 1" # weekly mutation testing
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# a newer push to the same branch or pull request cancels the runs it supersedes
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CCACHE_DIR: ${{ github.workspace }}/target/ccache
+  # build dependencies of the minimal Arrow build (cpp/arrow/build.sh), the tests and clang
+  APT_PACKAGES: >-
+    cmake ninja-build ccache thrift-compiler libthrift-dev libzstd-dev libsnappy-dev
+    liblz4-dev libbrotli-dev zlib1g-dev liburiparser-dev rapidjson-dev libgtest-dev
+    libgmock-dev libboost-dev clang libclang-rt-18-dev
+
+jobs:
+  check-fork:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: thrift compiler (checks the generated thrift code)
+        run: sudo apt-get update && sudo apt-get install -y thrift-compiler
+      - run: scripts/check-cpp-fork.sh
+
+  cread:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1 (master)
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: cargo fmt -p tparquet-cread --check
+      - run: cargo clippy --locked --no-deps -p tparquet-cread --all-targets -- -D warnings
+      - run: cargo test --locked -p tparquet-cread
+      - name: plain-C smoke test (static and shared)
+        run: make -C rust/cread c-test
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: sudo apt-get update && sudo apt-get install -y $APT_PACKAGES
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1 (master)
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      # the Arrow build (source, dependencies, build tree and install) and ccache, per patch
+      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            target/cpp/dl
+            target/cpp/deps
+            target/cpp/arrow-src
+            target/cpp/arrow-release
+            target/ccache
+          key: cpp-arrow-release-${{ runner.os }}-${{ hashFiles('cpp/arrow/**') }}
+          restore-keys: cpp-arrow-release-${{ runner.os }}-
+      - name: Arrow, the library, the CLI and the tests
+        run: make -C cpp test JOBS=4
+      - name: the installed CMake package, from a downstream project
+        run: make -C cpp downstream JOBS=4
+      - name: the C++ CLI reads its own vectors and the Rust ones
+        run: |
+          target/cpp/build-release/tparquet-cpp-vectors write "$RUNNER_TEMP/cpp" testdata
+          target/cpp/build-release/tparquet-cpp-vectors check "$RUNNER_TEMP/cpp"
+          cargo run -q -p tparquet --bin gen-testdata -- --check "$RUNNER_TEMP/cpp"
+
+  asan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: sudo apt-get update && sudo apt-get install -y $APT_PACKAGES
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1 (master)
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            target/cpp/dl
+            target/cpp/deps
+            target/cpp/arrow-src
+            target/cpp/arrow-asan
+            target/ccache
+          key: cpp-arrow-asan-${{ runner.os }}-${{ hashFiles('cpp/arrow/**') }}
+          restore-keys: cpp-arrow-asan-${{ runner.os }}-
+      - name: the tests under ASan and UBSan (200 property cases)
+        run: make -C cpp asan JOBS=4
+      - name: libFuzzer smoke run (60 s per target)
+        run: make -C cpp fuzz-smoke JOBS=4 FUZZ_TIME=60
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cpp-fuzz-artifacts
+          path: target/cpp/fuzz/artifacts
+          if-no-files-found: ignore
+
+  mutation:
+    if: github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: sudo apt-get update && sudo apt-get install -y $APT_PACKAGES
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1 (master)
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2.90.0
+        with:
+          tool: cargo-mutants
+      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            target/cpp/dl
+            target/cpp/deps
+            target/cpp/arrow-src
+            target/cpp/arrow-release
+            target/ccache
+          key: cpp-arrow-release-${{ runner.os }}-${{ hashFiles('cpp/arrow/**') }}
+          restore-keys: cpp-arrow-release-${{ runner.os }}-
+      - name: the fork's changed functions (cpp/mutants, every mutant caught)
+        run: make -C cpp mutants JOBS=4
+      - name: cargo mutants on rust/cread
+        # exit 3: only timeouts, accepted when nothing was missed (as the root Makefile does)
+        run: cargo mutants -p tparquet-cread -j 2 || { [ $? -eq 3 ] && [ ! -s mutants.out/missed.txt ]; }
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cpp-mutants
+          path: |
+            target/cpp/mutants.out
+            mutants.out
+          if-no-files-found: ignore
