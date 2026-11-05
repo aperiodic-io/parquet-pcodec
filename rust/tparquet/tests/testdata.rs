@@ -226,3 +226,35 @@ fn check_refuses_a_directory_without_vectors_or_with_a_corrupt_file() {
     std::fs::write(dir.path().join("expected/bad.jsonl"), b"").unwrap();
     check(dir.path()).code(1).stderr(predicates::str::starts_with("gen-testdata: bad: "));
 }
+
+#[test]
+fn column_chunk_offsets_are_in_order() {
+    // every reader can find the pages: a dictionary page comes before the data pages, and a
+    // chunk without data pages has no dictionary page either (arrow-rs then writes
+    // data_page_offset 0, which arrow-go's GetDictionaryPage cannot take after a dictionary)
+    use tparquet::parquet::file::metadata::ParquetMetaDataReader;
+    let _lock = TESTDATA.lock().unwrap_or_else(|e| e.into_inner());
+    for e in std::fs::read_dir(testdata().join("files")).unwrap() {
+        let path = e.unwrap().path();
+        if path.extension().is_none_or(|x| x != "parquet") {
+            continue;
+        }
+        let file = bytes::Bytes::from(std::fs::read(&path).unwrap());
+        let metadata = ParquetMetaDataReader::new().parse_and_finish(&file).unwrap();
+        for rg in metadata.row_groups() {
+            for c in rg.columns() {
+                let name = format!("{} {}", path.display(), c.column_path());
+                if let Some(dictionary) = c.dictionary_page_offset() {
+                    assert!(dictionary < c.data_page_offset(), "{name}");
+                }
+                if rg.num_rows() == 0 {
+                    assert_eq!((c.dictionary_page_offset(), c.compressed_size()), (None, 0), "{name}");
+                }
+            }
+        }
+    }
+    // the file with a row group without rows has no pages at all
+    let report =
+        tparquet::inspect::inspect(&std::fs::File::open(testdata().join("files/empty.parquet")).unwrap()).unwrap();
+    assert!(report.columns.iter().all(|c| c.pages.is_empty() && c.modes.is_empty()), "{report:?}");
+}

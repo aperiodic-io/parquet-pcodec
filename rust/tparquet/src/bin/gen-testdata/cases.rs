@@ -414,7 +414,10 @@ pub fn write(case: &Case) -> Result<Vec<u8>> {
         }
         How::EmptyRowGroup => {
             let descr = ArrowSchemaConverter::new().convert(&schema)?;
-            let mut props = WriterProperties::builder().set_compression(pcodec()).build();
+            // no dictionary: a chunk without values would still get an empty dictionary page,
+            // and arrow-rs writes data_page_offset 0 for a chunk without data pages, which
+            // then lies before the dictionary page offset
+            let mut props = WriterProperties::builder().set_compression(pcodec()).set_dictionary_enabled(false).build();
             add_encoded_arrow_schema_to_metadata(&schema, &mut props);
             let mut w = SerializedFileWriter::new(&mut out, descr.root_schema_ptr(), Arc::new(props))?;
             let mut rg = w.next_row_group()?;
