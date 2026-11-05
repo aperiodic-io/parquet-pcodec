@@ -79,3 +79,10 @@ def reads(monkeypatch: pytest.MonkeyPatch) -> Reads:
 
     monkeypatch.setattr(tparquet.ParquetFile, "stream", recording)
     return spy
+
+
+def float_bits(s: pl.Series) -> list[int | None]:
+    """The IEEE 754 bits of each value of a float Series (None for a null)."""
+    width = {pl.Float16: pl.UInt16, pl.Float32: pl.UInt32, pl.Float64: pl.UInt64}
+    bits: list[int | None] = s.reinterpret(dtype=width[s.dtype.base_type()]).to_list()
+    return bits
