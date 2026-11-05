@@ -3,7 +3,9 @@ argument, never an extraction error of the extension or a column per letter."""
 
 from __future__ import annotations
 
+import errno
 import io
+import os
 import pathlib
 from collections.abc import Callable
 from typing import Any
@@ -155,6 +157,8 @@ def test_a_directory_is_not_a_file(tmp_path: pathlib.Path) -> None:
     with pytest.raises(IsADirectoryError) as e:
         ppc.read_table(tmp_path)
     assert e.value.filename == str(tmp_path)
+    assert e.value.errno == errno.EISDIR
+    assert str(e.value) == f"[Errno {errno.EISDIR}] {os.strerror(errno.EISDIR)}: {str(tmp_path)!r}"
     with pytest.raises(IsADirectoryError):
         ppc.ParquetFile(str(tmp_path))
     with pytest.raises(IsADirectoryError) as e:
