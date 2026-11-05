@@ -29,7 +29,8 @@ Importing `polars_tparquet` registers the `tparquet` namespace on `DataFrame` an
 
 `scan_tparquet(source, *, batch_size=None, include_file_paths=None) -> LazyFrame`
 
-- `source` is a path, a binary file object, a glob (`*`, `?`, `[...]`; `**` also matches
+- `source` is a path (`str`, `bytes` or `os.PathLike`; a leading `~` is the home directory), a
+  binary file object, a glob (`*`, `?`, `[...]`; `**` also matches
   directories), a directory (every `.parquet` file below it), or a list of these. Globs and
   directories are read in sorted order, lists in the order given. All files must have the
   same schema; a file that differs raises `SchemaError` naming it.

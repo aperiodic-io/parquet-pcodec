@@ -44,7 +44,7 @@ def _expand(source: Source) -> Sequence[Source]:
     """The files one source names: a glob's matches and a directory's .parquet files, sorted."""
     if not _is_path(source):
         return [source]
-    name = os.fsdecode(source)  # type: ignore[arg-type]
+    name = os.path.expanduser(os.fsdecode(source))  # type: ignore[arg-type]
     if isinstance(source, (str, bytes)) and _GLOB & set(name):
         matches = sorted(glob.glob(name, recursive=True))
         if not matches:
@@ -55,7 +55,7 @@ def _expand(source: Source) -> Sequence[Source]:
         if not below:
             raise FileNotFoundError(f"no .parquet file in {name}")
         return below
-    return [source]
+    return [name]
 
 
 def _files(source: Sources) -> list[Source]:
@@ -79,7 +79,7 @@ def _replacing(target: Sink) -> Iterator[Sink]:
     if not _is_path(target):
         yield target
         return
-    path = os.path.realpath(os.fsdecode(target))  # type: ignore[arg-type]
+    path = os.path.realpath(os.path.expanduser(os.fsdecode(target)))  # type: ignore[arg-type]
     folder, name = os.path.split(path)
     if not os.path.isdir(folder):
         raise FileNotFoundError(errno.ENOENT, "no such directory", folder)
