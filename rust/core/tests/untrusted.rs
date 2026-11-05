@@ -7,15 +7,22 @@ use tparquet_core::{Error, PhysicalType, decompress};
 
 #[test]
 fn an_unallocatable_expected_size_is_an_error_not_a_panic() {
-    // a page header can claim any size; `decompress` allocates it, and must fail cleanly
+    // a page header can claim any size; a payload that cannot produce it is refused before the
+    // size is allocated (memory.rs: an allocation that fails is Error::AllocationFailed)
     let pco = pco_payload(PhysicalType::Int64, &i64s(&[1, 2, 3]));
     for n in [usize::MAX, usize::MAX - 1, isize::MAX as usize + 1, isize::MAX as usize, 1 << 62] {
-        for p in [&[1u8, 0][..], &[1, 0, 7], &pco, &[1, 3, 0x28, 0xB5, 0x2F, 0xFD]] {
-            assert_eq!(decompress(p, n), Err(Error::AllocationFailed(n)), "{n} {p:?}");
-        }
+        assert_eq!(decompress(&[1, 0], n), Err(Error::SizeMismatch { expected: n, actual: 0 }), "{n}");
+        assert_eq!(decompress(&[1, 0, 7], n), Err(Error::SizeMismatch { expected: n, actual: 1 }), "{n}");
+        let pco_err = if n % 8 == 0 {
+            Error::SizeMismatch { expected: n, actual: 24 }
+        } else {
+            Error::NotMultipleOfWidth { len: n, width: 8 }
+        };
+        assert_eq!(decompress(&pco, n), Err(pco_err), "{n}");
+        assert_eq!(decompress(&[1, 3, 0x28, 0xB5, 0x2F, 0xFD], n), Err(Error::Truncated), "{n}");
     }
     assert_eq!(Error::AllocationFailed(7).to_string(), "pcodec payload: cannot allocate the expected size of 7 bytes");
-    // a malformed header is reported before anything is allocated
+    // a malformed header is reported before anything else
     assert_eq!(decompress(&[], usize::MAX), Err(Error::Truncated));
     assert_eq!(decompress(&[3, 0], usize::MAX), Err(Error::UnsupportedVersion(3)));
     assert_eq!(decompress(&[1, 9], usize::MAX), Err(Error::UnknownMode(9)));
