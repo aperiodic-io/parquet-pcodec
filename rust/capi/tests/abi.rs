@@ -137,3 +137,83 @@ fn errors_are_per_thread() {
     std::thread::spawn(|| assert_eq!(last_error(), "")).join().unwrap();
     assert!(!last_error().is_empty());
 }
+
+#[test]
+fn the_bound_saturates() {
+    // a bound that wrapped would let a caller allocate a tiny buffer for a huge input
+    assert_eq!(pcp_compress_bound(usize::MAX), usize::MAX);
+    assert_eq!(pcp_compress_bound(usize::MAX - 1), usize::MAX);
+    assert_eq!(pcp_compress_bound(usize::MAX - 2), usize::MAX);
+    assert_eq!(pcp_compress_bound(usize::MAX - 3), usize::MAX - 1);
+}
+
+#[test]
+fn lengths_above_isize_max_are_refused() {
+    // no object can be that large; a negative Go or C length cast to size_t looks like this
+    let src = [1u8, 0, 5];
+    let mut dst = [0u8; 8];
+    let mut written = 0usize;
+    for huge in [isize::MAX as usize + 1, usize::MAX] {
+        assert_eq!(unsafe { pcp_decompress(src.as_ptr(), huge, dst.as_mut_ptr(), 1) }, PCP_ERR_ARGUMENT);
+        assert!(last_error().contains("isize::MAX"), "{}", last_error());
+        assert_eq!(unsafe { pcp_decompress(src.as_ptr(), 3, dst.as_mut_ptr(), huge) }, PCP_ERR_ARGUMENT);
+        let rc = unsafe { pcp_compress(src.as_ptr(), huge, -1, -1, 0, dst.as_mut_ptr(), 8, &mut written) };
+        assert_eq!(rc, PCP_ERR_ARGUMENT);
+        let rc = unsafe { pcp_compress(src.as_ptr(), 3, -1, -1, 0, dst.as_mut_ptr(), huge, &mut written) };
+        assert_eq!(rc, PCP_ERR_ARGUMENT);
+    }
+    assert_eq!(written, 0, "written is only set on success");
+}
+
+#[test]
+fn overlapping_buffers_are_refused() {
+    // the header forbids nothing, and Rust may not alias them: refuse them
+    let mut buf = vec![0u8; 64];
+    buf[..2].copy_from_slice(&[1, 0]);
+    let p = buf.as_mut_ptr();
+    let mut written = 0usize;
+    unsafe {
+        // the same buffer, and partial overlaps from either side
+        assert_eq!(pcp_decompress(p, 10, p, 8), PCP_ERR_ARGUMENT);
+        assert!(last_error().contains("overlap"), "{}", last_error());
+        assert_eq!(pcp_decompress(p.add(2), 10, p, 8), PCP_ERR_ARGUMENT);
+        assert_eq!(pcp_decompress(p, 10, p.add(9), 8), PCP_ERR_ARGUMENT);
+        assert_eq!(pcp_compress(p, 10, -1, -1, 0, p.add(5), 20, &mut written), PCP_ERR_ARGUMENT);
+        assert_eq!(pcp_compress(p.add(20), 10, -1, -1, 0, p, 21, &mut written), PCP_ERR_ARGUMENT);
+        // adjacent is fine
+        assert_eq!(pcp_decompress(p, 10, p.add(10), 8), PCP_OK);
+        assert_eq!(pcp_compress(p, 10, -1, -1, 0, p.add(10), 12, &mut written), PCP_OK);
+        assert_eq!(pcp_compress(p.add(12), 10, -1, -1, 0, p, 12, &mut written), PCP_OK);
+        // an empty buffer overlaps nothing
+        assert_eq!(pcp_decompress(p, 2, p, 0), PCP_OK);
+    }
+}
+
+#[test]
+fn calls_during_thread_teardown_do_not_abort() {
+    // a thread-local destructor (C: a pthread key destructor) that calls the library after the
+    // library's own thread-local error is gone
+    use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
+    static RC: AtomicI32 = AtomicI32::new(-1);
+    static LEN: AtomicUsize = AtomicUsize::new(usize::MAX);
+    struct CallOnExit;
+    impl Drop for CallOnExit {
+        fn drop(&mut self) {
+            let rc = unsafe { pcp_decompress([9u8, 0].as_ptr(), 2, ptr::null_mut(), 0) };
+            RC.store(rc, Ordering::SeqCst);
+            let mut buf = [0x55i8; 4];
+            LEN.store(unsafe { pcp_last_error(buf.as_mut_ptr().cast(), 4) }, Ordering::SeqCst);
+            assert_eq!(buf[0], 0, "an empty message");
+        }
+    }
+    thread_local! { static ON_EXIT: CallOnExit = const { CallOnExit }; }
+    std::thread::spawn(|| {
+        // registered first, so destroyed after the library's error (destructors run in reverse)
+        ON_EXIT.with(|_| {});
+        assert_eq!(decompress(&[9, 0], 0).0, PCP_ERR_CORRUPT);
+    })
+    .join()
+    .unwrap();
+    assert_eq!(RC.load(Ordering::SeqCst), PCP_ERR_CORRUPT, "the call still works");
+    assert_eq!(LEN.load(Ordering::SeqCst), 0, "with no message to keep");
+}
