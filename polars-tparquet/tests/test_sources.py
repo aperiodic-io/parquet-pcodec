@@ -189,3 +189,14 @@ def test_an_existing_file_is_read_as_named_whatever_its_name(write: Write, tmp_p
     # a directory too
     write(f"{name}.d/b.parquet", ticks(4))
     assert_frame_equal(pt.scan_tparquet(tmp_path / f"{name}.d").collect(), ticks(4))
+
+
+def test_a_glob_reads_the_files_it_matches_not_directories(write: Write, tmp_path: pathlib.Path) -> None:
+    a = write("d/a.parquet", ticks(3))
+    write("d/sub.parquet/b.parquet", ticks(4))  # a directory named like a file
+    assert_frame_equal(pt.scan_tparquet(str(tmp_path / "d" / "*.parquet")).collect(), ticks(3))
+    out = pt.scan_tparquet(str(tmp_path / "d" / "**"), include_file_paths="file").collect()
+    assert out["file"].unique(maintain_order=True).to_list() == [str(a), str(tmp_path / "d/sub.parquet/b.parquet")]
+    (tmp_path / "e" / "f").mkdir(parents=True)
+    with pytest.raises(FileNotFoundError, match=r"^no file matches .*e/\*$"):
+        pt.scan_tparquet(str(tmp_path / "e" / "*"))

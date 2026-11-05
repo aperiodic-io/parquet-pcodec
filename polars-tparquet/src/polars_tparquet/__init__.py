@@ -47,7 +47,8 @@ def _expand(source: Source) -> Sequence[Source]:
     name = os.path.expanduser(os.fsdecode(source))  # type: ignore[arg-type]
     # a path that exists names that file or directory, whatever characters it holds
     if _GLOB & set(name) and not os.path.exists(name):
-        matches = sorted(glob.glob(name, recursive=True))
+        # the files it matches: a directory matched (by `**` or `*`) is not one
+        matches = sorted(m for m in glob.glob(name, recursive=True) if os.path.isfile(m))
         if not matches:
             raise FileNotFoundError(f"no file matches {name}")
         return matches
