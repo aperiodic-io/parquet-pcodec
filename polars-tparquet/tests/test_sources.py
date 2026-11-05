@@ -15,7 +15,7 @@ import tparquet
 from polars.testing import assert_frame_equal
 
 import polars_tparquet as pt
-from conftest import ticks
+from conftest import Reads, ticks
 
 Write = Callable[..., pathlib.Path]
 
@@ -280,3 +280,11 @@ def test_a_file_that_is_not_parquet_is_named(write: Write, tmp_path: pathlib.Pat
     # an error that is not the file's is not wrapped
     with pytest.raises(ValueError, match=r"^batch_size must be positive, got 0$"):
         pt.scan_tparquet(a, batch_size=0)
+
+
+def test_batch_size_reaches_the_reader_of_every_source(write: Write, reads: Reads) -> None:
+    path = write("a.parquet", ticks(20))
+    obj = io.BytesIO(path.read_bytes())
+    out = pt.scan_tparquet([path, obj, obj], batch_size=7).collect()
+    assert out.height == 60
+    assert [c["batch_size"] for c in reads.calls] == [7, 7, 7]
