@@ -1,0 +1,12 @@
+tparquet
+
+rust/parquet is a modified copy of the Apache Arrow `parquet` crate 60.1.0
+(https://github.com/apache/arrow-rs), licensed under the Apache License 2.0. Its own
+LICENSE.txt and NOTICE.txt are kept in that directory, and its changes are listed in
+rust/parquet/FORK.md.
+
+Apache Arrow
+Copyright 2016-2026 The Apache Software Foundation
+
+This product includes software developed at
+The Apache Software Foundation (http://www.apache.org/).

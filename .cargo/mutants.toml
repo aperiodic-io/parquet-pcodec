@@ -1,0 +1,35 @@
+# cargo-mutants configuration. Every exclusion says why the mutant cannot be caught.
+exclude_re = [
+    # Ties between candidate payloads: `<` vs `<=` only changes which of two payloads of equal
+    # length is written, and both decode to the same bytes (equivalent mutants).
+    'rust/core/src/lib\.rs:.*replace < with <= in compress',
+    'rust/core/src/lib\.rs:.*replace < with <= in float_payload',
+    # Ties in Auto (spec section 6): `<` vs `<=` only changes which of two candidates of the
+    # same size is written (a column chunk, or the whole first batch); both hold the same data
+    # and the same number of bytes, and the spec leaves ties to the writer (equivalent mutants).
+    'rust/tparquet/src/writer\.rs:.*replace < with <= in Writer<W>::open',
+    # A row group boundary that falls exactly at the end of a batch: with `<` it is flushed
+    # before the next batch's rows (or by close at the end), with `<=` right away; the file is
+    # the same either way (equivalent mutant).
+    'rust/tparquet/src/transcode\.rs:.*replace < with <= in transcode',
+    # DuckDB extension. OwnedType::drop destroys a logical type the extension created for a
+    # bind; not destroying it (or destroying only null handles, which
+    # duckdb_destroy_logical_type ignores) leaks a few bytes and changes nothing a query can
+    # observe (equivalent mutants).
+    'duckdb/src/ffi\.rs:.*<impl Drop for OwnedType>::drop',
+    # Scan::next skips record batches without rows, because a chunk of 0 rows would end
+    # DuckDB's scan early; the Parquet reader never yields one (not even for a row group
+    # without rows, as in testdata/files/empty.parquet), so `> 0`, `>= 0` and `true` read the
+    # same rows (equivalent mutants).
+    'duckdb/src/scan\.rs:.*replace match guard batch\.num_rows\(\) > 0 with true in Scan::next',
+    'duckdb/src/scan\.rs:.*replace > with >= in Scan::next',
+]
+# the vendored upstream crate is tested upstream; its patched functions are listed in
+# rust/parquet/FORK.md and mutated by `make fork-mutants`
+#
+# python/rust/pytest_suite.rs is the test that runs the Python suite against the extension
+# (python/rust is mutated with `make python-mutants`, which needs the Python environment;
+# `make mutants` leaves it out with --exclude)
+exclude_globs = ["rust/parquet/**", "python/rust/pytest_suite.rs"]
+# one build of the parquet fork per scratch tree is slow; give the first one time
+build_timeout_multiplier = 3

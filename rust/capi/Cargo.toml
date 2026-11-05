@@ -1,0 +1,16 @@
+[package]
+name = "tparquet-capi"
+version = "0.1.0"
+description = "C ABI of the PCODEC Parquet codec payload (include/tparquet.h)"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+name = "tparquet_capi"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+tparquet-core = { path = "../core" }

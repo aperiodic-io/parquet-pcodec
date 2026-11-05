@@ -1,0 +1,44 @@
+[workspace]
+resolver = "3"
+members = ["rust/core", "rust/capi", "rust/parquet", "rust/tparquet", "python", "duckdb"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.88"
+license = "Apache-2.0"
+repository = "https://github.com/aperiodic-io/tparquet"
+
+[workspace.dependencies]
+pco = "=1.0.4"
+zstd = { version = "0.14", default-features = false }
+proptest = "1"
+# the fork in rust/parquet (see [patch.crates-io]) and the arrow crates it is built against
+parquet = { version = "=60.1.0", default-features = false }
+arrow = { version = "=60.1.0", default-features = false }
+arrow-array = "=60.1.0"
+arrow-schema = "=60.1.0"
+arrow-buffer = "=60.1.0"
+arrow-data = "=60.1.0"
+arrow-select = "=60.1.0"
+arrow-ipc = "=60.1.0"
+arrow-cast = "=60.1.0"
+arrow-csv = "=60.1.0"
+
+[patch.crates-io]
+parquet = { path = "rust/parquet" }
+
+# the vendored parquet crate and its test suite are large: keep debug info small
+[profile.dev]
+debug = "line-tables-only"
+incremental = false
+
+[profile.dev.package."*"]
+debug = false
+# tests (and every mutant) run much faster with optimized dependencies
+opt-level = 2
+
+[profile.dev.package.parquet]
+opt-level = 2
+
+[profile.dev.package.tparquet-core]
+opt-level = 2

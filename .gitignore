@@ -1,0 +1,10 @@
+target/
+__pycache__/
+*.so
+.venv/
+mutants.out*/
+mutants/
+rust/core/fuzz/target/
+rust/core/fuzz/corpus/
+rust/core/fuzz/artifacts/
+rust/core/fuzz/Cargo.lock

@@ -1,0 +1,97 @@
+# Local equivalents of .github/workflows/rust.yml. `make check` runs them all but the slow
+# ones (fuzz-smoke, mutants, fork-mutants, fork-upstream-tests).
+OWN := -p tparquet-core -p tparquet-capi -p tparquet
+JOBS ?= 2
+CARGO := cargo
+UPSTREAM := acceptance/rust-upstream/Cargo.toml
+FUZZ_TIME ?= 60
+
+.PHONY: check fmt fmt-check clippy test c-test check-fork testdata testdata-check fuzz-smoke \
+	mutants fork-mutants fork-upstream-tests python-test python-mutants acceptance
+
+check: fmt-check clippy test c-test check-fork testdata-check
+
+fmt:
+	$(CARGO) fmt $(OWN)
+	$(CARGO) fmt --manifest-path $(UPSTREAM)
+
+fmt-check:
+	$(CARGO) fmt $(OWN) --check
+	$(CARGO) fmt --manifest-path $(UPSTREAM) --check
+
+# --no-deps: the vendored fork keeps upstream's lint configuration
+clippy:
+	$(CARGO) clippy -j $(JOBS) --no-deps $(OWN) --all-targets -- -D warnings
+	$(CARGO) clippy -j $(JOBS) --no-deps --manifest-path $(UPSTREAM) --all-targets -- -D warnings
+
+test:
+	$(CARGO) test -j $(JOBS) $(OWN)
+	$(CARGO) test -j $(JOBS) -p parquet --lib -- pcodec
+	$(CARGO) test -j $(JOBS) -p parquet --test arrow_writer
+	$(CARGO) test -j $(JOBS) --manifest-path $(UPSTREAM)
+
+c-test:
+	$(MAKE) -C rust/capi c-test
+
+check-fork:
+	scripts/check-fork.sh
+
+testdata:
+	$(CARGO) run -j $(JOBS) -p tparquet --bin gen-testdata
+
+# regenerates the vectors and fails if any byte (or file) changed
+testdata-check: testdata
+	git diff --exit-code -- testdata
+	test -z "$$(git status --porcelain -- testdata)"
+
+# --target: cargo-fuzz defaults to the platform it was built for, and prebuilt cargo-fuzz
+# binaries (as CI installs) are musl builds, for which nightly ships no sanitizer std
+fuzz-smoke:
+	cd rust/core && host=$$(rustc +nightly -vV | sed -n 's/^host: //p') && \
+	for t in $$($(CARGO) +nightly fuzz list); do \
+		$(CARGO) +nightly fuzz run --target $$host $$t -- -max_total_time=$(FUZZ_TIME) || exit 1; done
+
+# cargo mutants exits 3 when some mutants only made the tests hang (a timeout). A hang is a
+# detected mutant, so exit 3 is accepted, but only when no mutant was missed: cargo-mutants
+# also exits 3 when there are both timeouts and missed mutants, so missed.txt is checked.
+MUTANTS_OK = || { [ $$? -eq 3 ] && [ ! -s mutants.out/missed.txt ]; }
+
+# python/rust is judged by the Python suite (see python-mutants); the DuckDB extension has its
+# own run, `make -C duckdb mutation`: the tests of both need Python
+mutants:
+	$(CARGO) mutants --workspace -j $(JOBS) --exclude 'python/**' --exclude 'duckdb/**' $(MUTANTS_OK)
+
+PYTHON_VENV := $(CURDIR)/python/.venv/bin/python
+
+# the Python package: `uv sync` (Python 3.14) and `maturin develop`, then pytest
+python-test:
+	cd python && uv sync --python 3.14 && uv run --no-sync maturin develop --uv && uv run --no-sync pytest
+
+# mutmut on the Python modules; cargo mutants on the pyo3 crate, with pytest as its test
+python-mutants:
+	cd python && HYPOTHESIS_PROFILE=mutation TPARQUET_TESTDATA=$(CURDIR)/testdata \
+	  uv run --no-sync python scripts/mutmut_check.py
+	HYPOTHESIS_PROFILE=mutation TPARQUET_PYTHON=$(PYTHON_VENV) PYO3_PYTHON=$(PYTHON_VENV) \
+	  $(CARGO) mutants -p tparquet-python -j $(JOBS) $(MUTANTS_OK)
+
+# the fork's changed functions only (rust/parquet/FORK.md); the fork is rebuilt for every
+# mutant, so it is built without optimization here
+fork-mutants:
+	CARGO_PROFILE_DEV_PACKAGE_PARQUET_OPT_LEVEL=0 $(CARGO) mutants --no-config -p parquet -j $(JOBS) \
+	  -f rust/parquet/src/basic.rs -f rust/parquet/src/compression.rs \
+	  -f rust/parquet/src/column/writer/mod.rs -f rust/parquet/src/file/writer.rs \
+	  --re 'PcodecLevel|PcodecCodec|with_pcodec_version|CodecOptionsBuilder::set_physical_type|CodecOptionsBuilder::build|create_codec|<impl From<CompressionCodec> for Compression>::from|<impl From<Compression> for CompressionCodec>::from|<impl FromStr for Compression>::from_str|write_metadata' \
+	  --cargo-arg=--lib -- -- basic:: compression:: column::writer:: file::writer:: \
+	  --skip test_byte_stream_split_extended_roundtrip --skip test_int96_interop \
+	  --skip test_rewrite_missing_column_index --skip test_rewrite_no_page_indexes \
+	  $(MUTANTS_OK)
+
+# the upstream suite of the fork; without parquet-testing/arrow-testing, 340 tests fail
+# for want of that data, before and after the fork (see rust/parquet/FORK.md)
+fork-upstream-tests:
+	$(CARGO) test -j $(JOBS) -p parquet --all-features --no-fail-fast -- --test-threads $(JOBS)
+
+# cross-language acceptance (acceptance/cross/run.sh): Rust, Go, Python and DuckDB each read
+# the vectors all four wrote; needs python/.venv with the package and `make -C duckdb build`
+acceptance:
+	acceptance/cross/run.sh

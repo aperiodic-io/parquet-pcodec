@@ -1,0 +1,3 @@
+# share the repository's target directory (one build cache)
+[build]
+target-dir = "../../target"

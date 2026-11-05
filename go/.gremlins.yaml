@@ -1,0 +1,42 @@
+# Mutation testing with gremlins (github.com/go-gremlins/gremlins): make mutation.
+# Every viable mutant must be killed. Run from this directory; the Makefile
+# links the library with the tparquet_external tag, because gremlins tests a copy of the
+# module, where ${SRCDIR}/../target does not exist.
+silent: false
+unleash:
+  tags: tparquet_external
+  threshold:
+    # gremlins v0.6.0 fails when efficacy <= threshold (internal/report/report.go:237), so
+    # 100 can never pass. 99.9 still fails on a single lived mutant while there are fewer
+    # than 1000 of them (183 today).
+    efficacy: 99.9
+  workers: 2
+  test-cpu: 1
+  timeout-coefficient: 3
+  exclude-files:
+    # Test data of the Go-produced conformance vectors: a mutant there changes the data,
+    # which still round-trips, not behaviour.
+    - "internal/vectors/data\\.go"
+mutants:
+  arithmetic-base:
+    enabled: true
+  conditionals-boundary:
+    enabled: true
+  conditionals-negation:
+    enabled: true
+  increment-decrement:
+    enabled: true
+  invert-negatives:
+    enabled: true
+  invert-assignments:
+    enabled: true
+  invert-bitwise:
+    enabled: true
+  invert-bwassign:
+    enabled: true
+  invert-logical:
+    enabled: true
+  invert-loopctrl:
+    enabled: true
+  remove-self-assignments:
+    enabled: true
