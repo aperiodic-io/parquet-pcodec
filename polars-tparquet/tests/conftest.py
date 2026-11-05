@@ -115,7 +115,9 @@ def _stored(e: pl.Expr, dtype: DType) -> pl.Expr:
     if isinstance(dtype, (pl.List, pl.Array)):
         inner = dtype.inner
         assert inner is not None
-        return e.cast(pl.List(inner)).list.eval(_stored(pl.element(), inner))
+        # arr.to_list: a cast to List panics in list.eval on values masked out by nulls (Polars 2.1)
+        listed = e.arr.to_list() if isinstance(dtype, pl.Array) else e
+        return listed.list.eval(_stored(pl.element(), inner))
     if isinstance(dtype, pl.Struct):
         fields = [_stored(e.struct.field(f.name), f.dtype).alias(f.name) for f in dtype.fields]
         return pl.when(e.is_null()).then(None).otherwise(pl.struct(fields))
@@ -145,7 +147,7 @@ def _json(value: Any, dtype: DType) -> str:
 
 def canonical(df: pl.DataFrame) -> str:
     """`df` as the canonical JSON of testdata/README.md: one line per row, `\\n`-terminated."""
-    stored = df.select(_stored(pl.col(name), dtype) for name, dtype in df.schema.items())
+    stored = df.select(_stored(pl.col(name), dtype).alias(name) for name, dtype in df.schema.items())
     schema = list(df.schema.items())
     return "".join(
         "{" + ",".join(f"{json.dumps(n)}:{_json(v, t)}" for (n, t), v in zip(schema, row)) + "}\n"
