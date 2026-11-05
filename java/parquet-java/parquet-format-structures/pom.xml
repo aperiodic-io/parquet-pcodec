@@ -45,6 +45,16 @@
 
   <build>
     <plugins>
+      <!-- PIT on the fork's change: the CompressionCodec enum (the rest is upstream, tested upstream) -->
+      <plugin>
+        <groupId>org.pitest</groupId>
+        <artifactId>pitest-maven</artifactId>
+        <configuration>
+          <targetClasses>
+            <param>org.apache.parquet.format.CompressionCodec</param>
+          </targetClasses>
+        </configuration>
+      </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-shade-plugin</artifactId>

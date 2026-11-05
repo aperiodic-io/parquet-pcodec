@@ -97,6 +97,17 @@
 
   <build>
     <plugins>
+      <!-- PIT on the library (and its bridge class in parquet-java's package) -->
+      <plugin>
+        <groupId>org.pitest</groupId>
+        <artifactId>pitest-maven</artifactId>
+        <configuration>
+          <targetClasses>
+            <param>io.aperiodic.tparquet.*</param>
+            <param>org.apache.parquet.hadoop.TparquetWriters</param>
+          </targetClasses>
+        </configuration>
+      </plugin>
       <!-- the vectors CLI with its class path, for acceptance/cross/run.sh -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>

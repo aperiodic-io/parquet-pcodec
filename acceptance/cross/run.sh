@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Cross-language acceptance: every implementation reads the vectors every other one wrote.
 #
-#   writers: rust (testdata/), go (tparquet-go-gen), python (transcode), duckdb (COPY)
-#   readers: rust (gen-testdata --check), go (tparquet-go-gen -check), python, duckdb
+#   writers: rust (testdata/), go (tparquet-go-gen), python (transcode), duckdb (COPY),
+#            java (TparquetWriter on the parquet-java fork)
+#   readers: rust (gen-testdata --check), go (tparquet-go-gen -check), python, duckdb, java
 #
 # Needs: the Rust workspace, Go, python/.venv with the package installed (`make python-test`
-# or `maturin develop`), and the built DuckDB extension (`make -C duckdb build`).
+# or `maturin develop`), the built DuckDB extension (`make -C duckdb build`), and the Java
+# packages installed (`make -C java install`, JDK 21 and Maven).
 # Usage: acceptance/cross/run.sh [OUT]   (default: target/cross)
 set -euo pipefail
 
@@ -24,15 +26,20 @@ rust_check() { "$root/target/debug/gen-testdata" --check "$1"; }
 go_check() { "$out/tparquet-go-gen" -check "$1"; }
 python_check() { "$py" "$vectors" check-python "$1"; }
 duckdb_check() { "$py" "$vectors" check-duckdb "$ext" "$1"; }
+# the Java CLI (java/tparquet, io.aperiodic.tparquet.Vectors) on the parquet-java fork
+make -s -C "$root/java" jni
+java_cli() { make -s -C "$root/java" vectors ARGS="$*"; }
+java_check() { java_cli check "$1"; }
 
 echo "== writers"
 "$out/tparquet-go-gen" "$out/go" > /dev/null
 "$py" "$vectors" write-python "$out/python" "$root/testdata" "$out/go"
 "$py" "$vectors" write-duckdb "$ext" "$out/duckdb" "$root/testdata" "$out/go"
+rm -rf "$out/java" && java_cli write "$out/java" "$root/testdata" "$out/go"
 
-declare -A dirs=([rust]="$root/testdata" [go]="$out/go" [python]="$out/python" [duckdb]="$out/duckdb")
-for writer in rust go python duckdb; do
-  for reader in rust go python duckdb; do
+declare -A dirs=([rust]="$root/testdata" [go]="$out/go" [python]="$out/python" [duckdb]="$out/duckdb" [java]="$out/java")
+for writer in rust go python duckdb java; do
+  for reader in rust go python duckdb java; do
     printf '%-7s -> %-7s ' "$writer" "$reader"
     "${reader}_check" "${dirs[$writer]}"
   done
@@ -44,7 +51,7 @@ bad="$out/tampered"
 rm -rf "$bad" && mkdir -p "$bad"
 cp -r "$root/testdata/files" "$root/testdata/expected" "$bad/"
 sed -i '2s/1/2/' "$bad/expected/temporal.jsonl"
-for reader in rust go python duckdb; do
+for reader in rust go python duckdb java; do
   if "${reader}_check" "$bad" > /dev/null 2>&1; then
     echo "$reader accepted a changed row" >&2
     exit 1

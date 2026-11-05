@@ -172,6 +172,30 @@
 
   <build>
     <plugins>
+      <!-- PIT on the fork's code: its three classes, and CodecFactory's createCompressor and
+           createDecompressor (its other methods, excluded here, are upstream's). The fork's other
+           changes are single calls whose value is used, which PIT's default mutators do not
+           change: DirectCodecFactory's case PCODEC (TestPcodecCodecFactory, direct factory),
+           ColumnChunkPageWriteStore's forColumn (TestPcodecFiles, eachColumnIsEncodedForItsType),
+           ParquetFileWriter.end's withVersion (TestPcodecFiles, the footer tests) -->
+      <plugin>
+        <groupId>org.pitest</groupId>
+        <artifactId>pitest-maven</artifactId>
+        <configuration>
+          <targetClasses>
+            <param>org.apache.parquet.hadoop.codec.Pcodec*</param>
+            <param>org.apache.parquet.hadoop.CodecFactory</param>
+          </targetClasses>
+          <excludedMethods>
+            <param>getCompressor</param>
+            <param>getDecompressor</param>
+            <param>getCodec</param>
+            <param>cacheKey</param>
+            <param>release</param>
+            <param>createDirectCodecFactory</param>
+          </excludedMethods>
+        </configuration>
+      </plugin>
       <!-- upstream's parent pom: relocate the jackson references (no classes included) and include
            the fastutil classes in use, relocated -->
       <plugin>
