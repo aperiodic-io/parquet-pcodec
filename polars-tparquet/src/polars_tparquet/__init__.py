@@ -176,18 +176,21 @@ def scan_tparquet(
 def read_tparquet(
     source: Sources,
     *,
-    columns: Sequence[str] | None = None,
+    columns: Sequence[str] | Sequence[int] | None = None,
     n_rows: int | None = None,
     batch_size: int | None = None,
     include_file_paths: str | None = None,
 ) -> pl.DataFrame:
-    """Parquet files (PCODEC or not) as one DataFrame: `scan_tparquet`, with `columns` in the
-    order given and at most `n_rows` rows, collected."""
+    """Parquet files (PCODEC or not) as one DataFrame: `scan_tparquet`, with `columns` (names, or
+    indices as Polars' `read_parquet` takes them) in the order given and at most `n_rows` rows,
+    collected."""
     if n_rows is not None and n_rows < 0:
         raise ValueError(f"n_rows must not be negative, got {n_rows}")
     lf = scan_tparquet(source, batch_size=batch_size, include_file_paths=include_file_paths)
     if columns is not None:
-        lf = lf.select(columns)
+        picked = [columns] if isinstance(columns, str) else columns
+        # an int given to select would be a literal, not the column at that index
+        lf = lf.select(pl.nth(c) if isinstance(c, int) else pl.col(c) for c in picked)
     if n_rows is not None:
         lf = lf.head(n_rows)
     return lf.collect()
