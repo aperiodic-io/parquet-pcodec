@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 from typing import TYPE_CHECKING
 
 import pyarrow as pa
@@ -692,3 +693,22 @@ def test_text_mode_files_are_refused_with_a_type_error(tmp_path: pathlib.Path, n
         ppc.write_table(numbers, io.StringIO())  # type: ignore[arg-type]
     with open(tmp_path / "w.parquet", "w") as text, pytest.raises(TypeError, match=r"\('wb'\)$"):
         ppc.Writer(text, numbers.schema)  # type: ignore[arg-type]
+
+
+def test_paths_that_are_not_utf_8(tmp_path: pathlib.Path, numbers: pa.Table) -> None:
+    raw = os.fsencode(tmp_path) + b"/caf\xe9.parquet"
+    for sink in (raw, os.fsdecode(raw)):
+        assert ppc.write_table(numbers, sink)["i64"] == "PCODEC"
+        assert ppc.read_table(raw).equals(numbers)
+        os.remove(raw)
+    with ppc.Writer(raw, numbers.schema) as w:
+        w.write(numbers)
+    assert ppc.read_table(os.fsdecode(raw)).equals(numbers)
+    out = os.fsencode(tmp_path) + b"/out\xff.parquet"
+    ppc.transcode(raw, out, target="standard")
+    with open(out, "rb") as f:
+        assert pq.read_table(f).equals(numbers)
+    # an aborted writer removes the file it created
+    w = ppc.Writer(os.fsdecode(out), numbers.schema)
+    w.abort()
+    assert not os.path.exists(out)

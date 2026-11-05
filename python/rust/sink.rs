@@ -19,8 +19,10 @@ pub enum Sink {
 impl Sink {
     /// A sink for `target`: a `str` path (created or truncated) or a file-like object.
     pub fn new(target: &Bound<'_, PyAny>, pending: &Pending) -> PyResult<Self> {
-        if let Ok(path) = target.cast::<PyString>() {
-            let path = PathBuf::from(path.to_str()?);
+        if target.is_instance_of::<PyString>() {
+            // through the file system encoding: a name that is not UTF-8 is a `str` with
+            // surrogate escapes
+            let path: PathBuf = target.extract()?;
             let file = File::create(&path).map_err(|e| os_error(&e, &path))?;
             return Ok(Self::File(BufWriter::with_capacity(1 << 20, file)));
         }
