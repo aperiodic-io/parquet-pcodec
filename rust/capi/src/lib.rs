@@ -12,6 +12,9 @@ pub const PCP_ERR_CORRUPT: i32 = 2;
 pub const PCP_ERR_SIZE: i32 = 3;
 pub const PCP_ERR_PANIC: i32 = 4;
 
+/// A failed call: its return code and message.
+type Failure = (i32, String);
+
 thread_local! {
     static LAST_ERROR: RefCell<String> = const { RefCell::new(String::new()) };
 }
@@ -23,7 +26,7 @@ fn set_error(msg: String) {
 }
 
 /// Runs `f`, records its error message (or clears it), and maps it to a return code.
-fn guarded(f: impl FnOnce() -> Result<(), (i32, String)>) -> i32 {
+fn guarded(f: impl FnOnce() -> Result<(), Failure>) -> i32 {
     match catch_unwind(AssertUnwindSafe(f)) {
         Ok(Ok(())) => {
             set_error(String::new());
@@ -48,13 +51,13 @@ fn code(e: &Error) -> i32 {
     }
 }
 
-fn arg(msg: &str) -> (i32, String) {
+fn arg(msg: &str) -> Failure {
     (PCP_ERR_ARGUMENT, msg.to_string())
 }
 
 /// Checks a C pointer and length: NULL is only allowed for length 0, and no object is larger
 /// than isize::MAX bytes (a negative length cast to size_t, say).
-fn check_buffer(p: *const u8, len: usize) -> Result<(), (i32, String)> {
+fn check_buffer(p: *const u8, len: usize) -> Result<(), Failure> {
     if p.is_null() && len > 0 {
         return Err(arg("NULL pointer with a non-zero length"));
     }
@@ -65,7 +68,7 @@ fn check_buffer(p: *const u8, len: usize) -> Result<(), (i32, String)> {
 }
 
 /// Refuses an input and an output that share bytes: Rust may not alias them.
-fn check_disjoint(src: *const u8, src_len: usize, dst: *const u8, dst_len: usize) -> Result<(), (i32, String)> {
+fn check_disjoint(src: *const u8, src_len: usize, dst: *const u8, dst_len: usize) -> Result<(), Failure> {
     let (s, d) = (src.addr(), dst.addr());
     if src_len > 0 && dst_len > 0 && s < d.saturating_add(dst_len) && d < s.saturating_add(src_len) {
         return Err(arg("src and dst overlap"));
@@ -80,7 +83,7 @@ unsafe fn buffers<'a>(
     src_len: usize,
     dst: *mut u8,
     dst_len: usize,
-) -> Result<(&'a [u8], &'a mut [u8]), (i32, String)> {
+) -> Result<(&'a [u8], &'a mut [u8]), Failure> {
     check_buffer(src, src_len)?;
     check_buffer(dst, dst_len)?;
     check_disjoint(src, src_len, dst, dst_len)?;
