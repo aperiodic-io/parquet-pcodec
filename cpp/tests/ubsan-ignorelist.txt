@@ -1,0 +1,7 @@
+# UBSan ignore list of the sanitizer build (TPARQUET_SANITIZE, clang).
+#
+# RapidJSON 1.1.0 (Ubuntu's rapidjson-dev), which only the tests use to parse the testdata
+# manifests, adds offsets to a null pointer in internal::Stack (fixed upstream after 1.1.0):
+# "applying non-zero offset 16 to null pointer" in rapidjson/internal/stack.h.
+[undefined]
+src:*/rapidjson/*

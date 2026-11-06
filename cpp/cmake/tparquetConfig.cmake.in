@@ -1,0 +1,24 @@
+# tparquet for C++ (cpp/README.md). Defines tparquet::tparquet (the C++ library, over the
+# patched Arrow C++ of cpp/arrow) and, when it was installed with the package, tparquet::read
+# (the C stream reader, libtparquet_read).
+@PACKAGE_INIT@
+# find_dependency below runs Arrow's and Parquet's own PACKAGE_INIT, which overwrite
+# PACKAGE_PREFIX_DIR: keep this package's paths first
+set(_tparquet_libdir "@PACKAGE_CMAKE_INSTALL_LIBDIR@")
+set(_tparquet_includedir "@PACKAGE_CMAKE_INSTALL_INCLUDEDIR@")
+
+include(CMakeFindDependencyMacro)
+find_dependency(Arrow 26.0.1 EXACT CONFIG)
+find_dependency(Parquet 26.0.1 EXACT CONFIG)
+
+include("${CMAKE_CURRENT_LIST_DIR}/tparquetTargets.cmake")
+
+set(tparquet_HAVE_READ @TPARQUET_HAVE_READ@)
+if(tparquet_HAVE_READ AND NOT TARGET tparquet::read)
+  add_library(tparquet::read SHARED IMPORTED)
+  set_target_properties(tparquet::read PROPERTIES
+    IMPORTED_LOCATION "${_tparquet_libdir}/@TPARQUET_READ_LIB_NAME@"
+    INTERFACE_INCLUDE_DIRECTORIES "${_tparquet_includedir}")
+endif()
+
+check_required_components(tparquet)

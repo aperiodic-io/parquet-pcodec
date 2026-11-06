@@ -1,0 +1,228 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package io.trino.parquet.reader.flat;
+
+import io.airlift.slice.Slice;
+import io.airlift.slice.Slices;
+import io.trino.spi.block.Block;
+import io.trino.spi.block.VariableWidthBlock;
+
+import java.util.List;
+import java.util.Optional;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static io.trino.spi.block.Bitmap.allocateWords;
+import static io.trino.spi.block.Bitmap.clear;
+import static io.trino.spi.block.Bitmap.countTransitions;
+import static io.trino.spi.block.Bitmap.getBits;
+import static java.lang.Math.min;
+import static java.util.Arrays.fill;
+
+public class BinaryColumnAdapter
+        implements ColumnAdapter<BinaryBuffer>
+{
+    public static final BinaryColumnAdapter BINARY_ADAPTER = new BinaryColumnAdapter();
+
+    @Override
+    public BinaryBuffer createBuffer(int batchSize)
+    {
+        return new BinaryBuffer(batchSize);
+    }
+
+    @Override
+    public BinaryBuffer createTemporaryBuffer(int currentOffset, int size, BinaryBuffer buffer)
+    {
+        return buffer.withTemporaryOffsets(currentOffset, size);
+    }
+
+    @Override
+    public void copyValue(BinaryBuffer source, int sourceIndex, BinaryBuffer destination, int destinationIndex)
+    {
+        // ignore as unpackNullValues is overridden
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Block createNullableBlock(long[] valueIsValid, BinaryBuffer values)
+    {
+        return createBlock(values, Optional.of(valueIsValid));
+    }
+
+    @Override
+    public void copyValues(BinaryBuffer source, int sourceIndex, BinaryBuffer destination, int destinationIndex, int length)
+    {
+        // ignore as unpackNullValues is overridden
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Block createNullableDictionaryBlock(BinaryBuffer dictionary, int nonNullsCount)
+    {
+        checkArgument(
+                dictionary.getValueCount() == nonNullsCount + 1,
+                "Dictionary buffer size %s did not match the expected value of %s",
+                dictionary.getValueCount(),
+                nonNullsCount + 1);
+        long[] valueIsValid = allocateWords(nonNullsCount + 1, true);
+        clear(valueIsValid, 0, nonNullsCount);
+        // Overwrite the next after last position with an empty value. This will be used as null.
+        int[] offsets = dictionary.getOffsets();
+        offsets[nonNullsCount + 1] = offsets[nonNullsCount];
+        return createBlock(dictionary, Optional.of(valueIsValid));
+    }
+
+    @Override
+    public Block createNonNullBlock(BinaryBuffer values)
+    {
+        return createBlock(values, Optional.empty());
+    }
+
+    protected Block createBlock(BinaryBuffer values, Optional<long[]> valueIsValid)
+    {
+        return new VariableWidthBlock(values.getValueCount(), values.asSlice(), values.getOffsets(), valueIsValid);
+    }
+
+    @Override
+    public void unpackNullValues(BinaryBuffer sourceBuffer, BinaryBuffer destinationBuffer, long[] valueIsValid, int destOffset, int nonNullCount, int totalValuesCount)
+    {
+        // Benchmarking shows scalar copying is faster once a validity word contains this many short runs.
+        int scalarCopyTransitionThreshold = 12;
+        int endOffset = destOffset + totalValuesCount;
+        int srcOffset = 0;
+        int[] destination = destinationBuffer.getOffsets();
+        int[] source = sourceBuffer.getOffsets();
+
+        while (srcOffset < nonNullCount && destOffset < endOffset) {
+            int bitsInWord = min(Long.SIZE, endOffset - destOffset);
+            long validBits = getBits(valueIsValid, 0, destOffset, bitsInWord);
+            if (validBits == 0) {
+                fill(destination, destOffset, destOffset + bitsInWord, source[srcOffset]);
+                destOffset += bitsInWord;
+                continue;
+            }
+            if (Long.bitCount(validBits) == bitsInWord) {
+                System.arraycopy(source, srcOffset, destination, destOffset, bitsInWord);
+                srcOffset += bitsInWord;
+                destOffset += bitsInWord;
+                continue;
+            }
+            if (countTransitions(validBits, bitsInWord) >= scalarCopyTransitionThreshold) {
+                int endOffsetInWord = destOffset + bitsInWord;
+                while (destOffset < endOffsetInWord) {
+                    destination[destOffset] = source[srcOffset];
+                    srcOffset += (int) (validBits & 1);
+                    destOffset++;
+                    validBits >>>= 1;
+                }
+                continue;
+            }
+
+            int offsetInWord = 0;
+            while (offsetInWord < bitsInWord) {
+                int nullCount = min(Long.numberOfTrailingZeros(validBits), bitsInWord - offsetInWord);
+                fill(destination, destOffset, destOffset + nullCount, source[srcOffset]);
+                destOffset += nullCount;
+                offsetInWord += nullCount;
+                validBits >>>= nullCount;
+                if (offsetInWord == bitsInWord) {
+                    break;
+                }
+
+                int validCount = min(Long.numberOfTrailingZeros(~validBits), bitsInWord - offsetInWord);
+                if (validCount == 1) {
+                    // Avoid System.arraycopy overhead for singleton valid runs.
+                    destination[destOffset] = source[srcOffset];
+                }
+                else {
+                    System.arraycopy(source, srcOffset, destination, destOffset, validCount);
+                }
+                srcOffset += validCount;
+                destOffset += validCount;
+                offsetInWord += validCount;
+                validBits >>>= validCount;
+            }
+        }
+        // The last+1 offset is always a sentinel value equal to last offset + last position length.
+        // In case of null values at the end, the last offset value needs to be repeated for every null position
+        while (destOffset <= endOffset) {
+            destination[destOffset++] = source[nonNullCount];
+        }
+    }
+
+    @Override
+    public void decodeDictionaryIds(BinaryBuffer values, int offset, int length, int[] ids, BinaryBuffer dictionary)
+    {
+        Slice dictionarySlice = dictionary.asSlice();
+        int[] outputOffsets = values.getOffsets();
+        int[] dictionaryOffsets = dictionary.getOffsets();
+        int outputLength = 0;
+        for (int i = 0; i < length; i++) {
+            int id = ids[i];
+            int positionLength = dictionaryOffsets[id + 1] - dictionaryOffsets[id];
+            outputLength += positionLength;
+            outputOffsets[offset + i + 1] = outputOffsets[offset + i] + positionLength;
+        }
+        byte[] outputChunk = new byte[outputLength];
+        int outputIndex = 0;
+        for (int i = 0; i < length; i++) {
+            int id = ids[i];
+            int startIndex = dictionaryOffsets[id];
+            int endIndex = dictionaryOffsets[id + 1];
+            int positionLength = endIndex - startIndex;
+            dictionarySlice.getBytes(startIndex, outputChunk, outputIndex, positionLength);
+            outputIndex += positionLength;
+        }
+
+        values.addChunk(Slices.wrappedBuffer(outputChunk));
+    }
+
+    @Override
+    public long getSizeInBytes(BinaryBuffer values)
+    {
+        return values.getRetainedSize();
+    }
+
+    @Override
+    public BinaryBuffer merge(List<BinaryBuffer> buffers)
+    {
+        if (buffers.isEmpty()) {
+            return new BinaryBuffer(0);
+        }
+
+        int valueCount = 0;
+        for (BinaryBuffer binaryBuffer : buffers) {
+            valueCount += binaryBuffer.getValueCount();
+        }
+        BinaryBuffer result = new BinaryBuffer(valueCount);
+        for (BinaryBuffer binaryBuffer : buffers) {
+            result.addChunk(binaryBuffer.asSlice());
+        }
+        int[] resultOffsets = result.getOffsets();
+        int[] firstOffsets = buffers.get(0).getOffsets();
+        System.arraycopy(firstOffsets, 0, resultOffsets, 0, firstOffsets.length);
+
+        int dataOffset = firstOffsets[firstOffsets.length - 1];
+        int outputArrayOffset = firstOffsets.length;
+        for (int i = 1; i < buffers.size(); i++) {
+            int[] currentOffsets = buffers.get(i).getOffsets();
+            for (int j = 1; j < currentOffsets.length; j++) {
+                resultOffsets[outputArrayOffset + j - 1] = dataOffset + currentOffsets[j];
+            }
+            outputArrayOffset += currentOffsets.length - 1;
+            dataOffset = resultOffsets[outputArrayOffset - 1];
+        }
+
+        return result;
+    }
+}

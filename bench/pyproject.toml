@@ -1,0 +1,73 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tpq-bench"
+version = "0.1.0"
+description = "tparquet against ZSTD(9) Parquet on data providers' sample and preview data"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+dependencies = ["tparquet[pyarrow]"]
+
+[project.scripts]
+tpq-bench = "tpq_bench.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tpq_bench"]
+
+[tool.uv.sources]
+# tparquet is built from this repository (maturin; needs a Rust toolchain)
+tparquet = { path = "../python", package = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "mypy>=1.13",
+    "ruff>=0.8",
+    "pyarrow-stubs>=17",
+    "mutmut>=3.3",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "PT", "C4", "PIE", "RET", "TC"]
+ignore = [
+    # the reports write ratios as 0.31×, like the README
+    "RUF001",
+    # `Union[...]` aliases are kept: `X | Y` of string forward references fails at runtime on 3.10
+    "UP007",
+    # zip(strict=True) where the lengths are equal by construction only adds mutants no test can
+    # kill (strict=False, None or left out behave the same)
+    "B905",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["TC", "E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["tpq_bench", "conftest"]
+
+[tool.mypy]
+strict = true
+python_version = "3.10"
+files = ["src", "tests", "scripts"]
+mypy_path = "tests"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+filterwarnings = ["error"]
+
+[tool.mutmut]
+# run from bench/: `uv run --no-sync python scripts/mutmut_check.py` (fails on a survivor); the offline tests judge every mutant (the
+# network is faked). `# pragma: no mutate` marks the lines whose mutants
+# no test can observe, each with its reason
+source_paths = ["src/tpq_bench"]
+pytest_add_cli_args = ["-p", "no:cacheprovider"]
+pytest_add_cli_args_test_selection = ["tests/"]
+process_isolation = "forkserver"
+forkserver_warmup = "none"

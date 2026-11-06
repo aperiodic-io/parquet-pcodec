@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- tparquet for Trino (trino/README.md): the trino-parquet fork, its tests through Trino's
+     reader and query engine, and the upstream-refusal check. Built with JDK 25, as Trino 484 is.
+     The dependency versions are Trino 484's own: trino-root 484 is imported as a BOM (it is the
+     parent of upstream's trino-parquet pom; see trino-parquet/FORK.md for why it is not the
+     parent here), with the forks pinned over it. -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>io.aperiodic.tparquet</groupId>
+  <artifactId>tparquet-trino-parent</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <packaging>pom</packaging>
+  <name>tparquet Trino</name>
+  <description>PCODEC Parquet codec for Trino: a trino-parquet fork, tests through Trino, the plugin install script</description>
+  <url>https://github.com/aperiodic-io/tparquet</url>
+
+  <licenses>
+    <license>
+      <name>Apache License 2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0</url>
+    </license>
+  </licenses>
+
+  <modules>
+    <module>trino-parquet</module>
+    <module>plugin-jars</module>
+    <module>tests</module>
+    <module>acceptance-upstream</module>
+  </modules>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <!-- Trino 484 targets Java 25 -->
+    <maven.compiler.release>25</maven.compiler.release>
+    <tparquet.root>${maven.multiModuleProjectDirectory}/..</tparquet.root>
+    <tparquet.testdata>${tparquet.root}/testdata</tparquet.testdata>
+    <!-- the JNI library the tests load; `make -C trino` builds it with cargo first -->
+    <tparquet.jni.library>${tparquet.root}/target/release/libtparquet_jni.so</tparquet.jni.library>
+
+    <trino.version>484</trino.version>
+    <!-- the trino-parquet fork (trino-parquet/FORK.md) -->
+    <trino.fork.version>484-tparquet</trino.fork.version>
+    <!-- Trino 484's parquet-java, and its fork (java/parquet-java-1.18/FORK.md) -->
+    <parquet.version>1.18.1</parquet.version>
+    <parquet.fork.version>1.18.1-tparquet</parquet.fork.version>
+    <!-- java/: tparquet-jni (the codec) and tparquet (the writer the tests use) -->
+    <tparquet.version>0.1.0-SNAPSHOT</tparquet.version>
+    <!-- tparquet's writer is on parquet-java 1.17.0 (java/parquet-java), in the tests only -->
+    <parquet.java.fork.version>1.17.0-tparquet</parquet.java.fork.version>
+
+    <jqwik.version>1.10.2</jqwik.version>
+    <jackson.version>2.22.4</jackson.version>
+    <pitest.version>1.30.1</pitest.version>
+    <pitest.junit5.version>1.2.3</pitest.junit5.version>
+    <surefire.version>3.6.1</surefire.version>
+    <!-- Trino's test JVM flags (airbase and trino-root 484), with a smaller heap -->
+    <trino.test.jvm>-Xmx2g -XX:+ExitOnOutOfMemoryError -XX:-OmitStackTraceInFastThrow -XX:+UnlockDiagnosticVMOptions --add-modules=jdk.incubator.vector --sun-misc-unsafe-memory-access=allow --enable-native-access=ALL-UNNAMED -Dairlift.quiet=true</trino.test.jvm>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <!-- pinned over Trino's: the forks, and the tparquet modules -->
+      <dependency>
+        <groupId>io.trino</groupId>
+        <artifactId>trino-parquet</artifactId>
+        <version>${trino.fork.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.parquet</groupId>
+        <artifactId>parquet-format-structures</artifactId>
+        <version>${parquet.fork.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.parquet</groupId>
+        <artifactId>parquet-common</artifactId>
+        <version>${parquet.fork.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.aperiodic.tparquet</groupId>
+        <artifactId>tparquet-jni</artifactId>
+        <version>${tparquet.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.aperiodic.tparquet</groupId>
+        <artifactId>tparquet</artifactId>
+        <version>${tparquet.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>net.jqwik</groupId>
+        <artifactId>jqwik</artifactId>
+        <version>${jqwik.version}</version>
+      </dependency>
+      <!-- Trino 484's versions of everything else -->
+      <dependency>
+        <groupId>io.trino</groupId>
+        <artifactId>trino-root</artifactId>
+        <version>${trino.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <version>3.14.1</version>
+          <configuration>
+            <compilerArgs>
+              <!-- as trino-parquet's pom (extraJavaVectorArgs) -->
+              <arg>--add-modules=jdk.incubator.vector</arg>
+            </compilerArgs>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <version>${surefire.version}</version>
+          <configuration>
+            <systemPropertyVariables>
+              <tparquet.jni.library>${tparquet.jni.library}</tparquet.jni.library>
+              <tparquet.testdata>${tparquet.testdata}</tparquet.testdata>
+              <tparquet.root>${tparquet.root}</tparquet.root>
+              <!-- as airbase/trino-root: Trino's tests run in a time zone with DST -->
+              <user.timezone>America/Bahia_Banderas</user.timezone>
+            </systemPropertyVariables>
+            <trimStackTrace>false</trimStackTrace>
+            <!-- a library path without the library: tests load it through tparquet.jni.library -->
+            <argLine>${trino.test.jvm} -Djava.library.path=${project.build.directory}/no-native-library</argLine>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-jar-plugin</artifactId>
+          <version>3.4.2</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-resources-plugin</artifactId>
+          <version>3.3.1</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-install-plugin</artifactId>
+          <version>3.1.4</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-dependency-plugin</artifactId>
+          <version>3.8.1</version>
+        </plugin>
+        <plugin>
+          <groupId>org.pitest</groupId>
+          <artifactId>pitest-maven</artifactId>
+          <version>${pitest.version}</version>
+          <dependencies>
+            <dependency>
+              <groupId>org.pitest</groupId>
+              <artifactId>pitest-junit5-plugin</artifactId>
+              <version>${pitest.junit5.version}</version>
+            </dependency>
+          </dependencies>
+          <configuration>
+            <!-- every mutant must be killed (trino/README.md, Mutation testing) -->
+            <mutationThreshold>100</mutationThreshold>
+            <timestampedReports>false</timestampedReports>
+            <outputFormats>
+              <format>HTML</format>
+              <format>CSV</format>
+            </outputFormats>
+            <threads>2</threads>
+            <jvmArgs>
+              <value>-Xmx1g</value>
+              <value>--add-modules=jdk.incubator.vector</value>
+              <value>--sun-misc-unsafe-memory-access=allow</value>
+              <value>--enable-native-access=ALL-UNNAMED</value>
+              <value>-Dtparquet.jni.library=${tparquet.jni.library}</value>
+              <value>-Dtparquet.testdata=${tparquet.testdata}</value>
+              <value>-Djava.library.path=${project.build.directory}/no-native-library</value>
+            </jvmArgs>
+          </configuration>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+  </build>
+</project>
