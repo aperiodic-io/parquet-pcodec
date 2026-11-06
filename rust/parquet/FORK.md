@@ -105,3 +105,13 @@ upstream part of `write_metadata` survived and are caught since
 `CodecOptions::default()` calls `build`, so the mutant recurses forever and the tests hang.
 A hang is a detected mutant: `make fork-mutants` accepts cargo-mutants' exit code 3 when
 `missed.txt` is empty.
+
+The `Interval(MonthDayNano)` arm of `FixedLenByteArrayReader::consume_batch` (an upstream function
+too large to mutate whole) was mutated on its diff alone:
+
+```
+cargo mutants --no-config -p parquet -f rust/parquet/src/arrow/array_reader/fixed_len_byte_array.rs \
+  --in-diff <diff of the change> --cargo-arg=--lib -- -- arrow::array_reader::fixed_len_byte_array
+```
+
+Result (8 mutants, each listed twice): 6 caught, 2 unviable.
