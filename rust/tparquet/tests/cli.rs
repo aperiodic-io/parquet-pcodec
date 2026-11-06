@@ -333,7 +333,7 @@ fn every_vector_encodes_decodes_and_verifies() {
         assert_eq!(report["rows"], original["rows"]);
         cli().arg("inspect").arg(&path).assert().success();
     }
-    assert_eq!(n, 13);
+    assert_eq!(n, 24);
     assert_no_temporary_files(dir.path());
 }
 

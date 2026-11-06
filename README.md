@@ -70,7 +70,8 @@ Each package's README has the details: [Python](python/README.md),
   expected rows in canonical JSON, and page payloads with their decoded bytes. Every
   implementation reads them.
 - **Cross-language acceptance:** [`acceptance/cross/run.sh`](acceptance/cross/run.sh) has Rust, Go,
-  Python and DuckDB each read the files the other three wrote.
+  Python and DuckDB each read the files all of them wrote (Python, DuckDB and the Rust CLI under
+  each policy and in many row groups).
 - **Mutation testing** of every package: cargo-mutants (Rust, including the fork's changed
   functions), gremlins (Go) and mutmut (Python). Fuzz targets are in `rust/core/fuzz`.
 

@@ -238,11 +238,12 @@ def values_of(t: pa.DataType, nullable: bool = True) -> st.SearchStrategy[Any]:
         if t.unit in ("s", "ms"):
             v = v.map(lambda x: x.replace(microsecond=x.microsecond // 1000 * 1000 if t.unit == "ms" else 0))
     elif pa.types.is_timestamp(t):
-        # seconds Python's datetime holds (years 1 to 9999), in the type's unit
+        # seconds Python's datetime holds (years 1 to 9999), in the type's unit, a day inside
+        # them: as_py gives the time in the type's zone, which is up to a day off UTC
         per_second = {"s": 1, "ms": 10**3, "us": 10**6, "ns": 10**9}[t.unit]
         # (and two days inside the 64-bit range, which zone conversions of the values must not leave)
         edge = (2**63 - 1) // per_second - 2 * 86_400
-        lo, hi = max(-edge, -62_135_596_800), min(edge, 253_402_300_799)
+        lo, hi = max(-edge, -62_135_596_800 + 86_400), min(edge, 253_402_300_799 - 86_400)
         v = st.integers(lo, hi).map(lambda x: pa.scalar(x * per_second, pa.timestamp(t.unit)).cast(t))
     elif pa.types.is_duration(t):
         # what Python's timedelta holds (999999999 days), in any unit

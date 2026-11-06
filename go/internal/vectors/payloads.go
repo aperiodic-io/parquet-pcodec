@@ -27,6 +27,9 @@ type payload struct {
 	Mode        string  `json:"mode"`
 	Hint        *string `json:"hint"`
 	Level       int     `json:"level"`
+	// ReferenceEncoding is false for a hand-made payload, which the reference encoder does
+	// not write for its output (a non-minimal varint, a PCO payload without numbers).
+	ReferenceEncoding *bool `json:"reference_encoding"`
 }
 
 // modes are the payload mode names of the manifest, by mode byte (spec section 4).
@@ -37,7 +40,8 @@ var hints = map[string]parquet.Type{"INT32": parquet.Types.Int32, "INT64": parqu
 
 // CheckPayloads decodes every payload of dir/payloads/manifest.json with this binding: a
 // valid one must decode to its .out file, and encoding that output again with its hint and
-// level must give the same mode; an invalid one must fail. It returns the number of
+// level must give the same mode (unless the manifest says the payload was made by hand, with
+// reference_encoding false); an invalid one must fail. It returns the number of
 // payloads and every difference.
 func CheckPayloads(dir string) (int, error) {
 	raw, err := os.ReadFile(filepath.Join(dir, "payloads", "manifest.json"))
@@ -88,6 +92,9 @@ func (p payload) check(dir string) error {
 	}
 	if !bytes.Equal(got, want) {
 		return fmt.Errorf("decodes to other bytes than %s", p.Decoded)
+	}
+	if p.ReferenceEncoding != nil && !*p.ReferenceEncoding {
+		return nil
 	}
 	level := p.Level // no hint: a plain level, which carries none
 	if p.Hint != nil {

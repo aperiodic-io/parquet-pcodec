@@ -49,6 +49,13 @@ def test_footer_matches_the_manifest(entry: dict[str, Any]) -> None:
     assert md.num_rows == entry["rows"]
     assert md.num_row_groups == entry["row_groups"]
     assert md.pcodec_version == entry["pcodec_version"]
+    kv = {k: v for k, v in md.key_value_metadata.items() if k != "ARROW:schema"}
+    assert kv == entry["key_value_metadata"]
+    # pyarrow reads the footer of every vector, PCODEC or not
+    footer = pq.read_metadata(path).metadata or {}
+    assert {k.decode(): v.decode() for k, v in footer.items() if k != b"ARROW:schema"} == {
+        k: v or "" for k, v in entry["key_value_metadata"].items()
+    }
     assert md.codecs == {c["path"]: c["codecs"] for c in entry["columns"]}
     assert md.physical_types == {c["path"]: c["physical_type"] for c in entry["columns"]}
     report = ppc.inspect(path)
@@ -75,8 +82,16 @@ def test_valid_payload(v: dict[str, Any]) -> None:
     assert len(decoded) == v["expected_len"]
     assert codec.decompress(payload, v["expected_len"]) == decoded
     assert codec.mode(payload) == v["mode"]
-    # the reference encoder (which this package wraps) writes the vector exactly
-    assert codec.compress(decoded, hint=v["hint"], level=v["level"]) == payload
+    # the reference encoder (which this package wraps) writes the vector exactly, unless the
+    # payload was made by hand (a non-minimal varint, a PCO payload without numbers...)
+    encoded = codec.compress(decoded, hint=v["hint"], level=v["level"])
+    assert (encoded == payload) is v["reference_encoding"]
+
+
+def test_hand_made_payloads() -> None:
+    # valid payloads no encoder writes, which decoders accept (spec section 4)
+    made = [p["name"] for p in VALID if not p["reference_encoding"]]
+    assert made == ["pco_no_values", "decimal_no_values", "zstd_empty_frame", "varint_overlong"]
 
 
 @pytest.mark.parametrize("v", INVALID, ids=[p["name"] for p in INVALID])
