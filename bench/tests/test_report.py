@@ -13,6 +13,7 @@ from tpq_bench.measure import Measurement
 def m(rows: int, z9: int, tpq: int, codecs: dict[str, str] | None = None) -> Measurement:
     return Measurement(
         rows=rows,
+        arrow_bytes=z9 * 10,
         zstd9_bytes=z9,
         tuned_bytes=z9 * 4 // 5,
         tparquet_bytes=tpq,
@@ -65,12 +66,19 @@ def test_unknown_group_is_refused() -> None:
 
 def test_markdown() -> None:
     assert report.markdown(ENTRIES) == (
-        "| Data type | Datasets | Rows | ZSTD(9) | ZSTD(9) tuned | tparquet | tparquet / ZSTD(9) | tparquet / tuned "
-        "| Write s: ZSTD(9) / tuned / tparquet | Read s: ZSTD(9) / tuned / tparquet |\n"
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n"
-        "| Trades | 2 | 2,501,500 | 3.60 GB | 2.88 GB | 1.60 GB | **0.444×** | **0.556×** | 4.00 / 3.00 / 2.00 | 1.00 / 1.00 / 0.50 |\n"
-        "| Quotes (L1, top of book) | 1 | 1,000,000 | 12.0 MB | 9.6 MB | 6.0 MB | **0.500×** | **0.625×** | 2.00 / 1.50 / 1.00 | 0.50 / 0.50 / 0.25 |\n"
-        "| **All** | 3 | 3,501,500 | 3.61 GB | 2.89 GB | 1.61 GB | **0.445×** | **0.556×** | 6.00 / 4.50 / 3.00 | 1.50 / 1.50 / 0.75 |\n"
+        "| Data type | Datasets | Rows | ZSTD(9) | ZSTD(9) tuned | tparquet | tparquet / ZSTD(9) | tparquet / tuned |\n"
+        "|---|---:|---:|---:|---:|---:|---:|---:|\n"
+        "| Trades | 2 | 2,501,500 | 3.60 GB | 2.88 GB | 1.60 GB | **0.444×** | **0.556×** |\n"
+        "| Quotes (L1, top of book) | 1 | 1,000,000 | 12.0 MB | 9.6 MB | 6.0 MB | **0.500×** | **0.625×** |\n"
+        "| **All** | 3 | 3,501,500 | 3.61 GB | 2.89 GB | 1.61 GB | **0.445×** | **0.556×** |\n"
+        "\n"
+        "Speed, in MB/s of Arrow data (the columns' size in memory):\n"
+        "\n"
+        "| Data type | Arrow data | Write ZSTD(9) | Write tuned | Write tparquet | Read ZSTD(9) | Read tuned | Read tparquet |\n"
+        "|---|---:|---:|---:|---:|---:|---:|---:|\n"
+        "| Trades | 36.00 GB | 9,001 | 12,001 | 18,002 | 36,004 | 36,004 | 72,008 |\n"
+        "| Quotes (L1, top of book) | 120.0 MB | 60 | 80 | 120 | 240 | 240 | 480 |\n"
+        "| **All** | 36.12 GB | 6,021 | 8,028 | 12,041 | 24,083 | 24,083 | 48,165 |\n"
         "\n"
         "### Trades\n"
         "\n"
@@ -79,12 +87,28 @@ def test_markdown() -> None:
         "| Tardis.dev | BTCUSDT trades | 1,500 | 999 B | 400 KB | 320 KB | 100 KB | 0.250× | 0.312× | 2 of 3 |\n"
         "| NYSE | TAQ trades | 2,500,000 | 13.0 MB | 3.60 GB | 2.88 GB | 1.60 GB | 0.444× | 0.556× | 2 of 3 |\n"
         "\n"
+        "| Provider | Data | Arrow data | Write ZSTD(9) | Write tuned | Write tparquet | Read ZSTD(9) | Read tuned | Read tparquet |\n"
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|\n"
+        "| Tardis.dev | BTCUSDT trades | 4.0 MB | 2 | 3 | 4 | 8 | 8 | 16 |\n"
+        "| NYSE | TAQ trades | 36.00 GB | 18,000 | 24,000 | 36,000 | 72,000 | 72,000 | 144,000 |\n"
+        "\n"
         "### Quotes (L1, top of book)\n"
         "\n"
         "| Provider | Data | Rows | As delivered | ZSTD(9) | ZSTD(9) tuned | tparquet | tparquet / ZSTD(9) | tparquet / tuned | PCODEC columns |\n"
         "|---|---|---:|---:|---:|---:|---:|---:|---:|---|\n"
         "| Tardis.dev | BTCUSDT quotes | 1,000,000 | 17.8 MB | 12.0 MB | 9.6 MB | 6.0 MB | 0.500× | 0.625× | 2 of 3 |\n"
+        "\n"
+        "| Provider | Data | Arrow data | Write ZSTD(9) | Write tuned | Write tparquet | Read ZSTD(9) | Read tuned | Read tparquet |\n"
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|\n"
+        "| Tardis.dev | BTCUSDT quotes | 120.0 MB | 60 | 80 | 120 | 240 | 240 | 480 |\n"
     )
+
+
+@pytest.mark.parametrize(
+    ("n", "seconds", "text"), [(10**6, 1.0, "1"), (10**9, 0.5, "2,000"), (2_500_000, 1.0, "2"), (1, 0.0, "–")]
+)
+def test_speed(n: int, seconds: float, text: str) -> None:
+    assert report.speed(n, seconds) == text
 
 
 def test_json_round_trips_every_field() -> None:
@@ -96,6 +120,7 @@ def test_json_round_trips_every_field() -> None:
             "group": "quotes",
             "source_bytes": 17_800_000,
             "rows": 1_000_000,
+            "arrow_bytes": 120_000_000,
             "zstd9_bytes": 12_000_000,
             "tuned_bytes": 9_600_000,
             "tparquet_bytes": 6_000_000,

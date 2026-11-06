@@ -52,11 +52,15 @@ written three times:
 | **tparquet** | tparquet's writer, defaults | PCODEC or ZSTD level 3 per column, whichever is smaller on the first batch |
 
 Each writer gets batches of 2²⁰ rows (one row group). The run checks that the three
-files hold the same values (floats bit for bit), then times a full read of each with
-tparquet's reader. The *As delivered* column is the size of the provider's file (CSV, gzip;
-Parquet with their codec). Only the writers and the readers are timed, not the
-parsing of the source. Times come from one run on one machine: compare them with each other,
-not across machines.
+files hold the same values (floats bit for bit), then reads each back in full with
+tparquet's reader (the same reader for all three, so only the format differs). The *As
+delivered* column is the size of the provider's file (CSV, gzip; Parquet with their codec).
+
+Speeds are MB/s of Arrow data: the in-memory size of the batches written, divided by the
+seconds the writer spent on them (its `write` calls and the footer), or by the seconds of the
+fastest of three full reads. The parsing of the source is not timed, nor is the tuned
+baseline's choice of encodings. Every writer and reader runs on one thread. Speeds come from
+one run on one machine: compare them with each other, not across machines.
 
 ## The data
 

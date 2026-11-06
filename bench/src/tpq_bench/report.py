@@ -51,33 +51,57 @@ def groups(entries: Sequence[Entry]) -> list[tuple[str, list[Entry]]]:
     return [(g, [e for e in entries if e.group == g]) for g in GROUPS if any(e.group == g for e in entries)]
 
 
-def _seconds(entries: Sequence[Entry], kind: str) -> str:
-    return " / ".join(
-        f"{sum(getattr(e.m, f'{kind}_s_{n}') for e in entries):.2f}" for n in ("zstd9", "tuned", "tparquet")
-    )
+FORMATS = ("zstd9", "tuned", "tparquet")
 
 
-def _summary(label: str, entries: Sequence[Entry]) -> str:
+def speed(n: int, seconds: float) -> str:
+    """MB/s, to the unit."""
+    if seconds <= 0:
+        return "–"
+    return f"{n / 1e6 / seconds:,.0f}"
+
+
+def _speeds(entries: Sequence[Entry]) -> str:
+    n = sum(e.m.arrow_bytes for e in entries)
+    cells = [
+        speed(n, sum(getattr(e.m, f"{kind}_s_{f}") for e in entries)) for kind in ("write", "read") for f in FORMATS
+    ]
+    return f"{size(n)} | {' | '.join(cells)} |\n"
+
+
+def _sizes(label: str, entries: Sequence[Entry]) -> str:
     z9 = sum(e.m.zstd9_bytes for e in entries)
     tuned = sum(e.m.tuned_bytes for e in entries)
     tp = sum(e.m.tparquet_bytes for e in entries)
     rows = sum(e.m.rows for e in entries)
     return (
         f"| {label} | {len(entries)} | {rows:,} | {size(z9)} | {size(tuned)} | {size(tp)} "
-        f"| **{tp / z9:.3f}×** | **{tp / tuned:.3f}×** | {_seconds(entries, 'write')} | {_seconds(entries, 'read')} |\n"
+        f"| **{tp / z9:.3f}×** | **{tp / tuned:.3f}×** |\n"
     )
 
 
+SPEED_COLUMNS = (
+    "Arrow data | Write ZSTD(9) | Write tuned | Write tparquet | Read ZSTD(9) | Read tuned | Read tparquet |\n"
+)
+
+
 def markdown(entries: Sequence[Entry]) -> str:
-    """A summary table, one row per data type, then one table per data type."""
+    """Summary tables of sizes and speeds, one row per data type, then both tables per data type."""
     by_group = groups(entries)
     out = [
-        "| Data type | Datasets | Rows | ZSTD(9) | ZSTD(9) tuned | tparquet | tparquet / ZSTD(9) | tparquet / tuned "
-        "| Write s: ZSTD(9) / tuned / tparquet | Read s: ZSTD(9) / tuned / tparquet |\n",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n",
+        "| Data type | Datasets | Rows | ZSTD(9) | ZSTD(9) tuned | tparquet | tparquet / ZSTD(9) "
+        "| tparquet / tuned |\n",
+        "|---|---:|---:|---:|---:|---:|---:|---:|\n",
     ]
-    out += [_summary(GROUPS[g], es) for g, es in by_group]
-    out.append(_summary("**All**", entries))
+    out += [_sizes(GROUPS[g], es) for g, es in by_group]
+    out.append(_sizes("**All**", entries))
+    out += [
+        "\nSpeed, in MB/s of Arrow data (the columns' size in memory):\n\n",
+        f"| Data type | {SPEED_COLUMNS}",
+        "|---|---:|---:|---:|---:|---:|---:|---:|\n",
+    ]
+    out += [f"| {GROUPS[g]} | {_speeds(es)}" for g, es in by_group]
+    out.append(f"| **All** | {_speeds(entries)}")
     for g, es in by_group:
         out += [
             f"\n### {GROUPS[g]}\n\n",
@@ -91,6 +115,8 @@ def markdown(entries: Sequence[Entry]) -> str:
             f"| {e.m.pcodec_columns} of {len(e.m.codecs)} |\n"
             for e in es
         ]
+        out += [f"\n| Provider | Data | {SPEED_COLUMNS}", "|---|---|---:|---:|---:|---:|---:|---:|---:|\n"]
+        out += [f"| {e.provider} | {e.data} | {_speeds([e])}" for e in es]
     return "".join(out)
 
 

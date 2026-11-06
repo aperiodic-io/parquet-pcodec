@@ -22,6 +22,8 @@ BATCH_ROWS = 1 << 20
 @dataclasses.dataclass(frozen=True)
 class Measurement:
     rows: int
+    # in-memory size of the Arrow batches written: the denominator of the speeds
+    arrow_bytes: int
     zstd9_bytes: int
     tuned_bytes: int
     tparquet_bytes: int
@@ -116,11 +118,19 @@ def rebatch(batches: Iterable[pa.RecordBatch], rows: int) -> Iterator[pa.RecordB
         yield pa.Table.from_batches(pending).combine_chunks().to_batches()[0]
 
 
+READS = 3
+
+
 def _read(path: pathlib.Path) -> float:
-    start = time.perf_counter()
-    for _ in tpq.read_batches(path):
-        pass
-    return time.perf_counter() - start
+    """Seconds of a full read with tparquet's reader, the best of `READS` (reads are quick, and
+    a small file's single read is mostly noise)."""
+    best = float("inf")
+    for _ in range(READS):
+        start = time.perf_counter()
+        for _ in tpq.read_batches(path):
+            pass
+        best = min(best, time.perf_counter() - start)
+    return best
 
 
 def measure(
@@ -149,7 +159,7 @@ def measure(
     auto = tpq.Writer(paths["tparquet"], reader.schema)
     tuned: pq.ParquetWriter | None = None
     encodings: dict[str, str]  # chosen on the first batch
-    rows = 0
+    rows = arrow_bytes = 0
     write = dict.fromkeys(paths, 0.0)
 
     def timed(name: str, f: Callable[[], object]) -> object:
@@ -164,6 +174,7 @@ def measure(
                 encodings = choose_encodings(batch)
                 tuned = _write_tuned(paths["tuned"], reader.schema, encodings)
             rows += batch.num_rows
+            arrow_bytes += batch.nbytes
             timed("zstd9", lambda: z9.write(batch))  # noqa: B023 (called at once)
             timed("tuned", lambda: tuned.write_batch(batch))  # noqa: B023
             timed("tparquet", lambda: auto.write(batch))  # noqa: B023
@@ -179,6 +190,7 @@ def measure(
         read = {name: _read(path) for name, path in paths.items()}
         return Measurement(
             rows=rows,
+            arrow_bytes=arrow_bytes,
             zstd9_bytes=paths["zstd9"].stat().st_size,
             tuned_bytes=paths["tuned"].stat().st_size,
             tparquet_bytes=paths["tparquet"].stat().st_size,

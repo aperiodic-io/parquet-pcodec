@@ -53,6 +53,8 @@ def test_rebatch_of_nothing_is_nothing() -> None:
 def test_measure_writes_the_three_files_with_the_same_data(tmp_path: pathlib.Path) -> None:
     m = measure.measure(reader(ticks(20_000), ticks(30_000, 20_000)), tmp_path, batch_rows=16_384, keep=True)
     assert m.rows == 50_000
+    # the in-memory size of the batches the writers got
+    assert m.arrow_bytes == sum(b.nbytes for b in measure.rebatch(reader(ticks(20_000), ticks(30_000, 20_000)), 16_384))
     z9, tuned, auto = tmp_path / "zstd9.parquet", tmp_path / "tuned.parquet", tmp_path / "tparquet.parquet"
     assert m.zstd9_bytes == z9.stat().st_size
     assert m.tuned_bytes == tuned.stat().st_size
@@ -178,3 +180,11 @@ def test_files_that_differ_are_an_error(tmp_path: pathlib.Path, monkeypatch: pyt
     with pytest.raises(AssertionError, match=r"^the tuned file differs from the ZSTD\(9\) file: row 3, column price$"):
         measure.measure(reader(ticks(100)), tmp_path)
     assert list(tmp_path.iterdir()) == []
+
+
+def test_a_read_is_timed_as_the_best_of_three(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "t.parquet"
+    pq.write_table(pa.Table.from_batches([ticks(100)]), path)
+    clock = iter([0.0, 5.0, 10.0, 11.0, 20.0, 22.0])
+    monkeypatch.setattr(time, "perf_counter", lambda: next(clock))
+    assert measure._read(path) == 1.0
