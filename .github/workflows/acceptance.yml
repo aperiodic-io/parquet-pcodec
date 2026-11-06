@@ -1,7 +1,7 @@
 name: acceptance
 
 # Cross-language acceptance (acceptance/cross/run.sh): the vectors written by Rust, Go, the
-# Python package and the DuckDB extension, each read by all four.
+# Python package, the DuckDB extension, Java and C++, each read by all six.
 on:
   push:
     branches: [main]
@@ -19,13 +19,20 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
+  CCACHE_DIR: ${{ github.workspace }}/target/ccache
+  # the C++ library's build dependencies (as .github/workflows/cpp.yml)
+  APT_PACKAGES: >-
+    cmake ninja-build ccache thrift-compiler libthrift-dev libzstd-dev libsnappy-dev
+    liblz4-dev libbrotli-dev zlib1g-dev liburiparser-dev rapidjson-dev libgtest-dev
+    libgmock-dev libboost-dev clang libclang-rt-18-dev
 
 jobs:
   cross:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: sudo apt-get update && sudo apt-get install -y $APT_PACKAGES
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1 (master)
         with:
           toolchain: stable
@@ -42,4 +49,24 @@ jobs:
           uv run --no-sync maturin develop --uv
       - name: the DuckDB extension
         run: make -C duckdb build JOBS=4
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - name: the Java packages
+        run: make -C java install
+      # the Arrow C++ fork's build, shared with cpp.yml's key
+      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            target/cpp/dl
+            target/cpp/deps
+            target/cpp/arrow-src
+            target/cpp/arrow-release
+            target/ccache
+          key: cpp-arrow-release-${{ runner.os }}-${{ hashFiles('cpp/arrow/**') }}
+          restore-keys: cpp-arrow-release-${{ runner.os }}-
+      - name: the C++ library and its CLI
+        run: make -C cpp build JOBS=4
       - run: make acceptance

@@ -31,7 +31,7 @@ intended change, which must also be listed below.
 | `src/basic.rs` | `pub use crate::compression::…` | adds `PcodecLevel` | public like `ZstdLevel` (the `compression` module is private unless `experimental`) |
 | `src/compression.rs` | `CodecOptions`, `CodecOptionsBuilder` (struct, `Default`, `build`) | field `physical_type: Option<Type>`, setter `CodecOptionsBuilder::set_physical_type` | the PCODEC type hint; other codecs ignore it |
 | `src/compression.rs` | `create_codec` | `PCODEC` arm; `pcodec` added to the `cfg_attr` feature lists of its lint expectations | creates `PcodecCodec` |
-| `src/compression.rs` | new `mod pcodec_codec`: `PcodecCodec::{new, compress, decompress}` | the codec over `tparquet_core`; `decompress` without `uncompress_size` is an error | PCODEC needs the expected size (spec section 3) |
+| `src/compression.rs` | new `mod pcodec_codec`: `PcodecCodec::{new, compress, decompress}` | the codec over `tparquet_core`; `decompress` without `uncompress_size` is an error; `decompress` appends with `tparquet_core::decompress_append`, which allocates and writes nothing proportional to `uncompress_size` before the payload shows it can produce that many bytes | PCODEC needs the expected size (spec section 3); that size is the untrusted `uncompressed_page_size` (spec section 7) |
 | `src/compression.rs` | new `PcodecLevel` (`CompressionLevel`, `try_new`, `compression_level`, `Default`) | levels 0..=12, default 8 | as `ZstdLevel` |
 | `src/column/writer/mod.rs` | `GenericColumnWriter::new` | `CodecOptionsBuilder::default().set_physical_type(descr.physical_type())` | data pages and dictionary pages get the type hint |
 | `src/file/writer.rs` | `SerializedFileWriter::write_metadata` | calls `with_pcodec_version` on the key-value metadata | spec section 2 |
@@ -42,7 +42,7 @@ intended change, which must also be listed below.
 
 Unit tests added: `arrow::array_reader::fixed_len_byte_array::tests::test_interval_month_day_nano`; `basic::tests::test_pcodec_compression`; `compression::tests::{test_codec_pcodec,
 test_codec_pcodec_physical_type, test_codec_pcodec_requires_size,
-test_codec_options_physical_type}`; `column::writer::tests::test_column_writer_pcodec_physical_type`;
+test_codec_pcodec_untrusted_size, test_codec_options_physical_type}`; `column::writer::tests::test_column_writer_pcodec_physical_type`;
 `file::writer::tests::test_pcodec_version_metadata` (with its helper `pcodec_kv_metadata`)
 and `file::writer::tests::test_write_metadata_page_indexes`, which pins upstream's page index
 decisions in `write_metadata` (a function the fork changes) so that its mutants are caught.
@@ -61,6 +61,22 @@ decisions in `write_metadata` (a function the fork changes) so that its mutants 
 
 `PcodecCodec::decompress` returns `PcodecCodec unsupported without uncompress_size` for `None`
 (as `LZ4RawCodec` does), tested by `test_codec_pcodec_requires_size`.
+
+### The expected size is untrusted
+
+`uncompressed_page_size` comes from the page header, so a page of a few bytes can claim almost
+2 GiB. Upstream `decode_page` reserves that capacity (`Vec::with_capacity`) for every codec
+before calling it, but writes none of it; upstream's `SNAPPY`, `LZ4_RAW` and `LZ4` (Hadoop)
+codecs then zero-fill the claim with `resize`, and `BROTLI` sizes its buffer by it. The fork
+leaves `decode_page` and those codecs as upstream has them. `PcodecCodec::decompress` appends
+with `tparquet_core::decompress_append`: a RAW body must have the expected length, a ZSTD body
+must be long enough to hold it, and PCO and DECIMAL output grows as the numbers are decoded,
+so the reserved capacity is written only with decoded bytes; a failed allocation is an error.
+`test_codec_pcodec_untrusted_size` checks the output's capacity after such a page, and
+`rust/tparquet/tests/hostile_page.rs` reads such pages through `SerializedPageReader`: the
+peak allocation is upstream's reservation and nothing more, and the resident size does not
+grow by it. That reservation still aborts, as upstream, where the address space cannot hold
+it.
 
 ## Tests
 
