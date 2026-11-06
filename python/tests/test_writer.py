@@ -404,3 +404,35 @@ def test_row_group_size_with_a_writer_and_flush() -> None:
         w.flush()
         w.write(TABLE.slice(40, 60))
     assert ppc.ParquetFile(io.BytesIO(buf.getvalue())).metadata.row_group_rows == [30, 10, 30, 30]
+
+
+def test_an_imported_stream_is_released() -> None:
+    import gc
+    import weakref
+
+    class Batches:
+        """An iterator the stream holds until it is released."""
+
+        def __init__(self, n: int) -> None:
+            self.left = n
+
+        def __iter__(self) -> Batches:
+            return self
+
+        def __next__(self) -> pa.RecordBatch:
+            if not self.left:
+                raise StopIteration
+            self.left -= 1
+            return TABLE.to_batches()[0]
+
+    writes: list[Callable[[pa.RecordBatchReader], object]] = [
+        lambda r: ppc.write_table(r, io.BytesIO()),
+        lambda r: ppc.Writer(io.BytesIO(), TABLE.schema).write(r),
+    ]
+    for write in writes:
+        it = Batches(2)
+        alive = weakref.ref(it)
+        write(pa.RecordBatchReader.from_batches(TABLE.schema, it))
+        del it
+        gc.collect()
+        assert alive() is None
