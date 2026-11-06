@@ -1,4 +1,9 @@
-# tparquet
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="brand/tparquet-logo-dark.svg">
+    <img alt="tparquet" src="brand/tparquet-logo.svg" width="340">
+  </picture>
+</h1>
 
 [![Rust](https://github.com/aperiodic-io/tparquet/actions/workflows/rust.yml/badge.svg)](https://github.com/aperiodic-io/tparquet/actions/workflows/rust.yml)
 [![Go](https://github.com/aperiodic-io/tparquet/actions/workflows/go.yml/badge.svg)](https://github.com/aperiodic-io/tparquet/actions/workflows/go.yml)
