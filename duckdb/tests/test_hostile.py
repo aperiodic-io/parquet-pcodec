@@ -5,6 +5,8 @@ import os
 import random
 
 import duckdb
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 from conftest import FILES
@@ -78,3 +80,16 @@ def test_a_file_that_is_only_the_magic(con, tmp_path):
         p = tmp_path / "magic.parquet"
         p.write_bytes(content)
         check_error(scan(con, p), p)
+
+
+def test_a_decimal_beyond_its_precision_names_the_file(con, tmp_path):
+    # a value the Parquet reader takes but DuckDB refuses (19 digits in DECIMAL(18, 0)), as a
+    # damaged file can hold; the buffers are built by hand, pyarrow would refuse the value
+    values = (10**18).to_bytes(16, "little", signed=True) + (5).to_bytes(16, "little", signed=True)
+    arr = pa.Array.from_buffers(pa.decimal128(18, 0), 2, [None, pa.py_buffer(values)])
+    path = tmp_path / "wide.parquet"
+    pq.write_table(pa.table({"d": arr}), path)
+    message = scan(con, path)
+    assert message is not None
+    check_error(message, path)
+    assert "exceeding width 18" in message

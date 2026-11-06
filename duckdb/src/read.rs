@@ -179,9 +179,12 @@ fn write_batch(batch: &ScanBatch, slots: &[Slot], output: ffi::duckdb_data_chunk
         let mut vector = unsafe { ffi::duckdb_data_chunk_get_vector(output, i as u64) };
         match slot {
             Slot::File { projected, .. } => {
+                // values DuckDB refuses (a decimal wider than its precision, in a damaged file)
+                // are an error of the file
+                let of_file = |e: String| format!("cannot read {}: {e}", batch.file.path.display());
                 let column = &batch.columns[*projected];
-                write_arrow_array_to_vector(column, &mut vector).map_err(|e| e.to_string())?;
-                unsafe { write_intervals(column.as_ref(), vector) }?;
+                write_arrow_array_to_vector(column, &mut vector).map_err(|e| of_file(e.to_string()))?;
+                unsafe { write_intervals(column.as_ref(), vector) }.map_err(of_file)?;
             }
             Slot::Filename => {
                 let flat = vector.flat_vector();
