@@ -225,13 +225,6 @@ def test_a_query_error_names_the_problem(write: Write) -> None:
         lf.select(pl.col("sym") + 1).collect()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,  # the error is raised, without the name
-    reason="tparquet (python/) does not name the file in the errors it raises while reading pages "
-    "('Parquet error: Unexpected list/set element type 14'); the plugin names it only for errors "
-    "in the footer, which it reads when scanning",
-)
 def test_a_corrupt_page_is_named_in_the_error(write: Write, tmp_path: pathlib.Path) -> None:
     good = write("good.parquet", pl.DataFrame({"a": range(100_000)}))
     data = bytearray(good.read_bytes())
@@ -244,13 +237,6 @@ def test_a_corrupt_page_is_named_in_the_error(write: Write, tmp_path: pathlib.Pa
         lf.collect()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="tparquet.polars._source (python/) applies the row limit after the predicate, but Polars "
-    "hands an IO source both for head(n).filter(p) and means the limit first (filter(p).head(n) "
-    "gets no limit): over one file the rows the filter drops are replaced by later rows",
-)
 @pytest.mark.parametrize("engine", ["in-memory", "streaming"])
 @pytest.mark.parametrize(
     "query",

@@ -217,14 +217,37 @@ fn every_valid_vector_decodes_to_its_bytes() {
         assert_eq!(mode_of(&payload), Ok(mode_named(v.get("mode").str())), "{name}");
         seen += 1;
     }
-    assert!(seen >= 14, "only {seen} valid vectors");
+    assert!(seen >= 18, "only {seen} valid vectors");
+}
+
+/// Whether the reference encoder writes this valid vector (`reference_encoding`), or it was
+/// made by hand (a non-minimal varint, a PCO payload without numbers...).
+fn reference_encoding(v: &Json) -> bool {
+    match v.get("reference_encoding") {
+        Json::Bool(b) => *b,
+        other => panic!("{}: reference_encoding is not a boolean: {other:?}", v.get("name").str()),
+    }
+}
+
+#[test]
+fn hand_made_valid_vectors_are_listed_and_marked() {
+    // decoders accept these although no encoder writes them (spec section 4)
+    let valid: Vec<Json> = vectors().into_iter().filter(|v| v.get("valid") == &Json::Bool(true)).collect();
+    let made: Vec<&str> = valid.iter().filter(|v| !reference_encoding(v)).map(|v| v.get("name").str()).collect();
+    assert_eq!(made, ["pco_no_values", "decimal_no_values", "zstd_empty_frame", "varint_overlong"]);
+    for name in made {
+        let v = valid.iter().find(|v| v.get("name").str() == name).unwrap();
+        let input = read(v.get("decoded").str());
+        let opts = Options { level: v.get("level").num() as u8, hint: hint_named(v.get("hint")), decimal: true };
+        assert_ne!(compress(&input, &opts).unwrap(), read(v.get("payload").str()), "{name}");
+    }
 }
 
 #[test]
 fn the_encoder_still_writes_every_valid_vector() {
     // the vectors were written by this encoder (gen-testdata uses compress with decimal on); a
     // change here is an encoder change, which must be deliberate and regenerate the vectors
-    for v in vectors().iter().filter(|v| v.get("valid") == &Json::Bool(true)) {
+    for v in vectors().iter().filter(|v| v.get("valid") == &Json::Bool(true) && reference_encoding(v)) {
         let name = v.get("name").str();
         let opts = Options { level: v.get("level").num() as u8, hint: hint_named(v.get("hint")), decimal: true };
         let input = read(v.get("decoded").str());
@@ -245,7 +268,7 @@ fn every_invalid_vector_fails_with_the_recorded_message() {
         assert_eq!(decompress_into(&payload, &mut dst), Err(err), "{name}");
         seen += 1;
     }
-    assert!(seen >= 20, "only {seen} invalid vectors");
+    assert!(seen >= 26, "only {seen} invalid vectors");
 }
 
 #[test]

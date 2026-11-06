@@ -12,7 +12,10 @@
 
 use crate::ffi::{Val, c_string, drop_box, guard, into_raw, logical_type, owned_val, sql_type};
 use crate::scan::{self, Bound, Local, ReadOptions, Scan, ScanBatch, Slot};
-use crate::types::SqlType;
+use crate::types::{self, SqlType};
+use arrow_array::Array;
+use arrow_array::cast::AsArray;
+use arrow_schema::DataType;
 use duckdb::core::Inserter;
 use duckdb::ffi;
 use duckdb::vtab::arrow::{WritableVector, write_arrow_array_to_vector};
@@ -124,12 +127,64 @@ unsafe extern "C" fn local_init(info: ffi::duckdb_init_info) {
     unsafe { ffi::duckdb_init_set_init_data(info, into_raw(Local::default()), Some(drop_box::<Local>)) };
 }
 
+/// Writes the intervals and durations inside `array` (which the `duckdb` crate has written to
+/// `vector`) again, with their values and NULLs ([`types::intervals`]). The crate writes every
+/// child array whole, from the child vector's row 0, so the rows of nested arrays line up.
+///
+/// # Safety
+/// `vector` is a DuckDB vector of the type of `array` that holds at least its rows.
+unsafe fn write_intervals(array: &dyn Array, vector: ffi::duckdb_vector) -> Result<(), String> {
+    match array.data_type() {
+        DataType::Interval(_) | DataType::Duration(_) => {
+            let values = types::intervals(array)?;
+            unsafe {
+                let data = ffi::duckdb_vector_get_data(vector) as *mut types::Interval;
+                std::ptr::copy_nonoverlapping(values.as_ptr(), data, values.len());
+                ffi::duckdb_vector_ensure_validity_writable(vector);
+                let validity = ffi::duckdb_vector_get_validity(vector);
+                for row in 0..array.len() {
+                    ffi::duckdb_validity_set_row_validity(validity, row as u64, array.is_valid(row));
+                }
+            }
+        }
+        DataType::List(_) => {
+            let values = array.as_list::<i32>().values();
+            unsafe { write_intervals(values.as_ref(), ffi::duckdb_list_vector_get_child(vector)) }?
+        }
+        DataType::LargeList(_) => {
+            let values = array.as_list::<i64>().values();
+            unsafe { write_intervals(values.as_ref(), ffi::duckdb_list_vector_get_child(vector)) }?
+        }
+        DataType::Map(_, _) => {
+            let entries = array.as_map().entries();
+            unsafe { write_intervals(entries, ffi::duckdb_list_vector_get_child(vector)) }?
+        }
+        DataType::FixedSizeList(_, _) => {
+            let values = array.as_fixed_size_list().values();
+            unsafe { write_intervals(values.as_ref(), ffi::duckdb_array_vector_get_child(vector)) }?
+        }
+        DataType::Struct(_) => {
+            for (i, column) in array.as_struct().columns().iter().enumerate() {
+                unsafe { write_intervals(column.as_ref(), ffi::duckdb_struct_vector_get_child(vector, i as u64)) }?;
+            }
+        }
+        // no other type has children
+        _ => {}
+    }
+    Ok(())
+}
+
 fn write_batch(batch: &ScanBatch, slots: &[Slot], output: ffi::duckdb_data_chunk) -> Result<(), String> {
     for (i, slot) in slots.iter().enumerate() {
         let mut vector = unsafe { ffi::duckdb_data_chunk_get_vector(output, i as u64) };
         match slot {
             Slot::File { projected, .. } => {
-                write_arrow_array_to_vector(&batch.columns[*projected], &mut vector).map_err(|e| e.to_string())?;
+                // values DuckDB refuses (a decimal wider than its precision, in a damaged file)
+                // are an error of the file
+                let of_file = |e: String| format!("cannot read {}: {e}", batch.file.path.display());
+                let column = &batch.columns[*projected];
+                write_arrow_array_to_vector(column, &mut vector).map_err(|e| of_file(e.to_string()))?;
+                unsafe { write_intervals(column.as_ref(), vector) }.map_err(of_file)?;
             }
             Slot::Filename => {
                 let flat = vector.flat_vector();

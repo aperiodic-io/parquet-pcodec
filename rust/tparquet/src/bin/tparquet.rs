@@ -64,11 +64,7 @@ fn parse_column(s: &str) -> Result<(String, Policy), String> {
 }
 
 fn parse_codec(s: &str) -> Result<Compression, String> {
-    match s.parse::<Compression>() {
-        Ok(Compression::PCODEC(_)) => Err("the base codec cannot be PCODEC".to_string()),
-        Ok(c) => Ok(c),
-        Err(e) => Err(e.to_string()),
-    }
+    tparquet::parse_base(s).map_err(|e| e.to_string())
 }
 
 fn open(path: &Path) -> Result<File, Error> {

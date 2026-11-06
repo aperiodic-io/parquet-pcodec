@@ -107,6 +107,8 @@ fn write_value(a: &dyn Array, i: usize, out: &mut String) -> Result<()> {
         DataType::List(_) => write_list(a.as_list::<i32>().value(i).as_ref(), out)?,
         DataType::LargeList(_) => write_list(a.as_list::<i64>().value(i).as_ref(), out)?,
         DataType::FixedSizeList(..) => write_list(a.as_fixed_size_list().value(i).as_ref(), out)?,
+        DataType::ListView(_) => write_list(a.as_list_view::<i32>().value(i).as_ref(), out)?,
+        DataType::LargeListView(_) => write_list(a.as_list_view::<i64>().value(i).as_ref(), out)?,
         DataType::Struct(fields) => write_row(fields, a.as_struct().columns(), i, out)?,
         DataType::Map(..) => {
             let entries = a.as_map().value(i);
@@ -152,7 +154,7 @@ mod tests {
     use super::*;
     use arrow_array::builder::*;
     use arrow_array::*;
-    use arrow_buffer::{OffsetBuffer, i256};
+    use arrow_buffer::{NullBuffer, OffsetBuffer, ScalarBuffer, i256};
     use arrow_schema::{Field, Schema};
     use std::sync::Arc;
 
@@ -262,6 +264,23 @@ mod tests {
             None,
         );
         assert_eq!(one(Arc::new(fixed)), ["[6,7]"]);
+        // list views (testdata/README.md: lists of any kind), whose views may overlap
+        let view = ListViewArray::new(
+            Arc::new(Field::new_list_field(DataType::Int64, true)),
+            ScalarBuffer::from(vec![1, 0, 0]),
+            ScalarBuffer::from(vec![2, 3, 0]),
+            Arc::new(Int64Array::from(vec![Some(8), None, Some(9)])),
+            Some(NullBuffer::from(vec![true, true, false])),
+        );
+        assert_eq!(one(Arc::new(view)), ["[null,9]", "[8,null,9]", "null"]);
+        let large_view = LargeListViewArray::new(
+            Arc::new(Field::new_list_field(DataType::Int8, false)),
+            ScalarBuffer::from(vec![0i64]),
+            ScalarBuffer::from(vec![1i64]),
+            Arc::new(Int8Array::from(vec![3])),
+            None,
+        );
+        assert_eq!(one(Arc::new(large_view)), ["[3]"]);
 
         let s = StructArray::from(vec![
             (Arc::new(Field::new("b", DataType::Int32, false)), Arc::new(Int32Array::from(vec![1])) as ArrayRef),

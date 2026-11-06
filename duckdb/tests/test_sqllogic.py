@@ -10,15 +10,15 @@
     ----
     <rows: values separated by tabs; NULL for null>
 
-`__TESTDATA__` is replaced by the repository's testdata/files directory and `__TEST_DIR__`
-by a fresh temporary directory.
+`__TESTDATA__` is replaced by the repository's testdata/files directory, `__TEST_DIR__`
+by a fresh temporary directory and `__EXTENSION__` by the extension file.
 """
 
 import pathlib
 
 import pytest
 
-from conftest import FILES, connect
+from conftest import FILES, connect, extension_path
 
 SQL_DIR = pathlib.Path(__file__).parent / "sql"
 
@@ -58,6 +58,7 @@ def show(v) -> str:
 def test_sql_file(path, tmp_path):
     con = connect()
     text = path.read_text().replace("__TESTDATA__", str(FILES)).replace("__TEST_DIR__", str(tmp_path))
+    text = text.replace("__EXTENSION__", extension_path())
     count = 0
     for kind, sql, expected in records(text):
         count += 1
