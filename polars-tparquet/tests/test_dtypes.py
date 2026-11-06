@@ -60,6 +60,16 @@ COLUMNS: dict[str, pl.Series] = {
         ],
         dtype=pl.Array(pl.Float64, (2, 2)),
     ),
+    "Map(Int32, Float64)": pl.Series(
+        [
+            [{"key": 1, "value": 2.5}, {"key": 2, "value": None}],
+            None,
+            [],
+            [{"key": -1, "value": -0.0}],
+            [{"key": 0, "value": 1.0}],
+        ],
+        dtype=pl.List(pl.Struct({"key": pl.Int32, "value": pl.Float64})),
+    ).cast(pl.Map(pl.Int32, pl.Float64)),
     "Struct": pl.Series([{"x": 1, "y": "a"}, None, {"x": None, "y": None}, {"x": 3, "y": "c"}, {"x": 4, "y": "d"}]),
     "Struct(List, Struct)": pl.Series(
         [
