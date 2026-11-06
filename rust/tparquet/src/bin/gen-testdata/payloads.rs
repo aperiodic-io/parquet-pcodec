@@ -82,21 +82,6 @@ fn varint(mut v: u64, out: &mut Vec<u8>) {
     out.push(v as u8);
 }
 
-/// `v` as a varint of exactly `len` bytes: the minimal form padded with continuation bytes
-/// that carry zero bits (non-minimal when `len` is more than the minimal length).
-fn varint_of_len(mut v: u64, len: usize) -> Vec<u8> {
-    let mut out: Vec<u8> = (0..len)
-        .map(|_| {
-            let b = (v & 0x7f) as u8 | 0x80;
-            v >>= 7;
-            b
-        })
-        .collect();
-    assert_eq!(v, 0, "{len} bytes are too few");
-    *out.last_mut().expect("len > 0") &= 0x7f;
-    out
-}
-
 /// `v` as a minimal varint
 fn minimal(v: u64) -> Vec<u8> {
     let mut out = vec![];
@@ -104,31 +89,40 @@ fn minimal(v: u64) -> Vec<u8> {
     out
 }
 
-/// Reads one minimal varint from the front of `p`, advancing it.
-fn read_varint(p: &mut &[u8]) -> u64 {
-    let mut v = 0;
-    for i in 0.. {
-        let (&b, rest) = p.split_first().expect("a varint");
-        *p = rest;
-        v |= u64::from(b & 0x7f) << (7 * i);
-        if b < 0x80 {
-            break;
-        }
+/// `v` as a varint of exactly `len` bytes: the minimal form padded with continuation bytes
+/// that carry zero bits (non-minimal when `len` is more than the minimal length).
+fn varint_of_len(v: u64, len: usize) -> Vec<u8> {
+    let mut out = minimal(v);
+    assert!(out.len() <= len, "{len} bytes are too few for {v}");
+    while out.len() < len {
+        // the last byte is below 0x80: this sets its continuation bit
+        *out.last_mut().expect("a varint has a byte") += 0x80;
+        out.push(0);
     }
-    v
+    out
 }
 
-/// A DECIMAL payload with its exception count and positions rewritten by `count` and
-/// `position` (index, delta), which return the varint bytes.
-fn rewrite_decimal(dec: &[u8], count: impl Fn(u64) -> Vec<u8>, position: impl Fn(usize, u64) -> Vec<u8>) -> Vec<u8> {
-    let mut p = &dec[4..];
-    let k = read_varint(&mut p);
+/// A DECIMAL payload whose exceptions are at `positions`, with its exception count and
+/// position deltas rewritten by `count` and `position` (index, delta), which return the
+/// varint bytes.
+fn rewrite_decimal(
+    dec: &[u8],
+    positions: &[usize],
+    count: impl Fn(u64) -> Vec<u8>,
+    position: impl Fn(usize, u64) -> Vec<u8>,
+) -> Vec<u8> {
+    let deltas: Vec<u64> =
+        (0..positions.len()).map(|j| (positions[j] - if j == 0 { 0 } else { positions[j - 1] + 1 }) as u64).collect();
+    let mut minimal_form = minimal(positions.len() as u64);
+    deltas.iter().for_each(|&d| minimal_form.extend(minimal(d)));
+    let body = 4 + minimal_form.len();
+    assert_eq!(dec[4..body], minimal_form, "the exceptions of the payload");
     let mut out = dec[..4].to_vec();
-    out.extend(count(k));
-    for i in 0..k as usize {
-        out.extend(position(i, read_varint(&mut p)));
+    out.extend(count(positions.len() as u64));
+    for (i, &d) in deltas.iter().enumerate() {
+        out.extend(position(i, d));
     }
-    out.extend_from_slice(p);
+    out.extend_from_slice(&dec[body..]);
     out
 }
 
@@ -142,7 +136,8 @@ pub fn all() -> Vec<Vector> {
     let prices: Vec<f64> = (0..n).map(|_| (6_000_000 + rng.below(20_000)) as f64 / 100.0).collect();
     let fprices: Vec<f32> = (0..n).map(|_| (100_000 + rng.below(40_000)) as f32 / 100.0).collect();
     let mut with_exc = prices.clone();
-    for i in (3..with_exc.len()).step_by(200) {
+    let exceptions: Vec<usize> = (3..with_exc.len()).step_by(200).collect();
+    for &i in &exceptions {
         with_exc[i] = f64::from_bits(0x7ff8_0000_0000_0000 + i as u64);
     }
     let random: Vec<u8> = (0..4096).map(|_| rng.next() as u8).collect();
@@ -204,12 +199,14 @@ pub fn all() -> Vec<Vector> {
     // longest allowed (10 bytes), each position 1 to 8 bytes longer than it needs, up to 10
     let overlong = rewrite_decimal(
         &dec,
+        &exceptions,
         |k| varint_of_len(k, 10),
         |i, d| varint_of_len(d, (minimal(d).len() + 1 + i % 8).min(10)),
     );
     // the count in 11 bytes, and in 10 bytes whose last one carries more than the top bit
     let too_long = rewrite_decimal(
         &dec,
+        &exceptions,
         |k| {
             let mut b = varint_of_len(k, 10);
             b[9] |= 0x80;
@@ -220,6 +217,7 @@ pub fn all() -> Vec<Vector> {
     );
     let overflow = rewrite_decimal(
         &dec,
+        &exceptions,
         |k| {
             let mut b = varint_of_len(k, 10);
             b[9] = 0x02;
