@@ -391,3 +391,163 @@ def test_bad_option_values(con):
         con.execute(f"SELECT * FROM read_tparquet('{FILES}/mixed.parquet', filename := 'yes please')")
     with pytest.raises(duckdb.BinderException):
         con.execute(f"SELECT * FROM read_tparquet('{FILES}/mixed.parquet', no_such_option := true)")
+
+
+# ---------------------------------------------------------------------------------------------
+# column names
+
+
+def describe(con, sql):
+    return [(r[0], r[1]) for r in con.execute(f"DESCRIBE {sql}").fetchall()]
+
+
+@pytest.mark.parametrize(
+    "names",
+    [["A", "a"], ["x", "x"], ["x", "x", "x_1", "X"], ["id", "ID", "Id", "iD"]],
+    ids=["case", "exact", "suffix-taken", "four"],
+)
+def test_duplicate_column_names_are_renamed_as_read_parquet_does(con, tmp_path, names):
+    p = tmp_path / "dup.parquet"
+    pq.write_table(pa.table([pa.array([i]) for i in range(len(names))], names=names), p)
+    assert describe(con, f"SELECT * FROM read_tparquet('{p}')") == describe(con, f"SELECT * FROM read_parquet('{p}')")
+    assert rows(con, f"SELECT * FROM read_tparquet('{p}')") == [tuple(range(len(names)))]
+
+
+def test_duplicate_struct_field_names_are_renamed_as_read_parquet_does(con, tmp_path):
+    p = tmp_path / "dup.parquet"
+    s = pa.StructArray.from_arrays([pa.array([1]), pa.array([2])], names=["a", "A"])
+    pq.write_table(pa.table({"s": s}), p)
+    assert describe(con, f"SELECT * FROM read_tparquet('{p}')") == describe(con, f"SELECT * FROM read_parquet('{p}')")
+    assert rows(con, f"SELECT s.a, s.A_1 FROM read_tparquet('{p}')") == [(1, 2)]
+
+
+def test_column_names_match_across_files_ignoring_case(con, tmp_path):
+    pq.write_table(pa.table({"Price": [1.0], "qty": [1]}), tmp_path / "a.parquet")
+    pq.write_table(pa.table({"price": [2.0], "QTY": [2]}), tmp_path / "b.parquet")
+    for opts in ["", ", union_by_name := true"]:
+        sql = f"SELECT * FROM read_tparquet('{tmp_path}/*.parquet'{opts})"
+        native = f"SELECT * FROM read_parquet('{tmp_path}/*.parquet'{opts})"
+        assert describe(con, sql) == describe(con, native) == [("Price", "DOUBLE"), ("qty", "BIGINT")]
+        assert sorted(rows(con, sql)) == [(1.0, 1), (2.0, 2)]
+
+
+def test_union_by_name_with_a_column_only_later_files_have_in_another_case(con, tmp_path):
+    pq.write_table(pa.table({"a": [1]}), tmp_path / "1.parquet")
+    pq.write_table(pa.table({"a": [2], "Extra": ["x"]}), tmp_path / "2.parquet")
+    pq.write_table(pa.table({"A": [3], "EXTRA": ["y"]}), tmp_path / "3.parquet")
+    sql = f"SELECT * FROM read_tparquet('{tmp_path}/*.parquet', union_by_name := true)"
+    assert describe(con, sql) == [("a", "BIGINT"), ("Extra", "VARCHAR")]
+    assert sorted(rows(con, sql)) == [(1, None), (2, "x"), (3, "y")]
+
+
+@pytest.mark.parametrize("option", ["filename", "file_row_number"])
+def test_an_extra_column_named_like_a_file_column_in_another_case_is_refused(con, tmp_path, option):
+    p = tmp_path / "f.parquet"
+    pq.write_table(pa.table({option.upper(): [1]}), p)
+    with pytest.raises(duckdb.BinderException, match=f'read_tparquet: the files already have a column "{option}"'):
+        con.execute(f"SELECT * FROM read_tparquet('{p}', {option} := true)")
+
+
+def test_a_file_without_columns_is_refused_clearly(con, tmp_path):
+    p = tmp_path / "nocol.parquet"
+    pq.write_table(pa.table({}), p)
+    with pytest.raises(duckdb.BinderException, match=f"read_tparquet: {p} has no columns"):
+        con.execute(f"SELECT * FROM read_tparquet('{p}')")
+    # not an internal error: the database is still usable, and the extra columns are columns
+    assert rows(con, f"SELECT count(*) FROM read_tparquet('{p}', filename := true)") == [(0,)]
+
+
+# ---------------------------------------------------------------------------------------------
+# intervals and durations
+
+
+def test_durations_keep_their_nulls_and_values(con, tmp_path):
+    big = 2**40
+    t = pa.table(
+        {
+            "s": pa.array([1, -2, None, big], pa.duration("s")),
+            "ms": pa.array([1, -2, None, big * 1000], pa.duration("ms")),
+            "us": pa.array([1, -2, None, 2**62], pa.duration("us")),
+            "ns": pa.array([1500, -1500, None, 2**62], pa.duration("ns")),
+        }
+    )
+    p = tmp_path / "d.parquet"
+    pq.write_table(t, p)
+    assert describe(con, f"SELECT * FROM read_tparquet('{p}')") == [(c, "INTERVAL") for c in t.column_names]
+    us = datetime.timedelta(microseconds=1)
+    assert rows(con, f"SELECT * FROM read_tparquet('{p}')") == [
+        (1_000_000 * us, 1000 * us, us, us),
+        (-2_000_000 * us, -2000 * us, -2 * us, -us),
+        (None, None, None, None),
+        (big * 1_000_000 * us, big * 1_000_000 * us, 2**62 * us, 2**62 // 1000 * us),
+    ]
+
+
+def test_durations_inside_lists_structs_and_maps_keep_their_nulls(con, tmp_path):
+    d = pa.duration("ms")
+    t = pa.table(
+        {
+            "l": pa.array([[1, None, 3], None, [], [None]], pa.list_(d)),
+            "st": pa.array([{"x": 5, "y": 1}, None, {"x": None, "y": 2}, {"x": 7, "y": None}],
+                           pa.struct([("x", d), ("y", pa.int32())])),
+            "m": pa.array([[("a", 1)], [("b", None)], None, []], pa.map_(pa.string(), d)),
+            "ll": pa.array([[[1], None], [[None, 2]], None, [[]]], pa.list_(pa.list_(d))),
+            "lg": pa.array([[None], [4], None, []], pa.large_list(d)),
+            "fixed": pa.array([[1, None], [None, 2], [3, 4], [None, None]], pa.list_(d, 2)),
+        }
+    )
+    p = tmp_path / "nested.parquet"
+    pq.write_table(t, p)
+    ms = datetime.timedelta(milliseconds=1)
+    assert rows(con, f"SELECT * FROM read_tparquet('{p}')") == [
+        ([ms, None, 3 * ms], {"x": 5 * ms, "y": 1}, {"a": ms}, [[ms], None], [None], (ms, None)),
+        (None, None, {"b": None}, [[None, 2 * ms]], [4 * ms], (None, 2 * ms)),
+        ([], {"x": None, "y": 2}, None, None, None, (3 * ms, 4 * ms)),
+        ([None], {"x": 7 * ms, "y": None}, {}, [[]], [], (None, None)),
+    ]
+
+
+def test_a_duration_too_long_for_an_interval_is_an_error(con, tmp_path):
+    p = tmp_path / "long.parquet"
+    pq.write_table(pa.table({"d": pa.array([0, 2**62], pa.duration("s"))}), p)
+    with pytest.raises(duckdb.Error, match="the duration 4611686018427387904 s does not fit in an INTERVAL"):
+        con.execute(f"SELECT * FROM read_tparquet('{p}')").fetchall()
+
+
+def test_null_intervals_from_duckdbs_own_parquet_writer_stay_null(con, tmp_path):
+    p = tmp_path / "iv.parquet"
+    con.execute(
+        f"COPY (SELECT * FROM (VALUES (INTERVAL '3 days 04:05:06.789'), (NULL), (INTERVAL '1 second')) t(v)) "
+        f"TO '{p}' (FORMAT parquet)"
+    )
+    assert rows(con, f"SELECT v FROM read_tparquet('{p}')") == rows(con, f"SELECT v FROM read_parquet('{p}')")
+
+
+def test_intervals_from_duckdbs_own_parquet_writer_keep_their_months(con, tmp_path):
+    p = tmp_path / "iv.parquet"
+    con.execute(
+        "COPY (SELECT * FROM (VALUES (INTERVAL '1 year 2 months 3 days 04:05:06.789', [INTERVAL '5 months'], "
+        "{'i': INTERVAL '1 month 1 day'}), (INTERVAL '1000 hours', [NULL, INTERVAL '30 days'], NULL), "
+        f"(INTERVAL '0 seconds', NULL, {{'i': NULL}})) t(v, l, s)) TO '{p}' (FORMAT parquet)"
+    )
+    sql = "SELECT v::VARCHAR, l::VARCHAR, s::VARCHAR FROM {}('" + str(p) + "')"
+    assert rows(con, sql.format("read_tparquet")) == rows(con, sql.format("read_parquet"))
+    assert rows(con, sql.format("read_tparquet"))[0][0] == "1 year 2 months 3 days 04:05:06.789"
+
+
+def test_paths_from_the_home_directory_as_copy_takes_them(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    con = connect()
+    con.execute("COPY (SELECT 1::BIGINT AS a) TO '~/h.parquet' (FORMAT tparquet, COLUMN_NAMES ['a'])")
+    assert (tmp_path / "h.parquet").is_file()
+    for path in ["'~/h.parquet'", "'~/h*.parquet'", "['~/h.parquet', '~/h.parquet']"]:
+        assert rows(con, f"SELECT a FROM read_tparquet({path})")[0] == (1,), path
+    con.execute("CREATE TABLE t (a BIGINT)")
+    con.execute("COPY t FROM '~/h.parquet' (FORMAT tparquet)")
+    assert rows(con, "SELECT * FROM t") == [(1,)]
+    # only a leading ~ followed by / is the home directory
+    with pytest.raises(duckdb.BinderException, match='no such file: "x~/h.parquet"'):
+        con.execute("SELECT * FROM read_tparquet('x~/h.parquet')")
+    with pytest.raises(duckdb.BinderException, match='no such file: "~h.parquet"'):
+        con.execute("SELECT * FROM read_tparquet('~h.parquet')")
+    con.close()

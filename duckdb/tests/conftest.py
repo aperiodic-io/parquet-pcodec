@@ -14,6 +14,17 @@ import time
 
 import duckdb
 import pytest
+from hypothesis import HealthCheck, settings
+
+_slow_ok = [HealthCheck.too_slow, HealthCheck.function_scoped_fixture, HealthCheck.data_too_large]
+# HYPOTHESIS_PROFILE: "default", "thorough" (more examples; `make thorough`) or "mutation" (few
+# fixed examples: `make mutation` runs the suite once per mutant)
+settings.register_profile("default", max_examples=25, deadline=None, suppress_health_check=_slow_ok)
+settings.register_profile("thorough", max_examples=400, deadline=None, suppress_health_check=_slow_ok)
+settings.register_profile(
+    "mutation", max_examples=8, deadline=None, derandomize=True, database=None, suppress_health_check=_slow_ok
+)
+settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "default"))
 
 
 def _watch_memory(limit_mb: int) -> None:
@@ -103,3 +114,20 @@ def encode(src, dst, policy: str = "pcodec"):
     out = run_cli("encode", src, dst, "--policy", policy)
     assert out.returncode == 0, out.stderr
     return dst
+
+
+def rows(con, sql):
+    return con.execute(sql).fetchall()
+
+
+def describe(con, sql):
+    """(name, type) of every column of the query `sql`."""
+    return [(r[0], r[1]) for r in con.execute(f"DESCRIBE {sql}").fetchall()]
+
+
+def copy_to(con, query, path, **options):
+    """COPY (query) TO path (FORMAT tparquet), naming the columns as the query does."""
+    names = ", ".join("'" + n.replace("'", "''") + "'" for n, _ in describe(con, query))
+    opts = "".join(f", {k} {v}" for k, v in options.items())
+    con.execute(f"COPY ({query}) TO '{path}' (FORMAT tparquet, COLUMN_NAMES [{names}]{opts})")
+    return path

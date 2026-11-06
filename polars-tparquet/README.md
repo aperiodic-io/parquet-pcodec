@@ -98,7 +98,7 @@ pyarrow. Polars has no loadable extensions; this plugin uses its public plugin A
 ## Development
 
 ```
-uv sync --python 3.14                      # builds tparquet from ../python (needs Rust)
+uv sync --python 3.14 --reinstall-package tparquet   # builds tparquet from ../python (needs Rust)
 uv run --no-sync pytest
 uv run --no-sync ruff check src tests scripts && uv run --no-sync mypy
 HYPOTHESIS_PROFILE=mutation TPARQUET_TESTDATA=$PWD/../testdata uv run --no-sync python scripts/mutmut_check.py

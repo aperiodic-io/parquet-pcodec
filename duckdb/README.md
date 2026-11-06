@@ -72,10 +72,16 @@ globs. Named parameters:
 Without `union_by_name` every file must have the schema of the first file (the same column
 names and DuckDB types, in order), or the scan stops with an error naming both files.
 
+**Column names** are case-insensitive, as everywhere in DuckDB: `Price` in one file and `price`
+in another are the same column (named as the first file names it). A file whose columns (or
+struct fields) repeat a name, `x` and `X`, gets the names `read_parquet` gives them: `x`,
+`X_1`.
+
 **Projection pushdown.** Only the columns the query uses are read (`EXPLAIN` shows
-`Projections:`); `count(*)` reads no column at all. **Filters** are applied by DuckDB after the
-scan: the C API does not hand table functions their filters, so there is no row-group skipping
-on statistics.
+`Projections:`). `count(*)` reads one column, the first: DuckDB asks a C API table function,
+which has no row id, for its first column (read_parquet answers `count(*)` from the footer).
+**Filters** are applied by DuckDB after the scan: the C API does not hand table functions their
+filters, so there is no row-group skipping on statistics.
 
 **Parallelism.** The scan's unit of work is a row group. DuckDB's threads take row groups from
 a shared queue that walks the files in order (opening each footer once); `max_threads` is the
@@ -89,7 +95,7 @@ vector (2048 rows) at a time; pages are read as needed. Reading 400 MB of values
 test keeps the process's peak RSS where it was before the scan (97 MB).
 
 **Files.** Local files only (`std::fs`); DuckDB's virtual file systems (`httpfs`, S3) are not
-used.
+used. A leading `~/` is the home directory, as in `COPY ... TO`.
 
 ### Types
 
@@ -118,6 +124,19 @@ DuckDB stores time-zoned timestamps as UTC instants in microseconds (or nanoseco
 instant in its `TimeZone` setting. Decimals of more than 38 digits and Arrow `Null` columns are
 refused with the column's name.
 
+Parquet `INTERVAL` columns (months, days, milliseconds, as DuckDB's own Parquet writer stores
+them) are read with all three fields, at any depth; durations become microseconds (a duration
+that does not fit in 64-bit microseconds is an error). Where read_tparquet and read_parquet
+differ on DuckDB's own Parquet files: millisecond timestamps stay `TIMESTAMP_MS` (read_parquet
+gives `TIMESTAMP`), `UUID` columns read as their 16 bytes (`BLOB`), and `TIME WITH TIME ZONE`
+as the `TIME` in UTC that DuckDB stored.
+
+**Damaged files** give an error that names the file, also where the Parquet reader panics on a
+damaged page (its level decoder does; the panic is caught). The vendored `parquet` 60.1.0
+cannot read pyarrow's V2 pages of a `FIXED_LEN_BYTE_ARRAY` column (a decimal) under NULL lists:
+it checks the values against the page header's `num_nulls`, which pyarrow writes without the
+NULL list ancestors (`tests/test_properties.py` pins this).
+
 ## Writing: `COPY ... TO ... (FORMAT tparquet, ...)`
 
 DuckDB 2.0's C API has COPY functions in its stable API (`duckdb_create_copy_function`,
@@ -125,7 +144,7 @@ DuckDB 2.0's C API has COPY functions in its stable API (`duckdb_create_copy_fun
 COPY format `tparquet` with a bind, global init, sink and finalize callback. The file is
 written with `tparquet::Writer`, whose `Auto` policy (spec section 6) compares PCODEC and
 the base codec per numeric column on the first batch; the writer holds back the first 128Ki rows
-so that this comparison sees more than one DuckDB vector.
+(or 64 MiB, whichever comes first) so that this comparison sees more than one DuckDB vector.
 
 | option | default | |
 |---|---|---|
@@ -149,6 +168,14 @@ is stable yet: a V2 extension loads only in the exact DuckDB version it was buil
 
 **`ROW_GROUP_ROWS`, not `ROW_GROUP_SIZE`.** DuckDB keeps `ROW_GROUP_SIZE` and
 `ROW_GROUP_SIZE_BYTES` as options of its generic COPY machinery and does not pass them on.
+
+**Partitions and per-thread files.** `PARTITION_BY` works; DuckDB hands the COPY function the
+columns without the partition columns (unless `WRITE_PARTITION_COLUMNS true`), so
+`COLUMN_NAMES` names those. The C API cannot give a COPY function its file extension, so
+`PARTITION_BY` and `PER_THREAD_OUTPUT` write `data_0.` unless `FILE_EXTENSION 'parquet'` is
+given. `read_tparquet` has no `hive_partitioning`: the partition values are in `filename`.
+`FILE_SIZE_BYTES` is refused by DuckDB for this format. A query that fails midway leaves no
+file, and an existing file at the path is kept (DuckDB writes to a temporary file first).
 
 **Order.** The C API sets no parallel execution mode for COPY functions, so DuckDB calls the
 sink from one thread at a time, in the query's order; the conversion of DuckDB vectors to Arrow
@@ -194,6 +221,7 @@ loads in any DuckDB that serves C API v1.5.6 or later v1.x. The entrypoint is
 uv sync --python 3.14          # duckdb/.venv: duckdb 2.0.0, pyarrow, pytest (uv.lock pins hashes)
 make test                      # unit tests, then every SQL test on the extension cargo built
 make sql                       # the SQL tests on the release build
+make thorough                  # the same with many more generated cases (minutes)
 make mutation                  # cargo mutants on this crate
 ```
 
@@ -207,9 +235,19 @@ make mutation                  # cargo mutants on this crate
   `read_tparquet`, fetched from DuckDB as Arrow and turned into canonical JSON
   (`tests/canonical.py`: float bits through `Array.view`, time-zoned timestamps back to the
   file's unit) equals `testdata/expected/*.jsonl` byte for byte.
-- `tests/test_read.py`, `tests/test_write.py`, `tests/test_acceptance.py`, and the
-  sqllogictest-style `tests/sql/*.test` (run by `tests/test_sqllogic.py`, as DuckDB's C++ runner
-  does not come with the Python package).
+- `tests/test_types.py`: every DuckDB type (with NULLs at every level of nesting) through COPY
+  and back in order, and DuckDB's own Parquet copy of it through read_tparquet and read_parquet.
+- `tests/test_queries.py`: projections, filters, limits, aggregates and joins over a PCODEC file
+  give read_parquet's rows, with 1 and 4 threads, also for generated queries.
+- `tests/test_properties.py` (Hypothesis): generated tables of every pyarrow type, nested, read
+  as read_parquet reads them, through COPY and through the CLI's transcode. The profile is
+  `$HYPOTHESIS_PROFILE`: `default`, `thorough` (`make thorough`) or `mutation` (few fixed
+  examples, set by `make mutation`).
+- `tests/test_hostile.py`: damaged and truncated files give errors that name them.
+- `tests/test_read.py`, `tests/test_write.py`, `tests/test_load.py`, `tests/test_acceptance.py`,
+  and the sqllogictest-style `tests/sql/*.test` (run by `tests/test_sqllogic.py`, as DuckDB's
+  C++ runner does not come with the Python package; `__TESTDATA__`, `__TEST_DIR__` and
+  `__EXTENSION__` are replaced).
 
 ## Distribution
 
