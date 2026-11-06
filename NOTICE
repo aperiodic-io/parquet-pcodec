@@ -28,3 +28,7 @@ listed in java/parquet-java-1.18/FORK.md.
 trino/trino-parquet is a modified copy of the trino-parquet module of Trino 484
 (https://github.com/trinodb/trino), licensed under the Apache License 2.0; its changes are
 listed in trino/trino-parquet/FORK.md.
+
+datafusion/parquet is a modified copy of the Apache Arrow `parquet` crate 59.3.2
+(https://github.com/apache/arrow-rs), licensed under the Apache License 2.0, with its own
+LICENSE.txt and NOTICE.txt; its changes are listed in datafusion/parquet/FORK.md.

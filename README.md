@@ -13,7 +13,7 @@
 **Parquet for time series.** Trade and tick files at about a third of their ZSTD size
 (0.31× in our trades benchmark), lossless, and still Parquet: same schema, row groups, statistics
 and page indexes. Read and write them from Python, pandas, Polars, DuckDB, Go, Rust, Java,
-Spark, Trino, C and C++.
+Spark, Trino, DataFusion, C and C++.
 
 tparquet adds one thing to Parquet: a compression codec, PCODEC, that runs
 [pcodec](https://github.com/pcodec/pcodec) on numeric columns. Prices and sizes that are short
@@ -158,7 +158,8 @@ ARROW_ASSIGN_OR_RAISE(auto table, tparquet::ReadTable("trades.parquet", {"ts", "
 
 Each package's README has the details: [Python](python/README.md),
 [Polars](polars-tparquet/README.md), [Go](go/README.md), [DuckDB](duckdb/README.md),
-[Java and Spark](java/README.md), [Trino](trino/README.md), [C and C++](cpp/README.md).
+[Java and Spark](java/README.md), [Trino](trino/README.md), [DataFusion](datafusion/README.md),
+[C and C++](cpp/README.md).
 
 ## tparquet or Vortex?
 
@@ -189,7 +190,7 @@ Use plain ZSTD Parquet when the files must be read by tools you don't control.
 - Every implementation reads the same conformance vectors in [`testdata/`](testdata/README.md):
   Parquet files with their expected rows in canonical JSON, and page payloads with their decoded
   bytes.
-- Rust, Go, Python, DuckDB, Java and C++ each read the files all of them wrote
+- Rust, Go, Python, DuckDB, Java, C++ and DataFusion each read the files all of them wrote
   ([`acceptance/cross/run.sh`](acceptance/cross/run.sh)), on every pull request; Spark and
   Trino read every vector exactly as they read a standard copy of the same rows.
 - Every package is mutation tested: cargo-mutants for Rust (including the forks' changed
@@ -197,7 +198,8 @@ Use plain ZSTD Parquet when the files must be read by tools you don't control.
   the Arrow C++ fork. A surviving mutant is a missing test.
 - Decoders treat payloads as untrusted (no panics, no unbounded allocation) and are fuzzed
   ([`rust/core/fuzz`](rust/core/fuzz), [`cpp/fuzz`](cpp/fuzz)).
-- The forks are small: arrow-rs `parquet` ([`FORK.md`](rust/parquet/FORK.md)), parquet-java
+- The forks are small: arrow-rs `parquet` 60.1 and 59.3 ([`FORK.md`](rust/parquet/FORK.md),
+  [`FORK.md`](datafusion/parquet/FORK.md)), parquet-java
   1.17 and 1.18 ([`FORK.md`](java/parquet-java/FORK.md)), trino-parquet
   ([`FORK.md`](trino/trino-parquet/FORK.md)) and Arrow C++ ([`FORK.md`](cpp/arrow/FORK.md)).
   Every change is listed and checked against the verified upstream release in CI; upstream
@@ -208,7 +210,7 @@ Use plain ZSTD Parquet when the files must be read by tools you don't control.
 | Where | Package | Notes |
 |---|---|---|
 | Rust | [`rust/tparquet`](rust/tparquet) | writer with automatic codec choice, `transcode`, `inspect`, `verify`, and the `tparquet` CLI |
-| Rust, DataFusion, anything on arrow-rs | [`rust/parquet`](rust/parquet) | a small fork of the arrow-rs `parquet` crate 60.1.0 that adds the codec; changes listed in [`FORK.md`](rust/parquet/FORK.md). Use it with `[patch.crates-io] parquet = { path = ... }` |
+| Rust, anything on arrow-rs 60 | [`rust/parquet`](rust/parquet) | a small fork of the arrow-rs `parquet` crate 60.1.0 that adds the codec; changes listed in [`FORK.md`](rust/parquet/FORK.md). Use it with `[patch.crates-io] parquet = { path = ... }` |
 | Rust, no Parquet | [`rust/core`](rust/core) | the page payload codec alone |
 | C | [`rust/capi`](rust/capi) | C ABI over the core ([`tparquet.h`](rust/capi/include/tparquet.h)) |
 | Go | [`go/`](go) | arrow-go codec plugin (no fork: `compress.RegisterCodec`) and writer helpers |
@@ -216,6 +218,7 @@ Use plain ZSTD Parquet when the files must be read by tools you don't control.
 | DuckDB | [`duckdb/`](duckdb) | loadable extension: `read_tparquet(...)`, `COPY ... (FORMAT tparquet)` |
 | Java, anything on parquet-java | [`java/`](java) | a small fork of parquet-java 1.17.0 (`parquet-format-structures`, `parquet-common`, `parquet-hadoop`; [`FORK.md`](java/parquet-java/FORK.md)), the codec over JNI ([`tparquet-jni`](java/tparquet-jni), [`rust/jni`](rust/jni)), and [`tparquet`](java/tparquet): `TparquetWriter`, `TparquetReader`, canonical rows |
 | Spark | [`java/tparquet-spark`](java/tparquet-spark) | Spark 4.3 reads PCODEC through the parquet-java fork (every reader); the `tparquet` data source writes it ([Java README](java/README.md#spark)) |
+| DataFusion | [`datafusion/`](datafusion) | DataFusion 55.2 (arrow-rs 59) on a fork of the `parquet` crate 59.3.2 ([`FORK.md`](datafusion/parquet/FORK.md)): `STORED AS TPARQUET`, `COPY`/`INSERT` writing PCODEC; `STORED AS PARQUET` and `read_parquet` read PCODEC files, with pruning |
 | Trino | [`trino/`](trino) | Trino 484 reads tparquet through its connectors that use trino-parquet (Hive tested end to end; the script also installs into Iceberg, Delta Lake and Hudi): [`install-tparquet.sh`](trino/install-tparquet.sh) puts forks of trino-parquet 484 ([`FORK.md`](trino/trino-parquet/FORK.md)) and parquet-java 1.18.1 ([`FORK.md`](java/parquet-java-1.18/FORK.md)) into a Trino install |
 | C++ | [`cpp/`](cpp) | a small fork of Apache Arrow C++ 26.0.1 (a patch over the release, [`FORK.md`](cpp/arrow/FORK.md)) and `tparquet::ReadTable`/`WriteTable`/`FileWriter`; CMake package `tparquet` |
 | C | [`rust/cread`](rust/cread) | reader as an Arrow C stream ([`tparquet_read.h`](rust/cread/include/tparquet_read.h)), `libtparquet_read` |
@@ -231,6 +234,7 @@ make polars-test      # the Polars plugin
 make -C duckdb sql    # DuckDB extension
 make java-test        # Java, the parquet-java fork, Spark (JDK 21, Maven)
 make trino-test       # Trino: the trino-parquet fork, conformance, queries through the Hive connector
+make datafusion-test  # DataFusion and its parquet 59.3.2 fork
 make cpp-test         # C++ and the Arrow C++ fork (asan, fuzz-smoke, mutants targets in cpp/)
 make acceptance       # cross-language (needs the Python package, the DuckDB extension, the Java
                       # packages and the C++ library built)

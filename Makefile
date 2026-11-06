@@ -8,7 +8,7 @@ FUZZ_TIME ?= 60
 
 .PHONY: check fmt fmt-check clippy test c-test check-fork testdata testdata-check fuzz-smoke \
 	mutants fork-mutants fork-upstream-tests python-test python-mutants polars-test polars-mutants acceptance \
-	java-test cpp-test trino-test trino-mutants
+	java-test cpp-test trino-test trino-mutants datafusion-test
 
 check: fmt-check clippy test c-test check-fork testdata-check
 
@@ -123,3 +123,7 @@ trino-test:
 
 trino-mutants:
 	$(MAKE) -C trino mutants
+
+# DataFusion (datafusion/README.md): its own Cargo workspace, on a fork of parquet 59.3.2
+datafusion-test:
+	$(MAKE) -C datafusion check

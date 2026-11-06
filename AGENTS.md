@@ -16,6 +16,7 @@
 | `duckdb/` | DuckDB loadable extension |
 | `polars-tparquet/` | Polars plugin package: `scan_tparquet`, `read_tparquet`, `tparquet` namespaces |
 | `java/` | Maven: JNI binding, fork of parquet-java 1.17.0 (`java/parquet-java/FORK.md`), `tparquet` library, Spark data source |
+| `datafusion/` | DataFusion 55.2 connector, its own Cargo workspace on a fork of parquet 59.3.2 (`datafusion/parquet/FORK.md`) |
 | `trino/` | Trino 484: fork of trino-parquet (`trino/trino-parquet/FORK.md`), plugin install script; uses `java/parquet-java-1.18` |
 | `cpp/` | C++ library and the Arrow C++ 26.0.1 fork, a patch over the release (`cpp/arrow/FORK.md`) |
 | `testdata/` | conformance vectors shared by every implementation |
@@ -32,7 +33,7 @@
   the Arrow fork). A surviving mutant is a missing test or dead code: add the test or remove the
   code. Any exclusion carries a comment that says why.
 - **The forks stay small.** Every change is listed in the fork's `FORK.md` and checked against
-  upstream: `scripts/check-fork.sh` (`rust/parquet`), `scripts/check-fork-java.sh`
+  upstream: `scripts/check-fork.sh` (`rust/parquet`, `datafusion/parquet`), `scripts/check-fork-java.sh`
   (`java/parquet-java`, `java/parquet-java-1.18`, `trino/trino-parquet`), `scripts/check-cpp-fork.sh`
   (`cpp/arrow`).
 - **Decoders treat payloads as untrusted.** No panics, no unbounded allocation; fuzz targets in
