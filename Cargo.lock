@@ -3435,12 +3435,14 @@ dependencies = [
  "clap",
  "futures",
  "parquet",
+ "pco",
  "predicates",
  "proptest",
  "serde_json",
  "tempfile",
  "tokio",
  "tparquet-core",
+ "zstd",
 ]
 
 [[package]]

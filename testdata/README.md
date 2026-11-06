@@ -17,11 +17,26 @@ hand; change the generator (`rust/tparquet/src/bin/gen-testdata/`) and regenerat
 | Path | What |
 |---|---|
 | `files/<name>.parquet` | a Parquet file |
-| `files/manifest.json` | per file: description, rows, row groups, the `parquet.pcodec.version` footer value (or `null`), and per leaf column its physical type, codecs, page counts per page type and PCODEC payload modes per page (as `tparquet inspect --json` reports them) |
+| `files/manifest.json` | per file: description, rows, row groups, the `parquet.pcodec.version` footer value (or `null`), and per leaf column its physical type, codecs, page counts per page type and PCODEC pages per payload mode (as `tparquet inspect --json` reports them; see below) |
 | `expected/<name>.jsonl` | the file's rows in canonical JSON (below) |
 | `payloads/<name>.bin` | a PCODEC page payload (spec section 4) |
 | `payloads/<name>.out` | for a valid payload, the bytes it decodes to |
-| `payloads/manifest.json` | per payload: `expected_len` (the size the decoder is given), `valid`, and for a valid one `decoded`, `mode`, and the `hint` and `level` it was encoded with; for an invalid one `error`, the reference decoder's message (informative: other decoders only have to fail) |
+| `payloads/manifest.json` | per payload: `expected_len` (the size the decoder is given), `valid`, and for a valid one `decoded`, `mode`, `hint`, `level` and `reference_encoding`; for an invalid one `error`, the reference decoder's message (informative: other decoders only have to fail) |
+
+A valid payload with `reference_encoding: true` is what the reference encoder writes for
+`decoded` with that `hint` and `level`. One with `false` was made by hand, and no encoder
+writes it, but decoders must accept it: `varint_overlong` (non-minimal varints, spec section
+4), `pco_no_values` and `decimal_no_values` (pcodec files without numbers) and `zstd_empty_frame` (a frame without
+content), the last two for expected size 0 (spec section 3); `hint` and `level` are then
+those a checker re-encodes `decoded` with, which gives another payload.
+
+### Payload modes in the file manifest
+
+The `modes` of a column count its PCODEC pages by the mode byte of their payload: `RAW`,
+`PCO`, `DECIMAL` and `ZSTD`. Two more labels are `tparquet inspect`'s, not payload modes:
+`UNCOMPRESSED` is a `DATA_PAGE_V2` page stored with `is_compressed = false` (no payload at
+all), and `EMPTY` is a page whose expected size is 0 (a V2 page whose values are all null): it
+has a payload, but readers built on arrow-rs never decode it (spec section 3).
 
 The files cover every physical type PCODEC models, required and optional; lists; a nested
 struct; timestamps (ms, us, ns; with and without time zones), date32, time64 and decimals

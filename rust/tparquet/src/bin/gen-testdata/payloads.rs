@@ -40,18 +40,37 @@ fn hint_name(t: Option<PhysicalType>) -> Value {
 }
 
 fn valid(name: &str, input: Vec<u8>, hint: Option<PhysicalType>, level: u8, mode: Mode) -> Vector {
-    let opts = Options { level, hint, decimal: true };
-    let payload = compress(&input, &opts).expect("compress");
-    let got = mode_of(&payload).expect("mode");
-    assert_eq!(got, mode, "{name}: expected {mode:?}, got {got:?}");
-    assert_eq!(decompress(&payload, input.len()).expect("decompress"), input, "{name}");
+    let payload = compress(&input, &Options { level, hint, decimal: true }).expect("compress");
+    decodes(name, &payload, &input, mode);
     Vector {
         name: name.to_string(),
         expected_len: input.len(),
-        meta: json!({ "mode": mode_name(mode), "hint": hint_name(hint), "level": level }),
+        meta: json!({ "mode": mode_name(mode), "hint": hint_name(hint), "level": level, "reference_encoding": true }),
         payload,
         decoded: Some(input),
     }
+}
+
+/// A valid payload made by hand, which the reference encoder does not write for its input
+/// (with `hint` and level 8 it writes another payload; checkers re-encode with those).
+fn made(name: &str, payload: Vec<u8>, decoded: Vec<u8>, hint: Option<PhysicalType>, mode: Mode) -> Vector {
+    decodes(name, &payload, &decoded, mode);
+    let level = tparquet_core::DEFAULT_LEVEL;
+    let reference = compress(&decoded, &Options { level, hint, decimal: true }).expect("compress");
+    assert_ne!(reference, payload, "{name}: the encoder writes this payload");
+    Vector {
+        name: name.to_string(),
+        expected_len: decoded.len(),
+        meta: json!({ "mode": mode_name(mode), "hint": hint_name(hint), "level": level, "reference_encoding": false }),
+        payload,
+        decoded: Some(decoded),
+    }
+}
+
+fn decodes(name: &str, payload: &[u8], decoded: &[u8], mode: Mode) {
+    let got = mode_of(payload).expect("mode");
+    assert_eq!(got, mode, "{name}: expected {mode:?}, got {got:?}");
+    assert_eq!(decompress(payload, decoded.len()).expect("decompress"), decoded, "{name}");
 }
 
 fn invalid(name: &str, payload: Vec<u8>, expected_len: usize) -> Vector {
@@ -65,6 +84,56 @@ fn varint(mut v: u64, out: &mut Vec<u8>) {
         v >>= 7;
     }
     out.push(v as u8);
+}
+
+/// `v` as a varint of exactly `len` bytes: the minimal form padded with continuation bytes
+/// that carry zero bits (non-minimal when `len` is more than the minimal length).
+fn varint_of_len(mut v: u64, len: usize) -> Vec<u8> {
+    let mut out: Vec<u8> = (0..len)
+        .map(|_| {
+            let b = (v & 0x7f) as u8 | 0x80;
+            v >>= 7;
+            b
+        })
+        .collect();
+    assert_eq!(v, 0, "{len} bytes are too few");
+    *out.last_mut().expect("len > 0") &= 0x7f;
+    out
+}
+
+/// `v` as a minimal varint
+fn minimal(v: u64) -> Vec<u8> {
+    let mut out = vec![];
+    varint(v, &mut out);
+    out
+}
+
+/// Reads one minimal varint from the front of `p`, advancing it.
+fn read_varint(p: &mut &[u8]) -> u64 {
+    let mut v = 0;
+    for i in 0.. {
+        let (&b, rest) = p.split_first().expect("a varint");
+        *p = rest;
+        v |= u64::from(b & 0x7f) << (7 * i);
+        if b < 0x80 {
+            break;
+        }
+    }
+    v
+}
+
+/// A DECIMAL payload with its exception count and positions rewritten by `count` and
+/// `position` (index, delta), which return the varint bytes.
+fn rewrite_decimal(dec: &[u8], count: impl Fn(u64) -> Vec<u8>, position: impl Fn(usize, u64) -> Vec<u8>) -> Vec<u8> {
+    let mut p = &dec[4..];
+    let k = read_varint(&mut p);
+    let mut out = dec[..4].to_vec();
+    out.extend(count(k));
+    for i in 0..k as usize {
+        out.extend(position(i, read_varint(&mut p)));
+    }
+    out.extend_from_slice(p);
+    out
 }
 
 pub fn all() -> Vec<Vector> {
@@ -83,6 +152,12 @@ pub fn all() -> Vec<Vector> {
     let random: Vec<u8> = (0..4096).map(|_| rng.next() as u8).collect();
     let text: Vec<u8> = (0..300).flat_map(|i| format!("row {i}: hello pcodec\n").into_bytes()).collect();
 
+    // pcodec files without chunks, and a Zstandard frame without content: no numbers, no bytes
+    let no_numbers = pco::standalone::simple_compress::<i64>(&[], &pco::ChunkConfig::default()).expect("pco");
+    let no_values = [&[1, Mode::Pco as u8, PhysicalType::Int64 as u8][..], &no_numbers].concat();
+    // DOUBLE, exponent 2, no exceptions
+    let no_decimals = [&[1, Mode::Decimal as u8, PhysicalType::Double as u8, 2, 0][..], &no_numbers].concat();
+    let empty_frame = [&[1, Mode::Zstd as u8][..], &zstd::bulk::compress(&[], 3).expect("zstd")].concat();
     let mut v = vec![
         valid("raw_empty", vec![], Some(PhysicalType::Int64), 8, Mode::Raw),
         valid("raw_random", random.clone(), Some(PhysicalType::Int64), 8, Mode::Raw),
@@ -99,12 +174,18 @@ pub fn all() -> Vec<Vector> {
         valid("zstd_no_hint", text.clone(), None, 8, Mode::Zstd),
         valid("zstd_width_mismatch", text[..text.len() / 8 * 8 - 5].to_vec(), Some(PhysicalType::Int64), 8, Mode::Zstd),
     ];
+    v.extend([
+        made("pco_no_values", no_values, vec![], Some(PhysicalType::Int64), Mode::Pco),
+        made("decimal_no_values", no_decimals, vec![], Some(PhysicalType::Double), Mode::Decimal),
+        made("zstd_empty_frame", empty_frame, vec![], None, Mode::Zstd),
+    ]);
     let get = |v: &[Vector], name: &str| v.iter().find(|x| x.name == name).expect("vector").payload.clone();
     let pco = get(&v, "pco_int64");
     let pco_len = smooth_i64.len() * 8;
     let dec = get(&v, "decimal_exceptions");
     let dec_len = with_exc.len() * 8;
     let zstd = get(&v, "zstd_no_hint");
+    let dec_out = v.iter().find(|x| x.name == "decimal_exceptions").expect("vector").decoded.clone().expect("valid");
 
     let with_byte = |p: &[u8], i: usize, b: u8| {
         let mut p = p.to_vec();
@@ -122,6 +203,34 @@ pub fn all() -> Vec<Vector> {
     varint(1000, &mut many);
     let mut short_exc = vec![1, 2, 5, 2, 1, 0];
     short_exc.extend([0; 3]);
+    let trailing = |p: &[u8]| [p, &[0, 0, 0][..]].concat();
+    // every varint of `decimal_exceptions` in a longer form than needed: the count in the
+    // longest allowed (10 bytes), each position 1 to 8 bytes longer than it needs, up to 10
+    let overlong = rewrite_decimal(
+        &dec,
+        |k| varint_of_len(k, 10),
+        |i, d| varint_of_len(d, (minimal(d).len() + 1 + i % 8).min(10)),
+    );
+    // the count in 11 bytes, and in 10 bytes whose last one carries more than the top bit
+    let too_long = rewrite_decimal(
+        &dec,
+        |k| {
+            let mut b = varint_of_len(k, 10);
+            b[9] |= 0x80;
+            b.push(0);
+            b
+        },
+        |_, d| minimal(d),
+    );
+    let overflow = rewrite_decimal(
+        &dec,
+        |k| {
+            let mut b = varint_of_len(k, 10);
+            b[9] = 0x02;
+            b
+        },
+        |_, d| minimal(d),
+    );
 
     v.extend([
         invalid("empty_payload", vec![], 0),
@@ -145,6 +254,12 @@ pub fn all() -> Vec<Vector> {
         invalid("zstd_too_short", zstd.clone(), text.len() + 1),
         invalid("zstd_too_long", zstd.clone(), text.len() - 1),
         invalid("zstd_corrupt", with_byte(&zstd, 2, zstd[2] ^ 0xff), text.len()),
+        invalid("zstd_empty_body", vec![1, 3], 0),
+        invalid("pco_trailing_bytes", trailing(&pco), pco_len),
+        invalid("decimal_trailing_bytes", trailing(&dec), dec_len),
+        invalid("varint_too_long", too_long, dec_len),
+        invalid("varint_overflow", overflow, dec_len),
     ]);
+    v.push(made("varint_overlong", overlong, dec_out, Some(PhysicalType::Double), Mode::Decimal));
     v
 }

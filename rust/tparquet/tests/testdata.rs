@@ -160,7 +160,7 @@ fn payload_vectors_decode_or_fail() {
             invalid += 1;
         }
     }
-    assert_eq!((valid, invalid), (14, 21));
+    assert_eq!((valid, invalid), (18, 26));
 }
 
 /// Copies `files/` and `expected/` of `from` into `to`.

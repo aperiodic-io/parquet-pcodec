@@ -75,8 +75,16 @@ def test_valid_payload(v: dict[str, Any]) -> None:
     assert len(decoded) == v["expected_len"]
     assert codec.decompress(payload, v["expected_len"]) == decoded
     assert codec.mode(payload) == v["mode"]
-    # the reference encoder (which this package wraps) writes the vector exactly
-    assert codec.compress(decoded, hint=v["hint"], level=v["level"]) == payload
+    # the reference encoder (which this package wraps) writes the vector exactly, unless the
+    # payload was made by hand (a non-minimal varint, a PCO payload without numbers...)
+    encoded = codec.compress(decoded, hint=v["hint"], level=v["level"])
+    assert (encoded == payload) is v["reference_encoding"]
+
+
+def test_hand_made_payloads() -> None:
+    # valid payloads no encoder writes, which decoders accept (spec section 4)
+    made = [p["name"] for p in VALID if not p["reference_encoding"]]
+    assert made == ["pco_no_values", "decimal_no_values", "zstd_empty_frame", "varint_overlong"]
 
 
 @pytest.mark.parametrize("v", INVALID, ids=[p["name"] for p in INVALID])
