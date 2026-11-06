@@ -163,8 +163,8 @@ regular `q` there (0 before the first) to keep the pcodec stream smooth.
 
 `body` is Zstandard data (RFC 8878): one frame, or several concatenated, as written by the
 Parquet `ZSTD` codec. It decodes to the expected size; a decoder MUST NOT produce more output
-than that. An empty body holds no frame: a decoder MUST reject it, even for expected size 0
-(a frame without content, `28 b5 2f fd 20 00 01 00 00`, is how ZSTD mode says zero bytes).
+than that. An empty body holds no frame: a decoder MUST reject it, even for expected size 0.
+In ZSTD mode, zero bytes are a frame without content, such as `28 b5 2f fd 20 00 01 00 00`.
 
 ## 5. Encoder (informative)
 
