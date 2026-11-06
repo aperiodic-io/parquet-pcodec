@@ -1,13 +1,19 @@
 package tparquet_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
+	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/apache/arrow-go/v18/arrow/array"
+	"github.com/apache/arrow-go/v18/arrow/memory"
+	"github.com/apache/arrow-go/v18/parquet"
 	"github.com/apache/arrow-go/v18/parquet/compress"
 	"github.com/apache/arrow-go/v18/parquet/file"
 
@@ -39,16 +45,20 @@ type fileManifest struct {
 	} `json:"files"`
 }
 
-// payloadSpy records the payload mode of every page arrow-go decodes.
+// payloadSpy records the payload mode of every page arrow-go decodes, as tparquet inspect
+// names them: EMPTY for a page of expected size 0 (whatever its payload: arrow-go decodes
+// it, readers built on arrow-rs do not), else the mode byte.
 type payloadSpy struct {
 	compress.ErrorCodec
 	modes []string
+	empty [][]byte // the payloads of the EMPTY pages
 }
 
 func (s *payloadSpy) DecodeWithError(dst, src []byte) ([]byte, error) {
 	switch {
-	case len(src) == 0:
+	case len(dst) == 0:
 		s.modes = append(s.modes, "EMPTY")
+		s.empty = append(s.empty, slices.Clone(src))
 	case len(src) < 2 || int(src[1]) >= 4:
 		s.modes = append(s.modes, "INVALID")
 	default:
@@ -167,4 +177,72 @@ func TestRustFilesMatchTheManifest(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestPagesWithoutValuesHaveAPayload: a V2 page whose values are all null has an empty
+// values section, which the Go writer still compresses, to the payload RAW 01 00 (spec
+// section 3: a writer must write a valid payload for expected size 0), and reads back.
+func TestPagesWithoutValuesHaveAPayload(t *testing.T) {
+	sc := arrow.NewSchema([]arrow.Field{{Name: "x", Type: arrow.PrimitiveTypes.Int64, Nullable: true}}, nil)
+	b := array.NewInt64Builder(memory.DefaultAllocator)
+	defer b.Release()
+	for i := 0; i < 3000; i++ {
+		if i >= 2000 {
+			b.Append(int64(i))
+		} else {
+			b.AppendNull()
+		}
+	}
+	col := b.NewArray()
+	defer col.Release()
+	rec := array.NewRecordBatch(sc, []arrow.Array{col}, 3000)
+	defer rec.Release()
+	var buf bytes.Buffer
+	w, err := tparquet.NewFileWriter(sc, &buf, tparquet.WithDefaultPolicy(tparquet.Pcodec),
+		tparquet.WithWriterProperties(parquet.WithMaxRowGroupLength(1000)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Write(rec); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	real, _ := compress.GetCodec(tparquet.Compression)
+	spy := &payloadSpy{ErrorCodec: real.(compress.ErrorCodec)}
+	compress.RegisterCodec(tparquet.Compression, spy)
+	t.Cleanup(func() { compress.RegisterCodec(tparquet.Compression, real) })
+	rdr, err := file.NewParquetReader(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rdr.Close()
+	// arrow-go ends a page by the size of its values: the row groups of nulls make the pages
+	pages := 0
+	for g := 0; g < rdr.NumRowGroups(); g++ {
+		pr, err := rdr.RowGroup(g).GetColumnPageReader(0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for pr.Next() {
+			if _, ok := pr.Page().(*file.DataPageV2); !ok {
+				t.Fatalf("a %T page", pr.Page())
+			}
+			pages++
+		}
+		if err := pr.Err(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(spy.empty) != 2 || pages != 3 {
+		t.Fatalf("%d pages, %d of them without values", pages, len(spy.empty))
+	}
+	for _, p := range spy.empty {
+		if !bytes.Equal(p, []byte{1, 0}) {
+			t.Fatalf("the payload of a page without values is % x, want 01 00", p)
+		}
+	}
+	assertSameData(t, buf.Bytes(), rec)
 }

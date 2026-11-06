@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 from typing import TYPE_CHECKING
 
 import pyarrow as pa
@@ -312,8 +313,13 @@ def test_bad_path_types(numbers: pa.Table) -> None:
         ppc.read_table(42)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match=r"^expected a path or a binary file object, got int$"):
         ppc.write_table(numbers, 42)  # type: ignore[arg-type]
+
+    class Text:
+        def read(self) -> str:
+            return "PAR1"
+
     with pytest.raises(TypeError, match=r"^the file object must return bytes from read\(\), got str$"):
-        ppc.read_table(io.StringIO("PAR1"))  # type: ignore[arg-type]
+        ppc.read_table(Text())  # type: ignore[arg-type]
 
 
 def test_missing_file_is_os_error(tmp_path: pathlib.Path) -> None:
@@ -667,3 +673,134 @@ def test_stream_options_are_passed_on(tmp_path: pathlib.Path, numbers: pa.Table)
 
 def test_version() -> None:
     assert ppc.__version__ == "0.1.0"
+
+
+def test_text_mode_files_are_refused_with_a_type_error(tmp_path: pathlib.Path, numbers: pa.Table) -> None:
+    path = tmp_path / "t.parquet"
+    ppc.write_table(numbers, path)
+    with (
+        open(path) as text,
+        pytest.raises(
+            TypeError,
+            match=r"^expected a binary file object, got a text file \(TextIOWrapper\), which holds str, not bytes: open it in binary mode \('rb'\)$",
+        ),
+    ):
+        ppc.read_table(text)  # type: ignore[arg-type]
+    with pytest.raises(
+        TypeError,
+        match=r"^expected a binary file object, got a text file \(StringIO\), which holds str, not bytes: open it in binary mode \('wb'\)$",
+    ):
+        ppc.write_table(numbers, io.StringIO())  # type: ignore[arg-type]
+    with open(tmp_path / "w.parquet", "w") as text, pytest.raises(TypeError, match=r"\('wb'\)$"):
+        ppc.Writer(text, numbers.schema)  # type: ignore[arg-type]
+
+
+def test_paths_that_are_not_utf_8(tmp_path: pathlib.Path, numbers: pa.Table) -> None:
+    raw = os.fsencode(tmp_path) + b"/caf\xe9.parquet"
+    for sink in (raw, os.fsdecode(raw)):
+        assert ppc.write_table(numbers, sink)["i64"] == "PCODEC"
+        assert ppc.read_table(raw).equals(numbers)
+        os.remove(raw)
+    with ppc.Writer(raw, numbers.schema) as w:
+        w.write(numbers)
+    assert ppc.read_table(os.fsdecode(raw)).equals(numbers)
+    out = os.fsencode(tmp_path) + b"/out\xff.parquet"
+    ppc.transcode(raw, out, target="standard")
+    with open(out, "rb") as f:
+        assert pq.read_table(f).equals(numbers)
+    # an aborted writer removes the file it created
+    w = ppc.Writer(os.fsdecode(out), numbers.schema)
+    w.abort()
+    assert not os.path.exists(out)
+
+
+def test_a_file_replaced_after_it_was_opened_reads_as_opened(tmp_path: pathlib.Path, numbers: pa.Table) -> None:
+    path = tmp_path / "t.parquet"
+    ppc.write_table(numbers, path, row_group_size=500)
+    f = ppc.ParquetFile(path)
+    stream = f.stream(columns=["i64"])
+    # replaced (a new file renamed over it) and removed: what was opened is still read
+    other = tmp_path / "other.parquet"
+    ppc.write_table(numbers.slice(0, 10).select(["s"]), other)
+    os.replace(other, path)
+    assert f.read().equals(numbers)
+    assert pa.RecordBatchReader.from_stream(stream).read_all().equals(numbers.select(["i64"]))
+    assert ppc.inspect(path)["rows"] == 10
+    os.remove(path)
+    assert f.read(row_groups=[3]).equals(numbers.slice(1500))
+    assert f.metadata.num_rows == 2000
+
+
+def test_page_errors_name_the_file(tmp_path: pathlib.Path) -> None:
+    good = tmp_path / "good.parquet"
+    ppc.write_table(pa.table({"a": pa.array(range(100_000), pa.int64())}), good)
+    data = bytearray(good.read_bytes())
+    for i in range(100, 400):  # in the first page, past its header
+        data[i] ^= 0x5A
+    bad = tmp_path / "bad.parquet"
+    bad.write_bytes(bytes(data))
+    with pytest.raises(ppc.PcodecError, match=rf"^{re.escape(str(bad))}: "):
+        ppc.read_table(bad)
+    with pytest.raises(ppc.PcodecError, match=rf"^{re.escape(str(bad))}: "):
+        next(iter(ppc.read_batches(bad)))
+    with pytest.raises(pa.ArrowException, match=re.escape(str(bad))):
+        pa.RecordBatchReader.from_stream(ppc.read_batches(bad)).read_all()
+    # a file read into memory has no name
+    with pytest.raises(ppc.PcodecError) as e:
+        ppc.read_table(io.BytesIO(bytes(data)))
+    assert str(bad) not in str(e.value)
+
+
+@pytest.mark.parametrize("base", ["zstd(", "zstd(3", "zstd(3x", "gzip(é", "zstd)(", "("])
+def test_malformed_base_codecs_are_pcodec_errors(tmp_path: pathlib.Path, numbers: pa.Table, base: str) -> None:
+    # the parquet crate's parser panics on some of these (a PanicException is not an Exception)
+    message = re.escape(f"base codec {base!r}: expected NAME or NAME(LEVEL)".replace("'", '"'))
+    with pytest.raises(ppc.PcodecError, match=f"^{message}$"):
+        ppc.write_table(numbers, tmp_path / "x.parquet", base=base)
+    with pytest.raises(ppc.PcodecError, match=f"^{message}$"):
+        ppc.transcode(vector("standard_control"), tmp_path / "y.parquet", target="standard", base=base)
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    "base",
+    [
+        "snappy",
+        "gzip(1)",
+        "gzip(9)",
+        "brotli(0)",
+        "brotli(11)",
+        "lz4",
+        "lz4_raw",
+        "zstd(1)",
+        "zstd(22)",
+        "uncompressed",
+        "SNAPPY",
+        "ZSTD(3)",
+    ],
+)
+def test_every_base_codec_is_written(numbers: pa.Table, base: str) -> None:
+    buf = io.BytesIO()
+    choice = ppc.write_table(numbers, buf, policy="base", base=base)
+    assert set(choice.values()) == {base.split("(")[0].upper()}
+    assert ppc.read_table(io.BytesIO(buf.getvalue())).equals(numbers)
+    assert pq.read_table(io.BytesIO(buf.getvalue())).equals(numbers)
+
+
+def test_lzo_is_refused(tmp_path: pathlib.Path, numbers: pa.Table) -> None:
+    with pytest.raises(ppc.PcodecError, match=r"^the base codec cannot be LZO: no Parquet writer implements it$"):
+        ppc.write_table(numbers, tmp_path / "x.parquet", base="lzo")
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_integer_bounds_leave_out_paths_that_name_two_leaves(tmp_path: pathlib.Path) -> None:
+    inner = pa.StructArray.from_arrays([pa.array(range(1000, 1010), pa.int64())], ["b"])
+    path = tmp_path / "d.parquet"
+    ppc.write_table(pa.table({"a.b": pa.array(range(10), pa.int64()), "a": inner, "c": pa.array(range(10))}), path)
+    # "a.b" is the top-level column and the leaf b of the struct a: whose bounds would it be?
+    assert ppc.ParquetFile(path).integer_bounds() == [{"c": (0, 9)}]
+    ppc.write_table(pa.table({"a": inner, "x": pa.array(range(10), pa.int32())}), path, row_group_size=5)
+    assert ppc.ParquetFile(path).integer_bounds() == [
+        {"a.b": (1000, 1004), "x": (0, 4)},
+        {"a.b": (1005, 1009), "x": (5, 9)},
+    ]

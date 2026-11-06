@@ -101,6 +101,12 @@ def float_bits(s: pl.Series) -> list[int | None]:
     return bits
 
 
+def _entries(dtype: pl.Map) -> pl.List:
+    """A map as canonical JSON writes it: a list of its entries, `{"key":...,"value":...}`, in
+    stored order (a Map value in Python is a dict, which would lose duplicates and the order)."""
+    return pl.List(pl.Struct({"key": dtype.key, "value": dtype.value}))
+
+
 def _stored(e: pl.Expr, dtype: DType) -> pl.Expr:
     """`e` with every value as canonical JSON stores it: floats as their bits, temporal values
     and decimals as their stored integer, dictionaries decoded; nesting kept."""
@@ -112,6 +118,8 @@ def _stored(e: pl.Expr, dtype: DType) -> pl.Expr:
         return e.to_physical()
     if isinstance(dtype, (pl.Categorical, pl.Enum)):
         return e.cast(pl.String)
+    if isinstance(dtype, pl.Map):
+        return _stored(e.cast(_entries(dtype)), _entries(dtype))
     if isinstance(dtype, (pl.List, pl.Array)):
         inner = dtype.inner
         assert inner is not None
@@ -136,6 +144,8 @@ def _json(value: Any, dtype: DType) -> str:
         return str(int(value))
     if dtype == pl.Binary:
         return json.dumps(base64.b64encode(value).decode())
+    if isinstance(dtype, pl.Map):
+        return _json(value, _entries(dtype))
     if isinstance(dtype, (pl.List, pl.Array)):
         inner = dtype.inner
         assert inner is not None

@@ -78,7 +78,9 @@ func TestCheckPayloads(t *testing.T) {
 	data := le64s(ints...)
 	pco := c.EncodeLevel(nil, data, tparquet.Level(parquet.Types.Int64, 8))
 	zstd := c.EncodeLevel(nil, data, compress.DefaultCompressionLevel)
-	files := map[string][]byte{"pco.bin": pco, "zstd.bin": zstd, "data.out": data, "other.out": data[8:],
+	// a hand-made RAW payload of data, for which the encoder writes PCO
+	raw := append([]byte{1, 0}, data...)
+	files := map[string][]byte{"pco.bin": pco, "zstd.bin": zstd, "raw.bin": raw, "data.out": data, "other.out": data[8:],
 		"bad.bin": {9, 0}}
 	entry := func(name, payload string, valid bool, extra map[string]any) map[string]any {
 		e := map[string]any{"name": name, "payload": payload, "expected_len": len(data), "valid": valid}
@@ -91,9 +93,13 @@ func TestCheckPayloads(t *testing.T) {
 		entry("pco", "pco.bin", true, map[string]any{"decoded": "data.out", "mode": "PCO", "hint": "INT64", "level": 8}),
 		entry("zstd", "zstd.bin", true, map[string]any{"decoded": "data.out", "mode": "ZSTD", "hint": nil, "level": 8}),
 		entry("bad", "bad.bin", false, nil),
+		entry("made", "raw.bin", true, map[string]any{"decoded": "data.out", "mode": "RAW", "hint": "INT64", "level": 8,
+			"reference_encoding": false}),
+		entry("pco_marked", "pco.bin", true, map[string]any{"decoded": "data.out", "mode": "PCO", "hint": "INT64", "level": 8,
+			"reference_encoding": true}),
 	}
 	n, err := CheckPayloads(writePayloads(t, 1, good, files))
-	if err != nil || n != 3 {
+	if err != nil || n != 5 {
 		t.Fatalf("CheckPayloads: %d, %v", n, err)
 	}
 
@@ -111,6 +117,12 @@ func TestCheckPayloads(t *testing.T) {
 			"e7: encodes in mode PCO, the manifest says DECIMAL"},
 		{entry("e8", "zstd.bin", true, map[string]any{"decoded": "data.out", "hint": nil, "mode": "PCO", "level": 8}),
 			"e8: encodes in mode ZSTD, the manifest says PCO"},
+		// a hand-made payload still has to decode to its bytes
+		{entry("e9", "raw.bin", true, map[string]any{"decoded": "other.out", "mode": "RAW", "reference_encoding": false}),
+			"e9: decodes to other bytes than other.out"},
+		// and one the encoder writes is checked
+		{entry("e10", "raw.bin", true, map[string]any{"decoded": "data.out", "hint": "INT64", "mode": "RAW", "level": 8,
+			"reference_encoding": true}), "e10: encodes in mode PCO, the manifest says RAW"},
 	}
 	var entries []map[string]any
 	for _, tc := range cases {

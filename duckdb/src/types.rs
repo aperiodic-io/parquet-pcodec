@@ -126,6 +126,32 @@ impl fmt::Display for SqlType {
     }
 }
 
+/// The names DuckDB gives columns (or struct fields) named `names`: names are case-insensitive
+/// there, so a repeated name gets `_1`, `_2`, ... (the first suffix that is free), as
+/// `QueryResult::DeduplicateColumns` does for `read_parquet`.
+pub fn deduplicate(names: Vec<String>) -> Vec<String> {
+    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let total = names.len();
+    let mut out = Vec::with_capacity(total);
+    for name in names {
+        let low = name.to_ascii_lowercase();
+        let Some(&count) = seen.get(&low) else {
+            seen.insert(low, 1);
+            out.push(name);
+            continue;
+        };
+        // the first free suffix from `count` on: one of the next `total` is free, as each name
+        // before this one took one name
+        let free = |n: &usize| !seen.contains_key(&format!("{name}_{n}").to_ascii_lowercase());
+        let suffix = (count..).take(total).find(free).unwrap_or(count);
+        let renamed = format!("{name}_{suffix}");
+        seen.insert(low, suffix);
+        seen.insert(renamed.to_ascii_lowercase(), 1);
+        out.push(renamed);
+    }
+    out
+}
+
 /// Largest DuckDB decimal width.
 pub const MAX_DECIMAL_WIDTH: u8 = 38;
 
@@ -187,13 +213,12 @@ impl SqlType {
                 let n = usize::try_from(*n).map_err(|_| format!("invalid fixed-size list length {n}"))?;
                 Self::Array(Box::new(Self::from_arrow_type(f.data_type())?), n)
             }
-            DataType::Struct(fields) => Self::Struct(
-                fields.iter().map(|f| Ok((f.name().clone(), Self::from_arrow_type(f.data_type())?))).collect::<Result<
-                    _,
-                    String,
-                >>(
-                )?,
-            ),
+            DataType::Struct(fields) => {
+                let names = deduplicate(fields.iter().map(|f| f.name().clone()).collect());
+                let types =
+                    fields.iter().map(|f| Self::from_arrow_type(f.data_type())).collect::<Result<Vec<_>, _>>()?;
+                Self::Struct(names.into_iter().zip(types).collect())
+            }
             DataType::Map(entries, _) => match entries.data_type() {
                 DataType::Struct(kv) if kv.len() == 2 => Self::Map(
                     Box::new(Self::from_arrow_type(kv[0].data_type())?),
@@ -259,6 +284,75 @@ impl SqlType {
                 return Err(format!("columns of type {self} cannot be written to Parquet by this extension"));
             }
         })
+    }
+}
+
+/// DuckDB's `interval_t`, the layout of an `INTERVAL` vector's values.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Interval {
+    pub months: i32,
+    pub days: i32,
+    pub micros: i64,
+}
+
+/// The DuckDB intervals of an Arrow interval or duration array, one per row (NULL rows give
+/// zero). Durations become microseconds (nanoseconds are truncated toward zero, as DuckDB's own
+/// Arrow import does); one that does not fit in 64-bit microseconds is an error.
+///
+/// The `duckdb` crate writes intervals through nanoseconds and without their NULLs (it rebuilds
+/// the array from its values), so `crate::read` writes them again with these.
+pub fn intervals(array: &dyn Array) -> Result<Vec<Interval>, String> {
+    use arrow_array::cast::AsArray;
+    use arrow_array::types::*;
+    use arrow_schema::IntervalUnit;
+    fn each<T: arrow_array::ArrowPrimitiveType>(
+        array: &dyn Array,
+        f: impl Fn(T::Native) -> Result<Interval, String>,
+    ) -> Result<Vec<Interval>, String> {
+        let a = array.as_primitive::<T>();
+        (0..a.len()).map(|i| if a.is_valid(i) { f(a.value(i)) } else { Ok(Interval::default()) }).collect()
+    }
+    let micros = |v: i64, per_unit: i64, unit: &str| {
+        let micros =
+            v.checked_mul(per_unit).ok_or_else(|| format!("the duration {v} {unit} does not fit in an INTERVAL"))?;
+        Ok(Interval { micros, ..Default::default() })
+    };
+    match array.data_type() {
+        DataType::Interval(IntervalUnit::YearMonth) => {
+            each::<IntervalYearMonthType>(array, |months| Ok(Interval { months, ..Default::default() }))
+        }
+        DataType::Interval(IntervalUnit::DayTime) => each::<IntervalDayTimeType>(array, |v| {
+            Ok(Interval { months: 0, days: v.days, micros: v.milliseconds as i64 * 1000 })
+        }),
+        DataType::Interval(IntervalUnit::MonthDayNano) => each::<IntervalMonthDayNanoType>(array, |v| {
+            Ok(Interval { months: v.months, days: v.days, micros: v.nanoseconds / 1000 })
+        }),
+        DataType::Duration(TimeUnit::Second) => each::<DurationSecondType>(array, |v| micros(v, 1_000_000, "s")),
+        DataType::Duration(TimeUnit::Millisecond) => each::<DurationMillisecondType>(array, |v| micros(v, 1000, "ms")),
+        DataType::Duration(TimeUnit::Microsecond) => each::<DurationMicrosecondType>(array, |v| micros(v, 1, "us")),
+        DataType::Duration(TimeUnit::Nanosecond) => {
+            each::<DurationNanosecondType>(array, |v| Ok(Interval { micros: v / 1000, ..Default::default() }))
+        }
+        other => Err(format!("{other} is not an interval")),
+    }
+}
+
+/// The type to read a column of `data_type` as: every interval becomes `Interval(MonthDayNano)`.
+///
+/// Parquet stores an `INTERVAL` as months, days and milliseconds, and the Parquet reader takes it
+/// for `Interval(DayTime)`, without the months, unless it is asked for `MonthDayNano` (or the
+/// file's own Arrow schema says `YearMonth`, which drops the days). The other types are kept.
+pub fn whole_intervals(data_type: &DataType) -> DataType {
+    let field = |f: &FieldRef| with_type(f, whole_intervals(f.data_type()));
+    match data_type {
+        DataType::Interval(_) => DataType::Interval(arrow_schema::IntervalUnit::MonthDayNano),
+        DataType::List(f) => DataType::List(field(f)),
+        DataType::LargeList(f) => DataType::LargeList(field(f)),
+        DataType::FixedSizeList(f, n) => DataType::FixedSizeList(field(f), *n),
+        DataType::Map(f, sorted) => DataType::Map(field(f), *sorted),
+        DataType::Struct(fields) => DataType::Struct(fields.iter().map(field).collect()),
+        other => other.clone(),
     }
 }
 
@@ -389,6 +483,112 @@ mod tests {
         assert_eq!(ty(DataType::UInt16), SqlType::USmallInt);
         assert_eq!(ty(DataType::UInt32), SqlType::UInteger);
         assert_eq!(ty(DataType::UInt64), SqlType::UBigInt);
+    }
+
+    fn names(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn repeated_names_get_the_suffixes_duckdb_gives_them() {
+        assert_eq!(deduplicate(names(&["a", "b"])), names(&["a", "b"]));
+        assert_eq!(deduplicate(names(&["A", "a"])), names(&["A", "a_1"]));
+        assert_eq!(deduplicate(names(&["x", "x", "x"])), names(&["x", "x_1", "x_2"]));
+        // a suffix the file already uses is skipped, case-insensitively
+        assert_eq!(deduplicate(names(&["x", "x", "x_1", "X"])), names(&["x", "x_1", "x_1_1", "X_2"]));
+        assert_eq!(deduplicate(names(&["id", "ID", "Id", "iD"])), names(&["id", "ID_1", "Id_2", "iD_3"]));
+        assert_eq!(deduplicate(names(&["x_1", "x", "x", "X_1"])), names(&["x_1", "x", "x_2", "X_1_1"]));
+        assert_eq!(deduplicate(vec![]), Vec::<String>::new());
+        let t = DataType::Struct(Fields::from(vec![
+            Field::new("a", DataType::Int8, true),
+            Field::new("A", DataType::Utf8, true),
+        ]));
+        assert_eq!(ty(t), SqlType::Struct(vec![("a".into(), SqlType::TinyInt), ("A_1".into(), SqlType::Varchar)]));
+    }
+
+    #[test]
+    fn intervals_and_durations_in_duckdb_units() {
+        use arrow_buffer::{IntervalDayTime, IntervalMonthDayNano};
+        let iv = |months, days, micros| Interval { months, days, micros };
+        let zero = Interval::default();
+        let a = IntervalYearMonthArray::from(vec![Some(14), None, Some(-1)]);
+        assert_eq!(intervals(&a).unwrap(), vec![iv(14, 0, 0), zero, iv(-1, 0, 0)]);
+        let a = IntervalDayTimeArray::from(vec![Some(IntervalDayTime::new(3, 14_706_789)), None]);
+        assert_eq!(intervals(&a).unwrap(), vec![iv(0, 3, 14_706_789_000), zero]);
+        let a = IntervalMonthDayNanoArray::from(vec![
+            Some(IntervalMonthDayNano::new(1, 2, 3_999)),
+            Some(IntervalMonthDayNano::new(-1, -2, -3_999)),
+            None,
+        ]);
+        assert_eq!(intervals(&a).unwrap(), vec![iv(1, 2, 3), iv(-1, -2, -3), zero]);
+        let us = |micros| iv(0, 0, micros);
+        assert_eq!(intervals(&DurationSecondArray::from(vec![Some(-2), None])).unwrap(), vec![us(-2_000_000), zero]);
+        assert_eq!(intervals(&DurationMillisecondArray::from(vec![7, -7])).unwrap(), vec![us(7000), us(-7000)]);
+        assert_eq!(intervals(&DurationMicrosecondArray::from(vec![i64::MAX])).unwrap(), vec![us(i64::MAX)]);
+        assert_eq!(intervals(&DurationNanosecondArray::from(vec![1999, -1999])).unwrap(), vec![us(1), us(-1)]);
+        // the largest durations that fit, and the first that do not
+        let s = i64::MAX / 1_000_000;
+        assert_eq!(
+            intervals(&DurationSecondArray::from(vec![s, -s])).unwrap(),
+            vec![us(s * 1_000_000), us(-s * 1_000_000)]
+        );
+        assert_eq!(
+            intervals(&DurationSecondArray::from(vec![s + 1])).unwrap_err(),
+            format!("the duration {} s does not fit in an INTERVAL", s + 1)
+        );
+        let ms = i64::MAX / 1000;
+        assert_eq!(intervals(&DurationMillisecondArray::from(vec![ms])).unwrap(), vec![us(ms * 1000)]);
+        assert_eq!(
+            intervals(&DurationMillisecondArray::from(vec![-ms - 1])).unwrap_err(),
+            format!("the duration {} ms does not fit in an INTERVAL", -ms - 1)
+        );
+        // a NULL row is not converted
+        let masked = DurationSecondArray::new(vec![i64::MAX, 1].into(), Some(vec![false, true].into()));
+        assert_eq!(intervals(&masked).unwrap(), vec![zero, us(1_000_000)]);
+        assert_eq!(intervals(&Int64Array::from(vec![1])).unwrap_err(), "Int64 is not an interval");
+        assert_eq!(std::mem::size_of::<Interval>(), 16);
+    }
+
+    #[test]
+    fn intervals_are_read_whole_at_any_depth() {
+        use arrow_schema::IntervalUnit::*;
+        let whole = DataType::Interval(MonthDayNano);
+        for unit in [DayTime, YearMonth, MonthDayNano] {
+            assert_eq!(whole_intervals(&DataType::Interval(unit)), whole);
+        }
+        let kv = |v: DataType| {
+            Arc::new(Field::new(
+                "key_value",
+                DataType::Struct(Fields::from(vec![
+                    Field::new("key", DataType::Utf8, false),
+                    Field::new("value", v, true),
+                ])),
+                false,
+            ))
+        };
+        let day_time = DataType::Interval(DayTime);
+        let cases = [
+            (DataType::List(element(day_time.clone())), DataType::List(element(whole.clone()))),
+            (DataType::LargeList(item(day_time.clone())), DataType::LargeList(item(whole.clone()))),
+            (DataType::FixedSizeList(item(day_time.clone()), 3), DataType::FixedSizeList(item(whole.clone()), 3)),
+            (DataType::Map(kv(day_time.clone()), true), DataType::Map(kv(whole.clone()), true)),
+            (
+                DataType::Struct(Fields::from(vec![
+                    Field::new("a", DataType::Int8, false),
+                    Field::new("b", day_time.clone(), true),
+                ])),
+                DataType::Struct(Fields::from(vec![
+                    Field::new("a", DataType::Int8, false),
+                    Field::new("b", whole.clone(), true),
+                ])),
+            ),
+        ];
+        for (t, want) in cases {
+            assert_eq!(whole_intervals(&t), want, "{t}");
+        }
+        for t in [DataType::Int64, DataType::Duration(TimeUnit::Second), DataType::List(item(DataType::Utf8))] {
+            assert_eq!(whole_intervals(&t), t);
+        }
     }
 
     #[test]

@@ -142,12 +142,6 @@ def test_an_object_column_is_refused(tmp_path: pathlib.Path) -> None:
     assert df.drop("o").tparquet.write(tmp_path / "t.parquet") == {"a": "PCODEC"}
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=UnicodeEncodeError,
-    reason="tparquet (python/) passes a path to Rust as a str and encodes it as UTF-8 (sink.rs), so a "
-    "path that is not UTF-8 cannot be written ('surrogates not allowed'); it can be read",
-)
 def test_write_to_a_file_name_that_is_not_utf_8(tmp_path: pathlib.Path) -> None:
     raw = os.fsencode(tmp_path) + b"/caf\xe9.parquet"
     ticks(3).tparquet.write(raw)
