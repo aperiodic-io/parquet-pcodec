@@ -30,6 +30,18 @@ writes a copy they read.
 
 The core needs no Python dependency; `read_table` and `ParquetFile.read` return pyarrow objects.
 
+## Install
+
+Not on PyPI yet: build it from a checkout of the repository (it needs a Rust toolchain), with
+the extras for the libraries you use (`pyarrow`, `pandas`, `polars`, `duckdb`):
+
+```bash
+python -m pip install "./python[pandas]"
+```
+
+[`INSTALL.md`](../INSTALL.md#python-pyarrow-pandas) has uv, installing from GitHub, wheels and
+other platforms.
+
 ## Development
 
 ```

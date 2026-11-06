@@ -44,6 +44,8 @@ fails if a second arrow or parquet ever enters the build.
 
 ## Loading
 
+[`INSTALL.md`](../INSTALL.md#duckdb-extension) has the steps for every platform and client.
+
 ```sh
 make build                      # build/tparquet.duckdb_extension (release)
 ```
