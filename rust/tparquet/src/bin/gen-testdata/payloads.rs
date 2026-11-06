@@ -41,7 +41,8 @@ fn hint_name(t: Option<PhysicalType>) -> Value {
 
 fn valid(name: &str, input: Vec<u8>, hint: Option<PhysicalType>, level: u8, mode: Mode) -> Vector {
     let payload = compress(&input, &Options { level, hint, decimal: true }).expect("compress");
-    decodes(name, &payload, &input, mode);
+    assert_eq!(mode_of(&payload), Ok(mode), "{name}");
+    assert_eq!(decompress(&payload, input.len()).as_ref(), Ok(&input), "{name}");
     Vector {
         name: name.to_string(),
         expected_len: input.len(),
@@ -54,7 +55,8 @@ fn valid(name: &str, input: Vec<u8>, hint: Option<PhysicalType>, level: u8, mode
 /// A valid payload made by hand, which the reference encoder does not write for its input
 /// (with `hint` and level 8 it writes another payload; checkers re-encode with those).
 fn made(name: &str, payload: Vec<u8>, decoded: Vec<u8>, hint: Option<PhysicalType>, mode: Mode) -> Vector {
-    decodes(name, &payload, &decoded, mode);
+    assert_eq!(mode_of(&payload), Ok(mode), "{name}");
+    assert_eq!(decompress(&payload, decoded.len()).as_ref(), Ok(&decoded), "{name}");
     let level = tparquet_core::DEFAULT_LEVEL;
     let reference = compress(&decoded, &Options { level, hint, decimal: true }).expect("compress");
     assert_ne!(reference, payload, "{name}: the encoder writes this payload");
@@ -65,12 +67,6 @@ fn made(name: &str, payload: Vec<u8>, decoded: Vec<u8>, hint: Option<PhysicalTyp
         payload,
         decoded: Some(decoded),
     }
-}
-
-fn decodes(name: &str, payload: &[u8], decoded: &[u8], mode: Mode) {
-    let got = mode_of(payload).expect("mode");
-    assert_eq!(got, mode, "{name}: expected {mode:?}, got {got:?}");
-    assert_eq!(decompress(payload, decoded.len()).expect("decompress"), decoded, "{name}");
 }
 
 fn invalid(name: &str, payload: Vec<u8>, expected_len: usize) -> Vector {
