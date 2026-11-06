@@ -268,8 +268,7 @@ fn read(file: &Bytes) -> Vec<RecordBatch> {
     ParquetRecordBatchReaderBuilder::try_new(file.clone()).unwrap().build().unwrap().map(|b| b.unwrap()).collect()
 }
 
-/// `batches` and the file hold the same rows; compared bit for bit as canonical JSON where it
-/// is defined, else as Arrow arrays (intervals hold no floats).
+/// `batches` and the file hold the same rows, compared bit for bit as canonical JSON.
 fn assert_same(file: &Bytes, batches: &[RecordBatch]) {
     let got = read(file);
     let schema = batches[0].schema();
@@ -279,25 +278,7 @@ fn assert_same(file: &Bytes, batches: &[RecordBatch]) {
     for (f, g) in schema.fields().iter().zip(reader.schema().fields()) {
         assert_eq!(f.data_type(), g.data_type(), "{}", f.name());
     }
-    let canonical: Vec<usize> = schema
-        .fields()
-        .iter()
-        .enumerate()
-        .filter(|(_, f)| !matches!(f.data_type(), DataType::Interval(_)))
-        .map(|(i, _)| i)
-        .collect();
-    let project =
-        |bs: &[RecordBatch]| -> Vec<RecordBatch> { bs.iter().map(|b| b.project(&canonical).unwrap()).collect() };
-    assert_eq!(batch_lines(&project(&got)), batch_lines(&project(batches)));
-    if got_rows > 0 {
-        let got = arrow_select::concat::concat_batches(&got[0].schema(), &got).unwrap();
-        let want = arrow_select::concat::concat_batches(&schema, batches).unwrap();
-        for (i, f) in schema.fields().iter().enumerate() {
-            if matches!(f.data_type(), DataType::Interval(_)) {
-                assert_eq!(got.column(i).as_ref(), want.column(i).as_ref(), "{}", f.name());
-            }
-        }
-    }
+    assert_eq!(batch_lines(&got), batch_lines(batches));
 }
 
 const POLICIES: [Policy; 3] = [Policy::Auto, Policy::Pcodec, Policy::Base];

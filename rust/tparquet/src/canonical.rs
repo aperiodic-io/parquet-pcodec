@@ -5,7 +5,7 @@ use crate::error::{Result, invalid};
 use arrow_array::cast::AsArray;
 use arrow_array::types::*;
 use arrow_array::{Array, ArrayRef, ArrowPrimitiveType, RecordBatch};
-use arrow_schema::{DataType, Fields, TimeUnit};
+use arrow_schema::{DataType, Fields, IntervalUnit, TimeUnit};
 use base64::Engine as _;
 use std::fmt::Write as _;
 
@@ -93,6 +93,17 @@ fn write_value(a: &dyn Array, i: usize, out: &mut String) -> Result<()> {
         DataType::Duration(TimeUnit::Millisecond) => int::<DurationMillisecondType>(a, i, out),
         DataType::Duration(TimeUnit::Microsecond) => int::<DurationMicrosecondType>(a, i, out),
         DataType::Duration(TimeUnit::Nanosecond) => int::<DurationNanosecondType>(a, i, out),
+        DataType::Interval(IntervalUnit::YearMonth) => {
+            interval(i64::from(a.as_primitive::<IntervalYearMonthType>().value(i)), 0, 0, out)
+        }
+        DataType::Interval(IntervalUnit::DayTime) => {
+            let v = a.as_primitive::<IntervalDayTimeType>().value(i);
+            interval(0, v.days.into(), i64::from(v.milliseconds) * 1_000_000, out)
+        }
+        DataType::Interval(IntervalUnit::MonthDayNano) => {
+            let v = a.as_primitive::<IntervalMonthDayNanoType>().value(i);
+            interval(v.months.into(), v.days.into(), v.nanoseconds, out)
+        }
         DataType::Decimal32(..) => int::<Decimal32Type>(a, i, out),
         DataType::Decimal64(..) => int::<Decimal64Type>(a, i, out),
         DataType::Decimal128(..) => int::<Decimal128Type>(a, i, out),
@@ -129,6 +140,11 @@ fn write_value(a: &dyn Array, i: usize, out: &mut String) -> Result<()> {
         t => return Err(invalid(format!("canonical JSON does not support {t}"))),
     }
     Ok(())
+}
+
+/// Every interval type as months, days and nanoseconds.
+fn interval(months: i64, days: i64, nanoseconds: i64, out: &mut String) {
+    write!(out, "{{\"months\":{months},\"days\":{days},\"nanoseconds\":{nanoseconds}}}").expect("write to String");
 }
 
 fn write_b64(b: &[u8], out: &mut String) {
@@ -355,10 +371,46 @@ mod tests {
     }
 
     #[test]
+    fn intervals_are_months_days_and_nanoseconds() {
+        use arrow_buffer::{IntervalDayTime, IntervalMonthDayNano};
+        assert_eq!(
+            one(Arc::new(IntervalYearMonthArray::from(vec![Some(14), Some(-1), None]))),
+            ["{\"months\":14,\"days\":0,\"nanoseconds\":0}", "{\"months\":-1,\"days\":0,\"nanoseconds\":0}", "null"]
+        );
+        assert_eq!(
+            one(Arc::new(IntervalDayTimeArray::from(vec![
+                IntervalDayTime::new(3, 1500),
+                IntervalDayTime::new(i32::MIN, i32::MAX),
+            ]))),
+            [
+                "{\"months\":0,\"days\":3,\"nanoseconds\":1500000000}",
+                "{\"months\":0,\"days\":-2147483648,\"nanoseconds\":2147483647000000}"
+            ]
+        );
+        assert_eq!(
+            one(Arc::new(IntervalMonthDayNanoArray::from(vec![
+                IntervalMonthDayNano::new(1, -2, 3),
+                IntervalMonthDayNano::new(i32::MAX, i32::MIN, i64::MIN),
+            ]))),
+            [
+                "{\"months\":1,\"days\":-2,\"nanoseconds\":3}",
+                "{\"months\":2147483647,\"days\":-2147483648,\"nanoseconds\":-9223372036854775808}"
+            ]
+        );
+        // the same interval in any interval type has the same form
+        assert_eq!(
+            one(Arc::new(IntervalDayTimeArray::from(vec![IntervalDayTime::new(2, 7)]))),
+            one(Arc::new(IntervalMonthDayNanoArray::from(vec![IntervalMonthDayNano::new(0, 2, 7_000_000)])))
+        );
+    }
+
+    #[test]
     fn unsupported_types_are_errors() {
-        let a: ArrayRef = Arc::new(IntervalYearMonthArray::from(vec![1]));
+        let a: ArrayRef =
+            Arc::new(RunArray::<Int32Type>::try_new(&Int32Array::from(vec![1]), &Int64Array::from(vec![5])).unwrap());
         let schema = Schema::new(vec![Field::new("v", a.data_type().clone(), true)]);
         let b = RecordBatch::try_new(Arc::new(schema), vec![a]).unwrap();
-        assert_eq!(batch_lines(&b).unwrap_err().to_string(), "canonical JSON does not support Interval(YearMonth)");
+        let err = batch_lines(&b).unwrap_err().to_string();
+        assert!(err.starts_with("canonical JSON does not support RunEndEncoded"), "{err}");
     }
 }

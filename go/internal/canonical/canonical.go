@@ -104,6 +104,14 @@ func value(buf *bytes.Buffer, arr arrow.Array, i int) error {
 		b = strconv.AppendInt(b, int64(a.Value(i)), 10)
 	case *array.Duration:
 		b = strconv.AppendInt(b, int64(a.Value(i)), 10)
+	case *array.MonthInterval:
+		b = interval(b, int64(a.Value(i)), 0, 0)
+	case *array.DayTimeInterval:
+		v := a.Value(i)
+		b = interval(b, 0, int64(v.Days), int64(v.Milliseconds)*1_000_000)
+	case *array.MonthDayNanoInterval:
+		v := a.Value(i)
+		b = interval(b, int64(v.Months), int64(v.Days), v.Nanoseconds)
 	case *array.Decimal128:
 		b = a.Value(i).BigInt().Append(b, 10)
 	case *array.Decimal256:
@@ -162,6 +170,14 @@ func value(buf *bytes.Buffer, arr arrow.Array, i int) error {
 	}
 	buf.Write(b)
 	return nil
+}
+
+// interval appends the canonical form of every interval type: months, days and nanoseconds.
+func interval(b []byte, months, days, nanoseconds int64) []byte {
+	b = strconv.AppendInt(append(b, `{"months":`...), months, 10)
+	b = strconv.AppendInt(append(b, `,"days":`...), days, 10)
+	b = strconv.AppendInt(append(b, `,"nanoseconds":`...), nanoseconds, 10)
+	return append(b, '}')
 }
 
 func writeBase64(buf *bytes.Buffer, v []byte) error {

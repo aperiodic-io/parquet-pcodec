@@ -1,0 +1,200 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Fork of io.trino:trino-parquet 484 (FORK.md): the published pom's dependencies (versions from
+     trino-root 484, imported by the parent), plus tparquet-jni for the codec. -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>io.aperiodic.tparquet</groupId>
+    <artifactId>tparquet-trino-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <groupId>io.trino</groupId>
+  <artifactId>trino-parquet</artifactId>
+  <version>${trino.fork.version}</version>
+  <name>trino-parquet (tparquet fork)</name>
+  <description>Trino 484's Parquet reader and writer with the PCODEC codec (trino/trino-parquet/FORK.md)</description>
+
+  <dependencies>
+    <!-- tparquet fork: the PCODEC codec -->
+    <dependency>
+      <groupId>io.aperiodic.tparquet</groupId>
+      <artifactId>tparquet-jni</artifactId>
+    </dependency>
+
+    <!-- upstream's dependencies, as its published pom lists them -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.google.errorprone</groupId>
+      <artifactId>error_prone_annotations</artifactId>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>com.google.guava</groupId>
+      <artifactId>guava</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.airlift</groupId>
+      <artifactId>aircompressor-v3</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.airlift</groupId>
+      <artifactId>log</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.airlift</groupId>
+      <artifactId>slice</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.airlift</groupId>
+      <artifactId>units</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.trino</groupId>
+      <artifactId>trino-cache</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.trino</groupId>
+      <artifactId>trino-json</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.trino</groupId>
+      <artifactId>trino-memory-context</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.trino</groupId>
+      <artifactId>trino-plugin-toolkit</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>it.unimi.dsi</groupId>
+      <artifactId>fastutil</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>jakarta.annotation</groupId>
+      <artifactId>jakarta.annotation-api</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>joda-time</groupId>
+      <artifactId>joda-time</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.parquet</groupId>
+      <artifactId>parquet-column</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.parquet</groupId>
+      <artifactId>parquet-common</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.parquet</groupId>
+      <artifactId>parquet-encoding</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.parquet</groupId>
+      <artifactId>parquet-format-structures</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.trino</groupId>
+      <artifactId>trino-filesystem</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.trino</groupId>
+      <artifactId>trino-spi</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.jetbrains</groupId>
+      <artifactId>annotations</artifactId>
+      <scope>provided</scope>
+    </dependency>
+
+    <!-- the fork's tests -->
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>net.jqwik</groupId>
+      <artifactId>jqwik</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <!-- PIT on the fork's code: its two classes (PcodecPages, PcodecColumns and its compressor),
+           ParquetCompressor.getCompressor and ParquetCompressionUtils.decompress (whose switches
+           gained a PCODEC arm), TrinoValuesWriterFactory.newPlainValuesWriter and
+           ParquetWriter's FileFooter.createFileMetadata (changed for the footer key). The other
+           methods of those classes are upstream's and excluded here. The remaining changes are
+           single calls whose value is used, which PIT's default mutators do not change:
+           PrimitiveColumnWriter's getCompressor(codec, column) (TestPcodecParquetWriter, the
+           payload modes) and ParquetWriters' plainValues choice (TestPcodecParquetWriter, the
+           encodings). -->
+      <plugin>
+        <groupId>org.pitest</groupId>
+        <artifactId>pitest-maven</artifactId>
+        <configuration>
+          <targetClasses>
+            <param>io.trino.parquet.PcodecPages</param>
+            <param>io.trino.parquet.ParquetCompressionUtils</param>
+            <param>io.trino.parquet.writer.PcodecColumns*</param>
+            <param>io.trino.parquet.writer.ParquetCompressor</param>
+            <param>io.trino.parquet.writer.valuewriter.TrinoValuesWriterFactory</param>
+            <param>io.trino.parquet.writer.ParquetWriter$FileFooter</param>
+          </targetClasses>
+          <targetTests>
+            <param>io.trino.parquet.*</param>
+          </targetTests>
+          <!-- upstream's guards (checkState in FileFooter.createFileMetadata): invariants of the
+               writer that its public API cannot break, so no test can see them removed; the
+               fork's code has no Preconditions calls -->
+          <avoidCallsTo>
+            <avoidCallsTo>com.google.common.base.Preconditions</avoidCallsTo>
+          </avoidCallsTo>
+          <excludedMethods>
+            <!-- ParquetCompressionUtils: upstream's codecs -->
+            <param>decompressSnappy</param>
+            <param>decompressZstd</param>
+            <param>decompressGzip</param>
+            <param>decompressLz4</param>
+            <param>decompressLZO</param>
+            <param>decompressFramed</param>
+            <!-- TrinoValuesWriterFactory: upstream's writers -->
+            <param>newValuesWriter</param>
+            <param>getFixedLenByteArrayValuesWriter</param>
+            <param>getBinaryValuesWriter</param>
+            <param>getInt32ValuesWriter</param>
+            <param>getInt64ValuesWriter</param>
+            <param>getInt96ValuesWriter</param>
+            <param>getDoubleValuesWriter</param>
+            <param>getFloatValuesWriter</param>
+            <param>getEncodingForDataPage</param>
+            <param>getEncodingForDictionaryPage</param>
+            <param>dictionaryWriter</param>
+            <param>dictWriterWithFallBack</param>
+            <!-- FileFooter: upstream's -->
+            <param>addRowGroup</param>
+          </excludedMethods>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

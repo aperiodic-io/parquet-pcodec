@@ -1,0 +1,235 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The Java packages of tparquet (java/README.md). The parquet-java fork in parquet-java/ keeps
+     upstream's coordinates with the version suffix -tparquet; see parquet-java/FORK.md. -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>io.aperiodic.tparquet</groupId>
+  <artifactId>tparquet-java-parent</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <packaging>pom</packaging>
+  <name>tparquet Java</name>
+  <description>PCODEC Parquet codec for the JVM: JNI binding, parquet-java fork, Spark connector</description>
+  <url>https://github.com/aperiodic-io/tparquet</url>
+
+  <licenses>
+    <license>
+      <name>Apache License 2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0</url>
+    </license>
+  </licenses>
+
+  <modules>
+    <module>tparquet-jni</module>
+    <module>parquet-java/parquet-format-structures</module>
+    <module>parquet-java/parquet-common</module>
+    <module>parquet-java/parquet-hadoop</module>
+    <module>parquet-java-1.18/parquet-format-structures</module>
+    <module>parquet-java-1.18/parquet-common</module>
+    <module>tparquet</module>
+    <module>acceptance-upstream</module>
+    <module>tparquet-spark</module>
+  </modules>
+
+  <profiles>
+    <!-- upstream parquet-java's suite against the fork (make -C java fork-upstream-tests) -->
+    <profile>
+      <id>fork-upstream-tests</id>
+      <modules>
+        <module>parquet-java/upstream-tests</module>
+      </modules>
+    </profile>
+  </profiles>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <!-- parquet-java 1.17.0 targets Java 11: the fork and the libraries it depends on keep that;
+         tests (and the Spark connector) use 17 -->
+    <maven.compiler.release>11</maven.compiler.release>
+    <maven.compiler.testRelease>17</maven.compiler.testRelease>
+    <!-- the repository root: testdata/ and target/release/ (the native library) -->
+    <tparquet.root>${maven.multiModuleProjectDirectory}/..</tparquet.root>
+    <tparquet.testdata>${tparquet.root}/testdata</tparquet.testdata>
+    <!-- the JNI library the tests load; `make -C java` builds it with cargo first -->
+    <tparquet.jni.library>${tparquet.root}/target/release/libtparquet_jni.so</tparquet.jni.library>
+
+    <!-- the parquet-java fork (parquet-java/FORK.md) and the upstream release it is built on -->
+    <parquet.upstream.version>1.17.0</parquet.upstream.version>
+    <parquet.fork.version>1.17.0-tparquet</parquet.fork.version>
+    <thrift.version>0.22.0</thrift.version>
+    <!-- the parquet-java 1.18.1 fork (parquet-java-1.18/FORK.md): format-structures and common
+         for Trino 484, whose reader is built on 1.18.1 (trino/README.md) -->
+    <parquet118.upstream.version>1.18.1</parquet118.upstream.version>
+    <parquet118.fork.version>1.18.1-tparquet</parquet118.fork.version>
+    <thrift118.version>0.23.0</thrift118.version>
+    <slf4j.version>1.7.33</slf4j.version>
+    <hadoop.version>3.3.0</hadoop.version>
+    <!-- upstream relocates these to shaded.parquet.* (parquet-jackson and parquet-column hold the
+         classes); the fork compiles against them and relocates its references the same way -->
+    <parquet.jackson.version>2.19.2</parquet.jackson.version>
+    <parquet.fastutil.version>8.5.15</parquet.fastutil.version>
+    <tparquet.version>0.1.0-SNAPSHOT</tparquet.version>
+    <!-- Spark 4.3 is built on parquet-java 1.17.0, the fork's upstream -->
+    <spark.version>4.3.0</spark.version>
+    <scala.binary.version>2.13</scala.binary.version>
+    <scala.version>2.13.18</scala.version>
+
+    <junit.version>5.14.4</junit.version>
+    <jqwik.version>1.10.2</jqwik.version>
+    <assertj.version>3.27.7</assertj.version>
+    <!-- tests only, and not in the dependency management: Spark brings its own Jackson -->
+    <jackson.version>2.22.4</jackson.version>
+    <pitest.version>1.30.1</pitest.version>
+    <pitest.junit5.version>1.2.3</pitest.junit5.version>
+    <surefire.version>3.6.1</surefire.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.junit</groupId>
+        <artifactId>junit-bom</artifactId>
+        <version>${junit.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>net.jqwik</groupId>
+        <artifactId>jqwik</artifactId>
+        <version>${jqwik.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.assertj</groupId>
+        <artifactId>assertj-core</artifactId>
+        <version>${assertj.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.aperiodic.tparquet</groupId>
+        <artifactId>tparquet-jni</artifactId>
+        <version>${tparquet.version}</version>
+      </dependency>
+      <!-- the fork's modules; the other parquet-java modules stay upstream -->
+      <dependency>
+        <groupId>org.apache.parquet</groupId>
+        <artifactId>parquet-format-structures</artifactId>
+        <version>${parquet.fork.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.parquet</groupId>
+        <artifactId>parquet-common</artifactId>
+        <version>${parquet.fork.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.parquet</groupId>
+        <artifactId>parquet-hadoop</artifactId>
+        <version>${parquet.fork.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.parquet</groupId>
+        <artifactId>parquet-column</artifactId>
+        <version>${parquet.upstream.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.parquet</groupId>
+        <artifactId>parquet-encoding</artifactId>
+        <version>${parquet.upstream.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.parquet</groupId>
+        <artifactId>parquet-jackson</artifactId>
+        <version>${parquet.upstream.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.slf4j</groupId>
+        <artifactId>slf4j-api</artifactId>
+        <version>${slf4j.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.aperiodic.tparquet</groupId>
+        <artifactId>tparquet</artifactId>
+        <version>${tparquet.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <version>3.14.1</version>
+          <configuration>
+            <compilerArgs>
+              <arg>-Xlint:all,-processing,-options</arg>
+            </compilerArgs>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <version>${surefire.version}</version>
+          <configuration>
+            <systemPropertyVariables>
+              <tparquet.jni.library>${tparquet.jni.library}</tparquet.jni.library>
+              <tparquet.testdata>${tparquet.testdata}</tparquet.testdata>
+            </systemPropertyVariables>
+            <trimStackTrace>false</trimStackTrace>
+            <!-- a library path without the library, whatever LD_LIBRARY_PATH says (cargo test
+                 sets it): tests load the library through tparquet.jni.library -->
+            <argLine>-Djava.library.path=${project.build.directory}/no-native-library</argLine>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-jar-plugin</artifactId>
+          <version>3.4.2</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-resources-plugin</artifactId>
+          <version>3.3.1</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-install-plugin</artifactId>
+          <version>3.1.4</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-shade-plugin</artifactId>
+          <version>3.6.2</version>
+        </plugin>
+        <plugin>
+          <groupId>org.pitest</groupId>
+          <artifactId>pitest-maven</artifactId>
+          <version>${pitest.version}</version>
+          <dependencies>
+            <dependency>
+              <groupId>org.pitest</groupId>
+              <artifactId>pitest-junit5-plugin</artifactId>
+              <version>${pitest.junit5.version}</version>
+            </dependency>
+          </dependencies>
+          <configuration>
+            <!-- every mutant must be killed (java/README.md, Mutation testing) -->
+            <mutationThreshold>100</mutationThreshold>
+            <timestampedReports>false</timestampedReports>
+            <outputFormats>
+              <format>HTML</format>
+              <format>CSV</format>
+            </outputFormats>
+            <threads>2</threads>
+            <jvmArgs>
+              <value>-Dtparquet.jni.library=${tparquet.jni.library}</value>
+              <value>-Dtparquet.testdata=${tparquet.testdata}</value>
+              <value>-Djava.library.path=${project.build.directory}/no-native-library</value>
+            </jvmArgs>
+          </configuration>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+  </build>
+</project>

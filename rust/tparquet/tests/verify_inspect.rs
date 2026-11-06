@@ -50,6 +50,30 @@ fn floats_are_compared_bit_for_bit() {
 }
 
 #[test]
+fn interval_columns_are_compared() {
+    use arrow_array::{IntervalDayTimeArray, IntervalYearMonthArray};
+    use arrow_buffer::IntervalDayTime;
+    let columns = |ms: i32| -> Vec<(&str, ArrayRef)> {
+        vec![
+            ("ym", Arc::new(IntervalYearMonthArray::from(vec![Some(14), None]))),
+            (
+                "dt",
+                Arc::new(IntervalDayTimeArray::from(vec![IntervalDayTime::new(3, ms), IntervalDayTime::new(-1, 0)])),
+            ),
+        ]
+    };
+    assert_eq!(verify(file(columns(1500)), file(columns(1500))).unwrap(), None);
+    assert_eq!(
+        verify(file(columns(1500)), file(columns(1501))).unwrap(),
+        Some(Difference::Row {
+            row: 0,
+            a: "{\"ym\":{\"months\":14,\"days\":0,\"nanoseconds\":0},\"dt\":{\"months\":0,\"days\":3,\"nanoseconds\":1500000000}}".into(),
+            b: "{\"ym\":{\"months\":14,\"days\":0,\"nanoseconds\":0},\"dt\":{\"months\":0,\"days\":3,\"nanoseconds\":1501000000}}".into()
+        })
+    );
+}
+
+#[test]
 fn schemas_and_row_counts() {
     let a = file(vec![("x", Arc::new(Int32Array::from(vec![1])) as ArrayRef)]);
     let b = file(vec![("x", Arc::new(Int64Array::from(vec![1])) as ArrayRef)]);
