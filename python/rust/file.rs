@@ -84,26 +84,13 @@ impl ChunkReader for Reader {
 
     fn get_bytes(&self, start: u64, length: usize) -> ParquetResult<Bytes> {
         match self {
-            Self::File { file, len } => {
-                // the length comes from the footer: it is checked against the file before
-                // anything is allocated
-                if start.checked_add(length as u64).is_none_or(|end| end > *len) {
-                    return Err(ParquetError::EOF(format!(
-                        "{length} bytes at {start} are past the end of the file ({len} bytes)"
-                    )));
-                }
-                let mut buf = vec![0; length];
-                let mut done = 0;
-                while done < length {
-                    match read_at(file, &mut buf[done..], start + done as u64)? {
-                        0 => {
-                            return Err(ParquetError::EOF(format!(
-                                "the file ends before {} bytes",
-                                start + length as u64
-                            )));
-                        }
-                        n => done += n,
-                    }
+            Self::File { .. } => {
+                // read as the bytes arrive: a length from a corrupt footer allocates no more
+                // than the file holds
+                let mut buf = Vec::new();
+                self.get_read(start)?.take(length as u64).read_to_end(&mut buf)?;
+                if buf.len() != length {
+                    return Err(ParquetError::EOF(format!("{length} bytes at {start} are past the end of the file")));
                 }
                 Ok(buf.into())
             }
