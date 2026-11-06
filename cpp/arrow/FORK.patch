@@ -1,0 +1,490 @@
+diff --git upstream/cpp/cmake_modules/DefineOptions.cmake fork/cpp/cmake_modules/DefineOptions.cmake
+index b58ab3cd3810a4a3a673707ecaaa6618378f484c..64cdd5a245153b68c04bce0d11f9a19249c0cd38 100644
+--- upstream/cpp/cmake_modules/DefineOptions.cmake
++++ fork/cpp/cmake_modules/DefineOptions.cmake
+@@ -533,6 +533,9 @@ takes precedence over ccache if a storage backend is configured" ON)
+   define_option(ARROW_WITH_SNAPPY "Build with Snappy compression" OFF)
+   define_option(ARROW_WITH_ZLIB "Build with zlib compression" OFF)
+   define_option(ARROW_WITH_ZSTD "Build with zstd compression" OFF)
++  # tparquet fork: PCODEC over the tparquet C ABI, given by TPARQUET_CAPI_LIB (the path of
++  # libtparquet_capi.a) and TPARQUET_CAPI_INCLUDE_DIR (the directory of tparquet.h)
++  define_option(ARROW_WITH_PCODEC "Build with the tparquet PCODEC codec" OFF)
+ 
+   define_option(ARROW_WITH_UTF8PROC
+                 "Build with support for Unicode properties using the utf8proc library;(only used if ARROW_COMPUTE is ON or ARROW_GANDIVA is ON)"
+diff --git upstream/cpp/src/arrow/CMakeLists.txt fork/cpp/src/arrow/CMakeLists.txt
+index 0426a2609601996f5f064149b5e7574b14b2f0b3..578e81ddf53df85973b6c03ac78796962b33dd14 100644
+--- upstream/cpp/src/arrow/CMakeLists.txt
++++ fork/cpp/src/arrow/CMakeLists.txt
+@@ -644,6 +644,9 @@ endif()
+ if(ARROW_WITH_ZSTD)
+   list(APPEND ARROW_UTIL_SRCS util/compression_zstd.cc)
+ endif()
++if(ARROW_WITH_PCODEC)
++  list(APPEND ARROW_UTIL_SRCS util/compression_pcodec.cc)
++endif()
+ 
+ arrow_add_object_library(ARROW_UTIL ${ARROW_UTIL_SRCS})
+ 
+@@ -712,6 +715,15 @@ if(ARROW_WITH_ZSTD)
+     target_link_libraries(${ARROW_UTIL_TARGET} PRIVATE ${ARROW_ZSTD_LIBZSTD})
+   endforeach()
+ endif()
++if(ARROW_WITH_PCODEC)
++  if(NOT EXISTS "${TPARQUET_CAPI_LIB}" OR NOT EXISTS "${TPARQUET_CAPI_INCLUDE_DIR}/tparquet.h")
++    message(FATAL_ERROR "ARROW_WITH_PCODEC needs TPARQUET_CAPI_LIB and TPARQUET_CAPI_INCLUDE_DIR")
++  endif()
++  foreach(ARROW_UTIL_TARGET ${ARROW_UTIL_TARGETS})
++    target_include_directories(${ARROW_UTIL_TARGET} PRIVATE "${TPARQUET_CAPI_INCLUDE_DIR}")
++    target_link_libraries(${ARROW_UTIL_TARGET} PRIVATE "${TPARQUET_CAPI_LIB}")
++  endforeach()
++endif()
+ 
+ if(ARROW_WITH_OPENTELEMETRY)
+   arrow_add_object_library(ARROW_TELEMETRY telemetry/logging.cc)
+diff --git upstream/cpp/src/arrow/util/compression.cc fork/cpp/src/arrow/util/compression.cc
+index 1ae71eba0965610848da4adb4401ac6c4e6412f1..4562a9658d86c81c535d5faf8c60a67310afca18 100644
+--- upstream/cpp/src/arrow/util/compression.cc
++++ fork/cpp/src/arrow/util/compression.cc
+@@ -51,7 +51,8 @@ const std::string& Codec::GetCodecAsString(Compression::type t) {
+   static const std::string uncompressed = "uncompressed", snappy = "snappy",
+                            gzip = "gzip", lzo = "lzo", brotli = "brotli",
+                            lz4_raw = "lz4_raw", lz4 = "lz4", lz4_hadoop = "lz4_hadoop",
+-                           zstd = "zstd", bz2 = "bz2", unknown = "unknown";
++                           zstd = "zstd", bz2 = "bz2", pcodec = "pcodec",
++                           unknown = "unknown";
+ 
+   switch (t) {
+     case Compression::UNCOMPRESSED:
+@@ -74,6 +75,8 @@ const std::string& Codec::GetCodecAsString(Compression::type t) {
+       return zstd;
+     case Compression::BZ2:
+       return bz2;
++    case Compression::PCODEC:
++      return pcodec;
+     default:
+       return unknown;
+   }
+@@ -100,6 +103,8 @@ Result<Compression::type> Codec::GetCompressionType(const std::string& name) {
+     return Compression::ZSTD;
+   } else if (name == "bz2") {
+     return Compression::BZ2;
++  } else if (name == "pcodec") {
++    return Compression::PCODEC;
+   } else {
+     return Status::Invalid("Unrecognized compression type: ", name);
+   }
+@@ -113,6 +118,7 @@ bool Codec::SupportsCompressionLevel(Compression::type codec) {
+     case Compression::BZ2:
+     case Compression::LZ4_FRAME:
+     case Compression::LZ4:
++    case Compression::PCODEC:
+       return true;
+     default:
+       return false;
+@@ -216,6 +222,14 @@ Result<std::unique_ptr<Codec>> Codec::Create(Compression::type codec_type,
+       codec = internal::MakeBZ2Codec(compression_level);
+ #endif
+       break;
++    case Compression::PCODEC: {
++#ifdef ARROW_WITH_PCODEC
++      auto opt = dynamic_cast<const PcodecCodecOptions*>(&codec_options);
++      codec = internal::MakePcodecCodec(compression_level, opt ? opt->physical_type : -1,
++                                        opt ? opt->decimal : true);
++#endif
++      break;
++    }
+     default:
+       break;
+   }
+@@ -274,6 +288,12 @@ bool Codec::IsAvailable(Compression::type codec_type) {
+       return true;
+ #else
+       return false;
++#endif
++    case Compression::PCODEC:
++#ifdef ARROW_WITH_PCODEC
++      return true;
++#else
++      return false;
+ #endif
+     default:
+       return false;
+diff --git upstream/cpp/src/arrow/util/compression.h fork/cpp/src/arrow/util/compression.h
+index 9e19def6bb5a0f58e9ad1e2b28ad71a6ed4eb70a..8cae12587d43b62a368ebaf6223302269dc074db 100644
+--- upstream/cpp/src/arrow/util/compression.h
++++ fork/cpp/src/arrow/util/compression.h
+@@ -155,6 +155,17 @@ class ARROW_EXPORT ZstdCodecOptions : public CodecOptions {
+ };
+ 
+ /// \brief Compression codec
++// ----------------------------------------------------------------------
++// pcodec implementation (tparquet fork)
++class ARROW_EXPORT PcodecCodecOptions : public CodecOptions {
++ public:
++  /// Parquet Type value of the column (1 INT32, 2 INT64, 4 FLOAT, 5 DOUBLE) used as the
++  /// type hint, or -1 for none; the hint only affects the compression ratio
++  int physical_type = -1;
++  /// try the DECIMAL payload mode for FLOAT and DOUBLE
++  bool decimal = true;
++};
++
+ class ARROW_EXPORT Codec {
+  public:
+   virtual ~Codec() = default;
+diff --git upstream/cpp/src/arrow/util/compression_internal.h fork/cpp/src/arrow/util/compression_internal.h
+index 963ad0c04cadf9d0e5c836ca5ef011884d03f44e..a1efb853833413d2178319889b20f6ab06c110bc 100644
+--- upstream/cpp/src/arrow/util/compression_internal.h
++++ fork/cpp/src/arrow/util/compression_internal.h
+@@ -80,6 +80,13 @@ std::unique_ptr<Codec> MakeZSTDCodec(
+     std::vector<std::pair<int, int>> compression_context_params = {},
+     std::vector<std::pair<int, int>> decompression_context_params = {});
+ 
++// PCODEC codec (tparquet fork), over the tparquet C ABI (tparquet.h).
++constexpr int kPcodecDefaultCompressionLevel = 8;
++
++std::unique_ptr<Codec> MakePcodecCodec(
++    int compression_level = kPcodecDefaultCompressionLevel, int physical_type = -1,
++    bool decimal = true);
++
+ }  // namespace internal
+ }  // namespace util
+ }  // namespace arrow
+diff --git fork/cpp/src/arrow/util/compression_pcodec.cc fork/cpp/src/arrow/util/compression_pcodec.cc
+new file mode 100644
+index 0000000000000000000000000000000000000000..71e7c95b835185774242ce4d5f0d66b309934053
+--- /dev/null
++++ fork/cpp/src/arrow/util/compression_pcodec.cc
+@@ -0,0 +1,139 @@
++// Licensed to the Apache Software Foundation (ASF) under one
++// or more contributor license agreements.  See the NOTICE file
++// distributed with this work for additional information
++// regarding copyright ownership.  The ASF licenses this file
++// to you under the Apache License, Version 2.0 (the
++// "License"); you may not use this file except in compliance
++// with the License.  You may obtain a copy of the License at
++//
++//   http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing,
++// software distributed under the License is distributed on an
++// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++// KIND, either express or implied.  See the License for the
++// specific language governing permissions and limitations
++// under the License.
++
++// tparquet fork: the PCODEC Parquet codec (tparquet spec/FORMAT.md) over the tparquet
++// C ABI (rust/capi, tparquet.h). One-shot only: a PCODEC page payload is decoded with the
++// exact decompressed size, so Decompress() requires output_buffer_len to be that size.
++
++#include <cstddef>
++#include <cstdint>
++#include <memory>
++#include <string>
++
++#include "arrow/result.h"
++#include "arrow/status.h"
++#include "arrow/util/compression_internal.h"
++
++#include "tparquet.h"
++
++namespace arrow {
++namespace util {
++namespace internal {
++
++namespace {
++
++constexpr int kPcodecMinimumCompressionLevel = 0;
++constexpr int kPcodecMaximumCompressionLevel = 12;
++
++Status PcodecError(int32_t code, const char* what) {
++  char message[512];
++  pcp_last_error(message, sizeof(message));
++  if (code == PCP_ERR_ARGUMENT) {
++    return Status::Invalid(what, message);
++  }
++  return Status::IOError(what, message);
++}
++
++class PcodecCodec final : public Codec {
++ public:
++  PcodecCodec(int compression_level, int physical_type, bool decimal)
++      : compression_level_(compression_level == kUseDefaultCompressionLevel
++                               ? kPcodecDefaultCompressionLevel
++                               : compression_level),
++        physical_type_(physical_type),
++        decimal_(decimal) {}
++
++  Result<int64_t> Decompress(int64_t input_len, const uint8_t* input,
++                             int64_t output_buffer_len, uint8_t* output_buffer) override {
++    if (input_len < 0 || output_buffer_len < 0) {
++      return Status::Invalid("pcodec decompress: negative length");
++    }
++    const int32_t code =
++        pcp_decompress(input, static_cast<size_t>(input_len), output_buffer,
++                       static_cast<size_t>(output_buffer_len));
++    if (code != PCP_OK) {
++      return PcodecError(code, "pcodec decompress failed: ");
++    }
++    return output_buffer_len;
++  }
++
++  Result<int64_t> Compress(int64_t input_len, const uint8_t* input,
++                           int64_t output_buffer_len, uint8_t* output_buffer) override {
++    if (input_len < 0 || output_buffer_len < 0) {
++      return Status::Invalid("pcodec compress: negative length");
++    }
++    size_t written = 0;
++    const int32_t code = pcp_compress(
++        input, static_cast<size_t>(input_len), physical_type_, compression_level_,
++        decimal_ ? 1 : 0, output_buffer, static_cast<size_t>(output_buffer_len), &written);
++    if (code != PCP_OK) {
++      return PcodecError(code, "pcodec compress failed: ");
++    }
++    return static_cast<int64_t>(written);
++  }
++
++  int64_t MaxCompressedLen(int64_t input_len,
++                           const uint8_t* /*input*/) override {
++    return static_cast<int64_t>(pcp_compress_bound(static_cast<size_t>(input_len)));
++  }
++
++  Result<std::shared_ptr<Compressor>> MakeCompressor() override {
++    return Status::NotImplemented("Streaming compression unsupported with pcodec");
++  }
++
++  Result<std::shared_ptr<Decompressor>> MakeDecompressor() override {
++    return Status::NotImplemented("Streaming decompression unsupported with pcodec");
++  }
++
++  Compression::type compression_type() const override { return Compression::PCODEC; }
++
++  int compression_level() const override { return compression_level_; }
++  int minimum_compression_level() const override {
++    return kPcodecMinimumCompressionLevel;
++  }
++  int maximum_compression_level() const override {
++    return kPcodecMaximumCompressionLevel;
++  }
++  int default_compression_level() const override {
++    return kPcodecDefaultCompressionLevel;
++  }
++
++ private:
++  Status Init() override {
++    if (compression_level_ < kPcodecMinimumCompressionLevel ||
++        compression_level_ > kPcodecMaximumCompressionLevel) {
++      return Status::Invalid("pcodec compression level ", compression_level_,
++                             " not in 0..12");
++    }
++    return Status::OK();
++  }
++
++  const int compression_level_;
++  const int physical_type_;
++  const bool decimal_;
++};
++
++}  // namespace
++
++std::unique_ptr<Codec> MakePcodecCodec(int compression_level, int physical_type,
++                                       bool decimal) {
++  return std::make_unique<PcodecCodec>(compression_level, physical_type, decimal);
++}
++
++}  // namespace internal
++}  // namespace util
++}  // namespace arrow
+diff --git upstream/cpp/src/arrow/util/config.h.cmake fork/cpp/src/arrow/util/config.h.cmake
+index cf98757c4a8d608bfa296447cdf558303bbe171f..cdf16dad6a54d9d6c785fda8c5a644efb5b70f9d 100644
+--- upstream/cpp/src/arrow/util/config.h.cmake
++++ fork/cpp/src/arrow/util/config.h.cmake
+@@ -60,6 +60,7 @@
+ #cmakedefine ARROW_WITH_LZ4
+ #cmakedefine ARROW_WITH_MUSL
+ #cmakedefine ARROW_WITH_OPENTELEMETRY
++#cmakedefine ARROW_WITH_PCODEC
+ #cmakedefine ARROW_WITH_RE2
+ #cmakedefine ARROW_WITH_SNAPPY
+ #cmakedefine ARROW_WITH_UTF8PROC
+diff --git upstream/cpp/src/arrow/util/type_fwd.h fork/cpp/src/arrow/util/type_fwd.h
+index b8934ecbd4c22d3118e6037ddef6f3ed7411ab65..0240b433bfef6d581322a145d2fd5e329cb5e5c7 100644
+--- upstream/cpp/src/arrow/util/type_fwd.h
++++ fork/cpp/src/arrow/util/type_fwd.h
+@@ -55,7 +55,9 @@ struct Compression {
+     LZ4_FRAME,
+     LZO,
+     BZ2,
+-    LZ4_HADOOP
++    LZ4_HADOOP,
++    /// tparquet fork: the PCODEC Parquet codec (tparquet spec/FORMAT.md)
++    PCODEC
+   };
+ };
+ 
+diff --git upstream/cpp/src/generated/parquet_types.cpp fork/cpp/src/generated/parquet_types.cpp
+index d074c56029fcd88c05fc9c19412c5313ec844d07..3a267f0965dad59e78c96232f5b1a072cbfb7bab 100644
+--- upstream/cpp/src/generated/parquet_types.cpp
++++ fork/cpp/src/generated/parquet_types.cpp
+@@ -576,7 +576,8 @@ int _kCompressionCodecValues[] = {
+   CompressionCodec::BROTLI,
+   CompressionCodec::LZ4,
+   CompressionCodec::ZSTD,
+-  CompressionCodec::LZ4_RAW
++  CompressionCodec::LZ4_RAW,
++  CompressionCodec::PCODEC
+ };
+ const char* _kCompressionCodecNames[] = {
+   "UNCOMPRESSED",
+@@ -586,9 +587,10 @@ const char* _kCompressionCodecNames[] = {
+   "BROTLI",
+   "LZ4",
+   "ZSTD",
+-  "LZ4_RAW"
++  "LZ4_RAW",
++  "PCODEC"
+ };
+-const std::map<int, const char*> _CompressionCodec_VALUES_TO_NAMES(::apache::thrift::TEnumIterator(8, _kCompressionCodecValues, _kCompressionCodecNames), ::apache::thrift::TEnumIterator(-1, nullptr, nullptr));
++const std::map<int, const char*> _CompressionCodec_VALUES_TO_NAMES(::apache::thrift::TEnumIterator(9, _kCompressionCodecValues, _kCompressionCodecNames), ::apache::thrift::TEnumIterator(-1, nullptr, nullptr));
+ 
+ std::ostream& operator<<(std::ostream& out, const CompressionCodec::type& val) {
+   std::map<int, const char*>::const_iterator it = _CompressionCodec_VALUES_TO_NAMES.find(val);
+diff --git upstream/cpp/src/generated/parquet_types.h fork/cpp/src/generated/parquet_types.h
+index 44175a064d6deb4dd1b446ef654b89a3f8d60cbe..0109d183916412ed702603bf69dcebb574882e7f 100644
+--- upstream/cpp/src/generated/parquet_types.h
++++ fork/cpp/src/generated/parquet_types.h
+@@ -333,7 +333,8 @@ struct CompressionCodec {
+     BROTLI = 4,
+     LZ4 = 5,
+     ZSTD = 6,
+-    LZ4_RAW = 7
++    LZ4_RAW = 7,
++    PCODEC = 20547
+   };
+ };
+ 
+diff --git upstream/cpp/src/parquet/column_writer.cc fork/cpp/src/parquet/column_writer.cc
+index 3b4a873b51922faed8ad5d1f6edfebb00e4f8f51..a2b16aae840512360bceb91d0bcbdb634ae8a7d5 100644
+--- upstream/cpp/src/parquet/column_writer.cc
++++ fork/cpp/src/parquet/column_writer.cc
+@@ -279,7 +279,19 @@ class SerializedPageWriter : public PageWriter {
+     if (data_encryptor_ != nullptr || meta_encryptor_ != nullptr) {
+       InitEncryption();
+     }
+-    compressor_ = GetCodec(codec, codec_options);
++    if (codec == Compression::PCODEC) {
++      // tparquet fork: the column's physical type is the PCODEC type hint
++      ::arrow::util::PcodecCodecOptions pcodec_options;
++      pcodec_options.compression_level = codec_options.compression_level;
++      if (auto given = dynamic_cast<const ::arrow::util::PcodecCodecOptions*>(
++              &codec_options)) {
++        pcodec_options.decimal = given->decimal;
++      }
++      pcodec_options.physical_type = static_cast<int>(metadata->descr()->physical_type());
++      compressor_ = GetCodec(codec, pcodec_options);
++    } else {
++      compressor_ = GetCodec(codec, codec_options);
++    }
+     thrift_serializer_ = std::make_unique<ThriftSerializer>();
+   }
+ 
+diff --git upstream/cpp/src/parquet/metadata.cc fork/cpp/src/parquet/metadata.cc
+index 2bc871a8c865d940a3c6d7102f405555f94f3a94..95ffbd04185713909d5dbb4f11e56065defa4572 100644
+--- upstream/cpp/src/parquet/metadata.cc
++++ fork/cpp/src/parquet/metadata.cc
+@@ -208,6 +208,27 @@ void ToThriftKeyValueMetadata(const KeyValueMetadata& source, Metadata* metadata
+   metadata->__set_key_value_metadata(std::move(key_value_metadata));
+ }
+ 
++// tparquet fork: a file with a PCODEC column chunk gets parquet.pcodec.version = "1"
++// (tparquet spec/FORMAT.md section 2), unless the key is already there.
++std::shared_ptr<const KeyValueMetadata> WithPcodecVersion(
++    const std::vector<format::RowGroup>& row_groups,
++    const std::shared_ptr<const KeyValueMetadata>& key_value_metadata) {
++  static const std::string kKey = "parquet.pcodec.version";
++  bool has_pcodec = false;
++  for (const auto& row_group : row_groups) {
++    for (const auto& column : row_group.columns) {
++      has_pcodec |= column.meta_data.codec == format::CompressionCodec::PCODEC;
++    }
++  }
++  if (!has_pcodec || (key_value_metadata && key_value_metadata->Contains(kKey))) {
++    return key_value_metadata;
++  }
++  auto with_key = key_value_metadata ? key_value_metadata->Copy()
++                                     : std::make_shared<KeyValueMetadata>();
++  with_key->Append(kKey, "1");
++  return with_key;
++}
++
+ }  // namespace
+ 
+ // MetaData Accessor
+@@ -2109,8 +2130,8 @@ class FileMetaDataBuilder::FileMetaDataBuilderImpl {
+     metadata_->__set_num_rows(total_rows);
+     metadata_->__set_row_groups(row_groups_);
+ 
+-    if (key_value_metadata) {
+-      ToThriftKeyValueMetadata(*key_value_metadata, metadata_.get());
++    if (auto kv = WithPcodecVersion(row_groups_, key_value_metadata)) {
++      ToThriftKeyValueMetadata(*kv, metadata_.get());
+     }
+ 
+     int32_t file_version = 0;
+diff --git upstream/cpp/src/parquet/parquet.thrift fork/cpp/src/parquet/parquet.thrift
+index 96a829ffc710fb4bb7f54ba421940ad9db8eadce..2f4cee5695a22825ee0590548d13f4ba11fc48ef 100644
+--- upstream/cpp/src/parquet/parquet.thrift
++++ fork/cpp/src/parquet/parquet.thrift
+@@ -677,6 +677,7 @@ enum CompressionCodec {
+   LZ4 = 5;     // DEPRECATED (Added in 2.4)
+   ZSTD = 6;    // Added in 2.4
+   LZ4_RAW = 7; // Added in 2.9
++  PCODEC = 20547; // tparquet fork, not a standard codec: tparquet spec/FORMAT.md
+ }
+ 
+ enum PageType {
+diff --git upstream/cpp/src/parquet/thrift_internal.h fork/cpp/src/parquet/thrift_internal.h
+index 5a0fc7d70e69e68f50cec402a92c921b560119b3..ce140bd9ecd3bebc5c0fd379535e428528f9da5a 100644
+--- upstream/cpp/src/parquet/thrift_internal.h
++++ fork/cpp/src/parquet/thrift_internal.h
+@@ -98,6 +98,8 @@ constexpr Compression::type FromThriftUnsafe(format::CompressionCodec::type type
+       return Compression::LZ4;
+     case format::CompressionCodec::ZSTD:
+       return Compression::ZSTD;
++    case format::CompressionCodec::PCODEC:  // tparquet fork
++      return Compression::PCODEC;
+     default:
+       ARROW_DCHECK(false) << "Cannot reach here";
+       return Compression::UNCOMPRESSED;
+@@ -226,7 +228,9 @@ inline typename Compression::type LoadEnumSafe(const format::CompressionCodec::t
+       static_cast<decltype(raw_value)>(format::CompressionCodec::UNCOMPRESSED);
+   const auto max_value =
+       static_cast<decltype(raw_value)>(format::CompressionCodec::LZ4_RAW);
+-  if (raw_value < min_value || raw_value > max_value) {
++  // tparquet fork: PCODEC (20547) is outside the standard range
++  if ((raw_value < min_value || raw_value > max_value) &&
++      raw_value != static_cast<decltype(raw_value)>(format::CompressionCodec::PCODEC)) {
+     throw ParquetException("Unsupported compression codec value: ", raw_value);
+   }
+   return FromThriftUnsafe(*in);
+@@ -439,6 +443,8 @@ constexpr format::CompressionCodec::type ToThrift(Compression::type type) {
+       return format::CompressionCodec::LZ4;
+     case Compression::ZSTD:
+       return format::CompressionCodec::ZSTD;
++    case Compression::PCODEC:  // tparquet fork
++      return format::CompressionCodec::PCODEC;
+     default:
+       ARROW_DCHECK(false) << "Cannot reach here";
+       return format::CompressionCodec::UNCOMPRESSED;
+diff --git upstream/cpp/src/parquet/types.cc fork/cpp/src/parquet/types.cc
+index c754e8777cce1b3384f3af494216153d12a161e6..a987c2f68f2eb06b862f3fc1e7c2e2c3c7f9aec3 100644
+--- upstream/cpp/src/parquet/types.cc
++++ fork/cpp/src/parquet/types.cc
+@@ -56,6 +56,7 @@ bool IsCodecSupported(Compression::type codec) {
+     case Compression::ZSTD:
+     case Compression::LZ4:
+     case Compression::LZ4_HADOOP:
++    case Compression::PCODEC:  // tparquet fork
+       return true;
+     default:
+       return false;

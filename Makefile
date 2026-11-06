@@ -1,13 +1,14 @@
 # Local equivalents of .github/workflows/rust.yml. `make check` runs them all but the slow
 # ones (fuzz-smoke, mutants, fork-mutants, fork-upstream-tests).
-OWN := -p tparquet-core -p tparquet-capi -p tparquet
+OWN := -p tparquet-core -p tparquet-capi -p tparquet-cread -p tparquet-jni -p tparquet
 JOBS ?= 2
 CARGO := cargo
 UPSTREAM := acceptance/rust-upstream/Cargo.toml
 FUZZ_TIME ?= 60
 
 .PHONY: check fmt fmt-check clippy test c-test check-fork testdata testdata-check fuzz-smoke \
-	mutants fork-mutants fork-upstream-tests python-test python-mutants polars-test polars-mutants acceptance
+	mutants fork-mutants fork-upstream-tests python-test python-mutants polars-test polars-mutants acceptance \
+	java-test cpp-test trino-test trino-mutants datafusion-test
 
 check: fmt-check clippy test c-test check-fork testdata-check
 
@@ -32,9 +33,12 @@ test:
 
 c-test:
 	$(MAKE) -C rust/capi c-test
+	$(MAKE) -C rust/cread c-test
 
 check-fork:
 	scripts/check-fork.sh
+	scripts/check-fork-java.sh
+	scripts/check-cpp-fork.sh
 
 testdata:
 	$(CARGO) run -j $(JOBS) -p tparquet --bin gen-testdata
@@ -57,9 +61,10 @@ fuzz-smoke:
 MUTANTS_OK = || { [ $$? -eq 3 ] && [ ! -s mutants.out/missed.txt ]; }
 
 # python/rust is judged by the Python suite (see python-mutants); the DuckDB extension has its
-# own run, `make -C duckdb mutation`: the tests of both need Python
+# own run, `make -C duckdb mutation`: the tests of both need Python. rust/jni is judged by the
+# Java suite (`make -C java jni-mutants`): without Java its test passes without testing anything
 mutants:
-	$(CARGO) mutants --workspace -j $(JOBS) --exclude 'python/**' --exclude 'duckdb/**' $(MUTANTS_OK)
+	$(CARGO) mutants --workspace -j $(JOBS) --exclude 'python/**' --exclude 'duckdb/**' --exclude 'rust/jni/**' $(MUTANTS_OK)
 
 PYTHON_VENV := $(CURDIR)/python/.venv/bin/python
 
@@ -103,3 +108,22 @@ fork-upstream-tests:
 # the vectors all four wrote; needs python/.venv with the package and `make -C duckdb build`
 acceptance:
 	acceptance/cross/run.sh
+
+# the JVM packages (java/README.md): the JNI binding, the parquet-java fork, Spark
+java-test:
+	$(MAKE) -C java test
+
+# the C++ library and the Arrow C++ fork (cpp/README.md)
+cpp-test:
+	$(MAKE) -C cpp test
+
+# Trino (trino/README.md): JDK 25 for its reactor, JDK 21 for the java/ modules it uses
+trino-test:
+	$(MAKE) -C trino test
+
+trino-mutants:
+	$(MAKE) -C trino mutants
+
+# DataFusion (datafusion/README.md): its own Cargo workspace, on a fork of parquet 59.3.2
+datafusion-test:
+	$(MAKE) -C datafusion check

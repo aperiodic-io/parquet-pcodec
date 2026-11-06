@@ -23,6 +23,11 @@ exclude_re = [
     # same rows (equivalent mutants).
     'duckdb/src/scan\.rs:.*replace match guard batch\.num_rows\(\) > 0 with true in Scan::next',
     'duckdb/src/scan\.rs:.*replace > with >= in Scan::next',
+    # JNI binding. The value a native method returns when it has raised a Java exception (the
+    # fallback of `run`, -1 for these two) is discarded by the JVM, so deleting its `-` changes
+    # nothing Java can observe (equivalent mutants).
+    'rust/jni/src/lib\.rs:.*delete - in Java_io_aperiodic_tparquet_Pcodec_mode0',
+    'rust/jni/src/lib\.rs:.*delete - in Java_io_aperiodic_tparquet_NativeTestHooks_panic0',
 ]
 # the vendored upstream crate is tested upstream; its patched functions are listed in
 # rust/parquet/FORK.md and mutated by `make fork-mutants`
