@@ -411,18 +411,19 @@ def test_an_imported_stream_is_released() -> None:
     import weakref
 
     class Batches:
-        """An iterator the stream holds until it is released."""
+        """An iterator the stream holds until it is released (a stream that ends drops it
+        anyway, so this one fails part way)."""
 
-        def __init__(self, n: int) -> None:
-            self.left = n
+        def __init__(self) -> None:
+            self.sent = False
 
         def __iter__(self) -> Batches:
             return self
 
         def __next__(self) -> pa.RecordBatch:
-            if not self.left:
-                raise StopIteration
-            self.left -= 1
+            if self.sent:
+                raise RuntimeError("the source broke")
+            self.sent = True
             return TABLE.to_batches()[0]
 
     writes: list[Callable[[pa.RecordBatchReader], object]] = [
@@ -430,9 +431,10 @@ def test_an_imported_stream_is_released() -> None:
         lambda r: ppc.Writer(io.BytesIO(), TABLE.schema).write(r),
     ]
     for write in writes:
-        it = Batches(2)
+        it = Batches()
         alive = weakref.ref(it)
-        write(pa.RecordBatchReader.from_batches(TABLE.schema, it))
+        with pytest.raises(ppc.PcodecError, match="the source broke"):
+            write(pa.RecordBatchReader.from_batches(TABLE.schema, it))
         del it
         gc.collect()
         assert alive() is None
