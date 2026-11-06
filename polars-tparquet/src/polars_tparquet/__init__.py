@@ -130,10 +130,10 @@ def _replacing(target: Sink) -> Iterator[Sink]:
 
 def _scan(f: Source, batch_size: int | None) -> pl.LazyFrame:
     """One file as a LazyFrame; an error in its footer names the file."""
-    # every path is a str here; tparquet opens it again for every read, so a relative one is
-    # made absolute: a chdir before the query runs does not change the file
+    # tparquet opens the file here and keeps it open, so a relative path is the file it named
+    # now, whatever chdir follows before the query runs
     try:
-        return scan_parquet(os.path.abspath(f) if isinstance(f, str) else f, batch_size=batch_size)
+        return scan_parquet(f, batch_size=batch_size)
     except PcodecError as e:
         raise PcodecError(f"{_name(f)}: {e}") from e
 
