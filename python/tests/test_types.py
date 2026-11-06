@@ -168,10 +168,11 @@ def test_every_type_in_one_table(policy: ppc.Policy, tmp_path: pathlib.Path) -> 
     if policy == "base":
         assert "PCODEC" not in codecs.values()
         assert md.pcodec_version is None
-        # a standard file: pyarrow reads it (it has no float16 bit-exact view, so compare canonically)
-        assert canonical.dumps(pq.read_table(path).select(["int64", "string", "struct"])) == canonical.dumps(
-            table.select(["int64", "string", "struct"])
-        )
+        # a standard file: pyarrow reads it (it has no float16 bit-exact view, so compare
+        # canonically). Only the compared columns are read: pyarrow 25 (the newest on Python
+        # 3.10) cannot read a fixed-size list with null entries, not even from its own files.
+        some = ["int64", "string", "struct"]
+        assert canonical.dumps(pq.read_table(path, columns=some)) == canonical.dumps(table.select(some))
     else:
         assert md.pcodec_version == "1"
 
