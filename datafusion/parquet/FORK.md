@@ -94,10 +94,12 @@ From `datafusion/`:
 
 ## Mutation testing
 
-`make -C datafusion fork-mutants` mutates the fork's own functions:
+`make -C datafusion fork-mutants` (`datafusion/scripts/fork-mutants.sh`) mutates the fork's
+own functions, in place (in a scratch copy of `datafusion/`, the path dependency
+`../../rust/core` does not resolve):
 
 ```
-cargo mutants --no-config -p parquet \
+cargo mutants --no-config -p parquet --in-place --build-timeout 1200 \
   -f parquet/src/basic.rs -f parquet/src/compression.rs \
   -f parquet/src/column/writer/mod.rs -f parquet/src/file/writer.rs \
   --re 'PcodecLevel|PcodecCodec|with_pcodec_version|CodecOptionsBuilder::set_physical_type|CodecOptionsBuilder::build|create_codec|<impl From<CompressionCodec> for Compression>::from|<impl From<Compression> for CompressionCodec>::from|<impl FromStr for Compression>::from_str|write_metadata' \
@@ -106,6 +108,16 @@ cargo mutants --no-config -p parquet \
   --skip test_rewrite_missing_column_index --skip test_rewrite_no_page_indexes
 ```
 
-(run from `datafusion/`; the skipped tests need `parquet-testing`).
+(run from `datafusion/`; the skipped tests need `parquet-testing`; 59.3.2 has no
+`test_int96_interop`). parquet 59.x declares `compression` with its `experimental!` macro,
+which cargo-mutants does not expand: without help it finds 22 mutants and none in
+`compression.rs`. The script spells the declaration out as the macro expands it for the run
+and restores `src/lib.rs` afterwards (`scripts/check-fork.sh` fails if it were not).
 
-Result: see the end of this file.
+Result (62 mutants; `compression.rs` is listed twice, as for the 60.1.0 fork): 53 caught,
+7 unviable, 0 missed, 2 timeouts: `CodecOptionsBuilder::build` replaced by
+`Default::default()`, once per listing; `CodecOptions::default()` calls `build`, so the
+mutant recurses forever and the tests hang. A hang is a detected mutant: the script accepts
+cargo-mutants' exit code 3 when `missed.txt` is empty. The `test_write_metadata_page_indexes`
+port catches `delete !` in 59.x's `!offset_index_disabled()` and the match guards of
+`write_metadata`.
