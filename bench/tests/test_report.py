@@ -105,7 +105,8 @@ def test_markdown() -> None:
 
 
 @pytest.mark.parametrize(
-    ("n", "seconds", "text"), [(10**6, 1.0, "1"), (10**9, 0.5, "2,000"), (2_500_000, 1.0, "2"), (1, 0.0, "–")]
+    ("n", "seconds", "text"),
+    [(10**6, 1.0, "1"), (10**9, 0.5, "2,000"), (2_500_000, 1.0, "2"), (2_500_001, 1.0, "3"), (1, 0.0, "–")],
 )
 def test_speed(n: int, seconds: float, text: str) -> None:
     assert report.speed(n, seconds) == text

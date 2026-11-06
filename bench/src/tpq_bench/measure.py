@@ -124,7 +124,7 @@ READS = 3
 def _read(path: pathlib.Path) -> float:
     """Seconds of a full read with tparquet's reader, the best of `READS` (reads are quick, and
     a small file's single read is mostly noise)."""
-    best = float("inf")
+    best = float("inf")  # pragma: no mutate (float() ignores the case)
     for _ in range(READS):
         start = time.perf_counter()
         for _ in tpq.read_batches(path):
