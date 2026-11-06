@@ -1,0 +1,62 @@
+# tparquet-datafusion: PCODEC Parquet files in DataFusion (README.md).
+#
+# Its own workspace: DataFusion 55 is built on arrow/parquet 59, the root workspace on 60, so
+# DataFusion's dependency tree stays out of the root Cargo.lock. `parquet/` is the parquet
+# 59.3.2 fork with the PCODEC codec (parquet/FORK.md), patched in for every crate below.
+[package]
+name = "tparquet-datafusion"
+version = "0.1.0"
+description = "PCODEC Parquet files (spec/FORMAT.md) in Apache DataFusion: STORED AS TPARQUET, COPY TO, and PCODEC in plain STORED AS PARQUET"
+edition = "2024"
+rust-version = "1.94"
+license = "Apache-2.0"
+repository = "https://github.com/aperiodic-io/tparquet"
+publish = false
+
+[workspace]
+resolver = "3"
+# the fork is a member so that `cargo test -p parquet` runs its tests from here
+members = [".", "parquet"]
+
+[dependencies]
+datafusion = { version = "=55.2.0", default-features = false, features = ["parquet", "sql"] }
+# for FileGroupDisplay, which datafusion does not re-export
+datafusion-datasource = { version = "=55.2.0", default-features = false }
+# the fork (see [patch.crates-io]); DataFusion depends on it with its default features, which
+# include pcodec, but the connector names the codecs it relies on
+parquet = { version = "=59.3.2", default-features = false, features = ["arrow", "async", "object_store", "pcodec", "zstd", "snap", "lz4", "brotli", "flate2"] }
+tparquet-core = { path = "../rust/core" }
+object_store = { version = "0.13.2", default-features = false }
+async-trait = "0.1"
+futures = "0.3"
+base64 = "0.23"
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[dev-dependencies]
+proptest = "1"
+bytes = "1"
+tempfile = "3"
+
+[[bin]]
+name = "tparquet-datafusion-vectors"
+path = "src/bin/tparquet-datafusion-vectors.rs"
+
+[patch.crates-io]
+parquet = { path = "parquet" }
+
+# the vendored parquet crate and DataFusion are large: keep debug info small
+[profile.dev]
+debug = "line-tables-only"
+incremental = false
+
+[profile.dev.package."*"]
+debug = false
+# tests (and every mutant) run much faster with optimized dependencies
+opt-level = 2
+
+[profile.dev.package.parquet]
+opt-level = 2
+
+[profile.dev.package.tparquet-core]
+opt-level = 2
