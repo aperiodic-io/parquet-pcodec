@@ -206,7 +206,11 @@ final class TrinoParquet
         List<RowGroupInfo> rowGroups = new ArrayList<>();
         long start = 0;
         for (BlockMetadata block : metadata.getBlocks()) {
-            rowGroups.add(new RowGroupInfo(createPrunedColumnsMetadata(block, source.getId(), descriptors), start, Optional.empty()));
+            // as the connectors' PredicateUtils.getFilteredRowGroups: a row group without rows is
+            // never read (its column chunks can be empty, which ParquetReader does not accept)
+            if (block.rowCount() > 0) {
+                rowGroups.add(new RowGroupInfo(createPrunedColumnsMetadata(block, source.getId(), descriptors), start, Optional.empty()));
+            }
             start += block.rowCount();
         }
         List<Page> pages = new ArrayList<>();
