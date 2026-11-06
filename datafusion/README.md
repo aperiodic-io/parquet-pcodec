@@ -156,6 +156,10 @@ exclusions are in [`.cargo/mutants.toml`](.cargo/mutants.toml), each with its re
 (cargo-mutants does not expand macros, and would not see `compression.rs` otherwise) and
 restores `lib.rs` afterwards.
 
+Results: the connector, 143 mutants: 123 caught, 20 unviable, none missed; the fork, 62
+mutants: 53 caught, 7 unviable, none missed, 2 timeouts (a mutant of `CodecOptionsBuilder::build`
+that recurses forever, see [`parquet/FORK.md`](parquet/FORK.md)).
+
 ## Cross-language acceptance
 
 `tparquet-datafusion-vectors` is DataFusion's reader and writer for
