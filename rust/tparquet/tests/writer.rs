@@ -406,3 +406,22 @@ fn a_rejected_first_batch_leaves_the_writer_usable() {
         assert_eq!(lines(&bytes::Bytes::from(out)), batch_lines(std::slice::from_ref(&good)));
     }
 }
+
+#[test]
+fn base_codecs_parse_or_fail_cleanly() {
+    use tparquet::parse_base;
+    assert_eq!(parse_base("zstd(3)").unwrap(), tparquet::writer::default_base());
+    assert_eq!(parse_base("ZSTD(3)").unwrap(), tparquet::writer::default_base());
+    assert_eq!(parse_base("snappy").unwrap(), Compression::SNAPPY);
+    assert_eq!(parse_base("gzip(9)").unwrap(), Compression::GZIP(GzipLevel::try_new(9).unwrap()));
+    assert_eq!(parse_base("uncompressed").unwrap(), Compression::UNCOMPRESSED);
+    let message = |s: &str| parse_base(s).unwrap_err().to_string();
+    assert_eq!(message("pcodec(3)"), "the base codec cannot be PCODEC");
+    assert_eq!(message("lzo"), "the base codec cannot be LZO: no Parquet writer implements it");
+    for bad in ["zstd(", "zstd(3", "zstd(3x", "zstd(3)x", "gzip(é", "zstd)(", "("] {
+        assert_eq!(message(bad), format!("base codec {bad:?}: expected NAME or NAME(LEVEL)"), "{bad}");
+    }
+    assert_eq!(message("zstd"), "base codec \"zstd\": Parquet error: zstd requires a compression level");
+    assert_eq!(message("zstd(x)"), "base codec \"zstd(x)\": Parquet error: invalid compression level: x)");
+    assert!(message("nope").contains("unsupported compression nope"));
+}

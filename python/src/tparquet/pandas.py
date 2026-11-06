@@ -15,7 +15,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 
-from tparquet._core import ParquetFile, Policy, Sink, Source, write_table
+from tparquet._core import ParquetFile, Policy, Sink, Source, _names, write_table
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -100,8 +100,8 @@ def read_parquet(source: Source, columns: Sequence[str] | None = None, **to_pand
     `categories`...).
     """
     f = ParquetFile(source)
-    if columns is not None:
-        wanted = list(columns)
+    wanted = _names(columns)
+    if wanted is not None:
         columns = wanted + [c for c in _index_columns(f.schema) if c not in wanted]
     return _decode_categories(f.read(columns=columns)).to_pandas(**to_pandas_kwargs)
 
