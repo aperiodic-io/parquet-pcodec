@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Trino reads tparquet files (trino/README.md, Testing): the conformance vectors through
+     trino-parquet's reader, compared with standard copies and with testdata/expected; Trino's
+     query engine (the Hive connector, loaded from a plugin directory as the server loads it) over
+     directories of PCODEC files; corrupt payloads; the install script. -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>io.aperiodic.tparquet</groupId>
+    <artifactId>tparquet-trino-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>tparquet-trino-tests</artifactId>
+  <name>tparquet Trino tests</name>
+
+  <properties>
+    <!-- the plugin-jars module's output: an upstream Hive plugin directory and the jars to install -->
+    <tparquet.trino.plugin.jars>${project.basedir}/../plugin-jars/target</tparquet.trino.plugin.jars>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <!-- java/tparquet writes the test files; it is on parquet-java 1.17.0 (java/parquet-java) -->
+      <dependency>
+        <groupId>org.apache.parquet</groupId>
+        <artifactId>parquet-hadoop</artifactId>
+        <version>${parquet.java.fork.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+    <!-- built before this module (its target/ is the tests' plugin directory); nothing of it on the class path -->
+    <dependency>
+      <groupId>io.aperiodic.tparquet</groupId>
+      <artifactId>tparquet-trino-plugin-jars</artifactId>
+      <version>${project.version}</version>
+      <type>pom</type>
+      <scope>test</scope>
+      <exclusions>
+        <exclusion>
+          <groupId>*</groupId>
+          <artifactId>*</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>io.trino</groupId>
+      <artifactId>trino-parquet</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.trino</groupId>
+      <artifactId>trino-spi</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.trino</groupId>
+      <artifactId>trino-main</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.trino</groupId>
+      <artifactId>trino-testing</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.aperiodic.tparquet</groupId>
+      <artifactId>tparquet</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- the Hadoop classes parquet-hadoop needs, as Trino's own tests have them -->
+    <dependency>
+      <groupId>io.trino.hadoop</groupId>
+      <artifactId>hadoop-apache</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>net.jqwik</groupId>
+      <artifactId>jqwik</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <systemPropertyVariables combine.children="append">
+            <tparquet.trino.plugin.jars>${tparquet.trino.plugin.jars}</tparquet.trino.plugin.jars>
+            <tparquet.trino.install>${project.basedir}/../install-tparquet.sh</tparquet.trino.install>
+          </systemPropertyVariables>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

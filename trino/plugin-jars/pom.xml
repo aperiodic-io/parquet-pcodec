@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The jars around a Trino install (trino/README.md):
+     - target/tparquet-jars: what install-tparquet.sh puts into a connector's plugin directory (the
+       trino-parquet fork, the parquet-java 1.18.1 fork's two jars, tparquet-jni);
+     - target/plugin/hive: an upstream Hive plugin directory, laid out as Trino 484's server
+       tarball has it (the connector and its runtime dependencies, upstream trino-parquet and
+       parquet-java 1.18.1), for the tests (trino/tests) to install into and load as Trino does. -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>io.aperiodic.tparquet</groupId>
+    <artifactId>tparquet-trino-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>tparquet-trino-plugin-jars</artifactId>
+  <packaging>pom</packaging>
+  <name>tparquet Trino plugin jars</name>
+
+  <!-- this module's Hive plugin is upstream's: Trino 484's own versions, not the forks -->
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>io.trino</groupId>
+        <artifactId>trino-parquet</artifactId>
+        <version>${trino.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.parquet</groupId>
+        <artifactId>parquet-format-structures</artifactId>
+        <version>${parquet.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.parquet</groupId>
+        <artifactId>parquet-common</artifactId>
+        <version>${parquet.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+    <dependency>
+      <groupId>io.trino</groupId>
+      <artifactId>trino-hive</artifactId>
+      <version>${trino.version}</version>
+      <type>jar</type>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <executions>
+          <!-- what a Trino install's plugin/hive holds: the plugin and its runtime class path
+               (the SPI and its packages are provided by the server) -->
+          <execution>
+            <id>hive-plugin</id>
+            <phase>package</phase>
+            <goals>
+              <goal>copy-dependencies</goal>
+            </goals>
+            <configuration>
+              <outputDirectory>${project.build.directory}/plugin/hive</outputDirectory>
+              <includeScope>runtime</includeScope>
+              <!-- trino-parquet: copied below at upstream's version; the others are the Hive
+                   plugin pom's provided dependencies, which the server provides (Trino's plugin
+                   packaging leaves them out) -->
+              <excludeArtifactIds>trino-parquet,trino-spi,slice,jackson-annotations,opentelemetry-api,opentelemetry-api-incubator,opentelemetry-common,opentelemetry-context,jts-core</excludeArtifactIds>
+            </configuration>
+          </execution>
+          <execution>
+            <id>hive-plugin-trino-parquet</id>
+            <phase>package</phase>
+            <goals>
+              <goal>copy</goal>
+            </goals>
+            <configuration>
+              <outputDirectory>${project.build.directory}/plugin/hive</outputDirectory>
+              <artifactItems>
+                <artifactItem>
+                  <groupId>io.trino</groupId>
+                  <artifactId>trino-parquet</artifactId>
+                  <version>${trino.version}</version>
+                </artifactItem>
+              </artifactItems>
+            </configuration>
+          </execution>
+          <execution>
+            <id>tparquet-jars</id>
+            <phase>package</phase>
+            <goals>
+              <goal>copy</goal>
+            </goals>
+            <configuration>
+              <outputDirectory>${project.build.directory}/tparquet-jars</outputDirectory>
+              <artifactItems>
+                <artifactItem>
+                  <groupId>io.trino</groupId>
+                  <artifactId>trino-parquet</artifactId>
+                  <version>${trino.fork.version}</version>
+                </artifactItem>
+                <artifactItem>
+                  <groupId>org.apache.parquet</groupId>
+                  <artifactId>parquet-format-structures</artifactId>
+                  <version>${parquet.fork.version}</version>
+                </artifactItem>
+                <artifactItem>
+                  <groupId>org.apache.parquet</groupId>
+                  <artifactId>parquet-common</artifactId>
+                  <version>${parquet.fork.version}</version>
+                </artifactItem>
+                <artifactItem>
+                  <groupId>io.aperiodic.tparquet</groupId>
+                  <artifactId>tparquet-jni</artifactId>
+                  <version>${tparquet.version}</version>
+                </artifactItem>
+              </artifactItems>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>
