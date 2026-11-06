@@ -11,7 +11,7 @@ fn testdata(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/files").join(format!("{name}.parquet"))
 }
 
-const TPARQUET_FILES: [&str; 12] = [
+const TPARQUET_FILES: [&str; 23] = [
     "primitives_required",
     "primitives_optional",
     "lists",
@@ -24,6 +24,17 @@ const TPARQUET_FILES: [&str; 12] = [
     "pages_v1",
     "pages_v2",
     "mixed",
+    "maps",
+    "deep_nesting",
+    "dictionary_fallback",
+    "pcodec_levels",
+    "payload_modes",
+    "integer_types",
+    "auto_choice",
+    "large_page",
+    "statistics",
+    "all_null_pages",
+    "key_value_metadata",
 ];
 
 #[test]

@@ -49,6 +49,13 @@ def test_footer_matches_the_manifest(entry: dict[str, Any]) -> None:
     assert md.num_rows == entry["rows"]
     assert md.num_row_groups == entry["row_groups"]
     assert md.pcodec_version == entry["pcodec_version"]
+    kv = {k: v for k, v in md.key_value_metadata.items() if k != "ARROW:schema"}
+    assert kv == entry["key_value_metadata"]
+    # pyarrow reads the footer of every vector, PCODEC or not
+    footer = pq.read_metadata(path).metadata or {}
+    assert {k.decode(): v.decode() for k, v in footer.items() if k != b"ARROW:schema"} == {
+        k: v or "" for k, v in entry["key_value_metadata"].items()
+    }
     assert md.codecs == {c["path"]: c["codecs"] for c in entry["columns"]}
     assert md.physical_types == {c["path"]: c["physical_type"] for c in entry["columns"]}
     report = ppc.inspect(path)

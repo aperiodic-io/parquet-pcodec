@@ -13,7 +13,7 @@ NAMES = sorted(p.stem for p in FILES.glob("*.parquet"))
 
 
 def test_every_vector_is_covered():
-    assert len(NAMES) == 13
+    assert len(NAMES) == 24
     assert sorted(p.stem for p in EXPECTED.glob("*.jsonl")) == NAMES
 
 

@@ -17,7 +17,7 @@ hand; change the generator (`rust/tparquet/src/bin/gen-testdata/`) and regenerat
 | Path | What |
 |---|---|
 | `files/<name>.parquet` | a Parquet file |
-| `files/manifest.json` | per file: description, rows, row groups, the `parquet.pcodec.version` footer value (or `null`), and per leaf column its physical type, codecs, page counts per page type and PCODEC pages per payload mode (as `tparquet inspect --json` reports them; see below) |
+| `files/manifest.json` | per file: description, rows, row groups, the `parquet.pcodec.version` footer value (or `null`), the footer's key-value pairs but `ARROW:schema` (`null` for a key without a value), and per leaf column its physical type, codecs, page counts per page type and PCODEC pages per payload mode (as `tparquet inspect --json` reports them; see below) |
 | `expected/<name>.jsonl` | the file's rows in canonical JSON (below) |
 | `payloads/<name>.bin` | a PCODEC page payload (spec section 4) |
 | `payloads/<name>.out` | for a valid payload, the bytes it decodes to |
@@ -45,6 +45,18 @@ payloads, signed zeros, infinities and subnormals; a row group without rows; sev
 groups; DATA_PAGE (V1) and DATA_PAGE_V2 pages, dictionary pages, a V2 page stored
 uncompressed; PCODEC numeric columns next to dictionary-encoded ZSTD strings; RAW, PCO,
 DECIMAL and ZSTD payloads; and one standard (non-PCODEC) control file, `standard_control`.
+
+They also cover maps (null, empty, null values; `maps`); lists of structs of lists of structs
+with a null and an empty value at every level (`deep_nesting`); dictionary-encoded PCODEC
+chunks that fall back to `PLAIN` part way (`dictionary_fallback`); every pcodec level
+(`pcodec_levels`); one column per payload mode side by side (`payload_modes`); every integer
+logical type stored in INT32 and INT64 at its extremes, and decimals at the precision bounds of
+both (`integer_types`); Auto choosing PCODEC for some numeric columns and the base codec for
+another (`auto_choice`, see the codecs in the manifest); a page of more than 2^18 values, whose
+payload holds two pcodec chunks (`large_page`); page statistics in the column index and page
+headers, bloom filters and sorting columns (`statistics`); pages whose values are all null
+(`EMPTY`) and an empty dictionary page (`all_null_pages`); and the caller's key-value pairs next
+to `parquet.pcodec.version` (`key_value_metadata`).
 
 A Parquet reader that does not know PCODEC must fail on every file but `standard_control`
 (`acceptance/rust-upstream` checks this for the upstream Rust `parquet` crate).

@@ -33,7 +33,7 @@ def standard(path: pathlib.Path, tmp_path: pathlib.Path) -> pl.DataFrame:
 
 
 def test_every_vector_is_here() -> None:
-    assert len(VECTORS) == 13
+    assert len(VECTORS) == 24
     assert sorted(MANIFEST) == sorted(p.stem for p in VECTORS)
 
 
