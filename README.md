@@ -15,10 +15,10 @@
 [![Cross-language](https://github.com/aperiodic-io/tparquet/actions/workflows/acceptance.yml/badge.svg)](https://github.com/aperiodic-io/tparquet/actions/workflows/acceptance.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-**Parquet for time series.** Trade and tick files at about a third of their ZSTD size
-(0.31× in our trades benchmark), lossless, and still Parquet: same schema, row groups, statistics
-and page indexes. Read and write them from Python, pandas, Polars, DuckDB, Go, Rust, Java,
-Spark, Trino, DataFusion, C and C++.
+**Parquet for time series.** Trade and tick files at about half their ZSTD size (0.49× on
+139M trades from four market data providers), lossless, and still Parquet: same schema, row
+groups, statistics and page indexes. Read and write them from Python, pandas, Polars, DuckDB,
+Go, Rust, Java, Spark, Trino, DataFusion, C and C++.
 
 tparquet adds one thing to Parquet: a compression codec, PCODEC, that runs
 [pcodec](https://github.com/pcodec/pcodec) on numeric columns. Prices and sizes that are short
@@ -26,45 +26,33 @@ decimals are stored as exact integers. Everything else in the file stays standar
 
 ## How much smaller
 
-Deterministic synthetic market data from the acceptance test, against Parquet with ZSTD level 9:
+Measured on the sample and preview data of four market data providers: Aperiodic, Tardis.dev,
+Crypto Lake and NYSE, 151M rows in 31 datasets. The baseline is Parquet with ZSTD level 9,
+written two ways: with the writer's defaults, and *tuned*, with the best encoding chosen per
+column (DELTA_BINARY_PACKED, BYTE_STREAM_SPLIT, DELTA_BYTE_ARRAY, ...), as the providers' own
+files are.
 
-| Data | ZSTD level 9 | tparquet | Size |
-|---|---:|---:|---:|
-| 50,000 trades: ms timestamps, prices on a 0.01 tick, amounts, side, trade ids | 361 KB | 110 KB | **0.31×** |
-| 5,000 L2 book snapshots: lists of bid and ask prices and sizes | 195 KB | 209 KB | 1.07× |
-| Both | 556 KB | 319 KB | 0.57× |
+| Data | Rows | ZSTD(9) | ZSTD(9) tuned | tparquet | vs ZSTD(9) | vs tuned |
+|---|---:|---:|---:|---:|---:|---:|
+| Trades (crypto perps and spot, US equities) | 138.9M | 737.0 MB | 520.0 MB | 362.2 MB | 0.49× | 0.70× |
+| Quotes (top of book) | 6.8M | 80.6 MB | 63.3 MB | 51.0 MB | 0.63× | 0.81× |
+| Order books (L2 snapshots and updates) | 5.5M | 126.4 MB | 109.2 MB | 58.6 MB | 0.46× | 0.54× |
+| Bars, metrics, derivatives | 288K | 13.1 MB | 8.2 MB | 6.8 MB | 0.52× | 0.83× |
+| **All** | 151.5M | 957.1 MB | 700.7 MB | 478.6 MB | **0.50×** | **0.68×** |
 
-Every value comes back bit for bit. On the trades, timestamps, prices and trade ids get PCODEC;
-amounts and the side flag keep ZSTD because ZSTD is smaller for them. On the book snapshots
-pcodec does not win, so every column keeps ZSTD (at level 3, hence the small gap to level 9).
-tparquet makes this choice per column, on the first batch.
+Every value comes back bit for bit, and tparquet is smaller on every one of the 31 datasets.
+It chooses PCODEC or ZSTD per column, on the first batch: here 478 of the 480 numeric columns
+got PCODEC. Strings and flags keep ZSTD.
 
-If your files compress like these trades, 1 TB of ZSTD Parquet becomes about 310 GB, and a full
-scan reads about a third of the bytes. To reproduce the table:
+If your files compress like these trades, 1 TB of ZSTD(9) Parquet becomes about 490 GB (about
+700 GB if your writer already tunes its encodings), and a full scan reads half the bytes. On
+one thread, tparquet writes at 109 MB/s of Arrow data (ZSTD(9): 104, tuned: 155) and reads at
+925 MB/s (ZSTD(9): 1,031, tuned: 1,225). On wide order books, where every column is PCODEC, it
+writes about 3× slower and reads at two thirds of ZSTD(9)'s speed.
 
-```sh
-cargo test --release -p tparquet --test acceptance -- --nocapture
-```
-
-Synthetic data only goes so far, so [`bench/`](bench) measures tparquet on real data. It
-uses the sample and preview data of Aperiodic, Tardis.dev, Crypto Lake and NYSE: 151M rows
-across 31 datasets. On these, tparquet is **0.50×** of ZSTD(9) Parquet with the
-writer's defaults, and **0.68×** of ZSTD(9) with the best encoding chosen per column
-(DELTA_BINARY_PACKED, BYTE_STREAM_SPLIT, ...):
-
-| Data | tparquet / ZSTD(9) | tparquet / tuned ZSTD(9) |
-|---|---:|---:|
-| Trades (crypto perps and spot, US equities) | 0.49× | 0.70× |
-| Quotes (top of book) | 0.63× | 0.81× |
-| Order books (L2 snapshots and updates) | 0.46× | 0.54× |
-| Bars, metrics, derivatives | 0.36× to 0.55× | 0.55× to 0.91× |
-
-On one thread, tparquet writes these at 109 MB/s of Arrow data (ZSTD(9): 104, tuned: 155)
-and reads them at 925 MB/s (ZSTD(9): 1,031, tuned: 1,225). On wide order books, where every
-column is PCODEC, it writes about 3× slower and reads at two thirds of ZSTD(9)'s speed. Every
-dataset is in [`bench/RESULTS.md`](bench/RESULTS.md); `make bench` reproduces it. The
-quickest way to find out what tparquet does for your data is still to run it on one of your
-own files.
+Every dataset, with its write and read speeds, is in [`bench/RESULTS.md`](bench/RESULTS.md).
+`make bench` reproduces it (it downloads about 1.2 GB). The quickest way to find out what
+tparquet does for your data is still to run it on one of your own files.
 
 ## Try it on your own file
 
@@ -265,6 +253,10 @@ make bench            # the benchmark on providers' sample data (downloads about
 
 CI runs all of it on every pull request (`.github/workflows/`). See [`AGENTS.md`](AGENTS.md) for
 the rules of the repository.
+
+The acceptance test also measures deterministic synthetic market data, against ZSTD(9): 50,000
+trades at 0.31×, and 5,000 L2 book snapshots stored as lists, where pcodec does not win, at
+1.07× (`cargo test --release -p tparquet --test acceptance -- --nocapture`).
 
 ## License
 
