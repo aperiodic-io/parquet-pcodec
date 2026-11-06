@@ -1,6 +1,6 @@
 # Results
 
-The last run of `make bench` (2026-11-06; tparquet f4bc748, pyarrow 26.0.1,
+The last run of `make bench` (2026-11-06; tparquet 0f2845d, pyarrow 26.0.1,
 Python 3.14.6, on a 4-vCPU cloud VM). How it is measured: [README.md](README.md#what-is-measured).
 Size ratios below 1 mean tparquet is smaller; speeds are MB/s of Arrow data, higher is faster.
 
