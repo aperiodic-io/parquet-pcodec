@@ -8,7 +8,8 @@ FUZZ_TIME ?= 60
 
 .PHONY: check fmt fmt-check clippy test c-test check-fork testdata testdata-check fuzz-smoke \
 	mutants fork-mutants fork-upstream-tests python-test python-mutants polars-test polars-mutants acceptance \
-	java-test cpp-test trino-test trino-mutants datafusion-test
+	java-test cpp-test trino-test trino-mutants datafusion-test \
+	bench-test bench-mutants bench
 
 check: fmt-check clippy test c-test check-fork testdata-check
 
@@ -82,6 +83,18 @@ python-mutants:
 # the Polars plugin (polars-tparquet/): uv builds tparquet from python/ into its own venv
 polars-test:
 	cd polars-tparquet && uv sync --python 3.14 && uv run --no-sync pytest
+
+# the benchmark harness (bench/): its offline tests, then the benchmark itself, which downloads
+# the providers' samples (about 1.2 GB, cached in bench/data) and rewrites bench/RESULTS.md
+bench-test:
+	cd bench && uv sync --python 3.14 && uv run --no-sync pytest
+
+bench-mutants:
+	cd bench && uv run --no-sync python scripts/mutmut_check.py
+
+bench:
+	cd bench && uv sync --python 3.14 && \
+	  uv run --no-sync tpq-bench run --markdown RESULTS.md --json results.json
 
 polars-mutants:
 	cd polars-tparquet && HYPOTHESIS_PROFILE=mutation TPARQUET_TESTDATA=$(CURDIR)/testdata \
