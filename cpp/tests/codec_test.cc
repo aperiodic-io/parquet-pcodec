@@ -79,7 +79,7 @@ std::string Compress(Codec& codec, const std::string& src) {
 
 TEST(Codec, EveryPayloadVectorDecodesAsListed) {
   const auto vectors = PayloadVectors();
-  ASSERT_GE(vectors.size(), 35u);
+  ASSERT_GE(vectors.size(), 44u);
   auto codec = MakeCodec();
   // the Parquet layer's factory returns the same codec
   auto parquet_codec = parquet::GetCodec(Compression::PCODEC);
@@ -101,8 +101,8 @@ TEST(Codec, EveryPayloadVectorDecodesAsListed) {
     }
     (v.valid ? valid : invalid)++;
   }
-  EXPECT_EQ(valid, 14);
-  EXPECT_EQ(invalid, 21);
+  EXPECT_EQ(valid, 18);
+  EXPECT_EQ(invalid, 26);
 }
 
 TEST(Codec, ValidPayloadsNeedTheirExactSize) {
