@@ -59,7 +59,10 @@ writer's defaults, and **0.68×** of ZSTD(9) with the best encoding chosen per c
 | Order books (L2 snapshots and updates) | 0.46× | 0.54× |
 | Bars, metrics, derivatives | 0.36× to 0.55× | 0.55× to 0.91× |
 
-Every dataset is in [`bench/RESULTS.md`](bench/RESULTS.md); `make bench` reproduces it. The
+On one thread, tparquet writes these at 109 MB/s of Arrow data (ZSTD(9): 104, tuned: 155)
+and reads them at 925 MB/s (ZSTD(9): 1,031, tuned: 1,225). On wide order books, where every
+column is PCODEC, it writes about 3× slower and reads at two thirds of ZSTD(9)'s speed. Every
+dataset is in [`bench/RESULTS.md`](bench/RESULTS.md); `make bench` reproduces it. The
 quickest way to find out what tparquet does for your data is still to run it on one of your
 own files.
 

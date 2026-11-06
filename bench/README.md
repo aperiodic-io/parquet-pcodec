@@ -36,9 +36,29 @@ From the last run (31 datasets, 151M rows, 1.2 GB downloaded). Every dataset is 
 - Strings keep tparquet's base codec, ZSTD(3) with the default encoding. On string trade ids
   (Aperiodic, Tardis.dev) the tuned baseline's DELTA_BYTE_ARRAY is smaller, so tparquet's
   total there would improve with a better base encoding for strings.
-- Writing tparquet is faster than writing ZSTD(9) on the trades (44 s against 64 s), and
-  2.8× slower on the order books, whose 80 to 100 columns are all PCODEC. Reading takes 1.1×
-  to 1.5× the time of the ZSTD(9) files.
+
+Speed, in MB/s of Arrow data (higher is faster; one thread per writer and reader):
+
+| Data type | Arrow data | Write ZSTD(9) | Write tuned | Write tparquet | Read ZSTD(9) | Read tuned | Read tparquet |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Trades | 7.49 GB | 100 | 159 | 152 | 988 | 1,191 | 930 |
+| Quotes (L1) | 482 MB | 91 | 160 | 68 | 1,053 | 1,533 | 1,002 |
+| Order book (L2) | 1.46 GB | 141 | 136 | 51 | 1,346 | 1,340 | 883 |
+| Bars (OHLCV) | 436 KB | 32 | 87 | 11 | 383 | 542 | 749 |
+| Metrics (5m bars) | 10.5 MB | 55 | 84 | 8 | 302 | 502 | 587 |
+| Derivatives | 12.2 MB | 105 | 93 | 38 | 1,038 | 1,440 | 1,387 |
+| **All** | 9.46 GB | 104 | 155 | 109 | 1,031 | 1,225 | 925 |
+
+- **Writing.** Over everything, tparquet writes at 109 MB/s: about as fast as ZSTD(9) (104)
+  and 0.70× of tuned ZSTD(9) (155). On the large trade files it matches the tuned writer
+  (152 against 159 MB/s) and is 1.5× as fast as ZSTD(9). The order books write about 3×
+  slower (51 MB/s), because each of their 80 to 100 numeric columns is PCODEC. The small
+  files (bars, metrics: 9K rows each) write at 8 to 11 MB/s. On them the cost of the
+  per-column choice dominates: the first batch is compressed both ways.
+- **Reading.** tparquet reads at 925 MB/s: 0.90× of ZSTD(9) and 0.76× of tuned ZSTD(9). Trades
+  and quotes read at 0.94× and 0.95× of ZSTD(9). The order books read at 0.66×, because
+  decoding pcodec costs more per value than ZSTD on these columns. The small bar and metric
+  files read fastest as tparquet, since there is less to read.
 
 ## What is measured
 
