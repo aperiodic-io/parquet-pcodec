@@ -9,7 +9,9 @@ mod common;
 use common::*;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
-use tparquet_core::{Error, Mode, Options, PhysicalType, compress, decompress_into, mode_of};
+use tparquet_core::{
+    Error, Mode, Options, PhysicalType, compress, decompress, decompress_append, decompress_into, mode_of,
+};
 
 struct Counting;
 
@@ -17,6 +19,12 @@ struct Counting;
 thread_local! {
     static LIVE: Cell<isize> = const { Cell::new(0) };
     static PEAK: Cell<isize> = const { Cell::new(0) };
+    /// the largest single allocation this thread may make; a larger one fails (returns null)
+    static LIMIT: Cell<usize> = const { Cell::new(usize::MAX) };
+}
+
+fn refused(n: usize) -> bool {
+    LIMIT.try_with(|l| n > l.get()).unwrap_or(false)
 }
 
 fn grow(n: usize) {
@@ -34,10 +42,16 @@ fn shrink(n: usize) {
 // SAFETY: forwards every call to the system allocator unchanged; only counts sizes
 unsafe impl GlobalAlloc for Counting {
     unsafe fn alloc(&self, l: Layout) -> *mut u8 {
+        if refused(l.size()) {
+            return std::ptr::null_mut();
+        }
         grow(l.size());
         unsafe { System.alloc(l) }
     }
     unsafe fn alloc_zeroed(&self, l: Layout) -> *mut u8 {
+        if refused(l.size()) {
+            return std::ptr::null_mut();
+        }
         grow(l.size());
         unsafe { System.alloc_zeroed(l) }
     }
@@ -46,6 +60,9 @@ unsafe impl GlobalAlloc for Counting {
         unsafe { System.dealloc(p, l) }
     }
     unsafe fn realloc(&self, p: *mut u8, l: Layout, n: usize) -> *mut u8 {
+        if refused(n) {
+            return std::ptr::null_mut();
+        }
         grow(n);
         shrink(l.size());
         unsafe { System.realloc(p, l, n) }
@@ -173,4 +190,92 @@ fn pcodec_header_fields_cost_at_most_pcodecs_own_caps() {
 fn pcodec_header_fields_cost_no_more_than_the_page() {
     let worst = worst_bit_flip();
     assert!(worst < OVERHEAD, "{worst} bytes for a 40000 byte page");
+}
+
+/// what a page header claims: 256 MB, so that a decoder that sizes its output by the claim
+/// shows (rust/tparquet/tests/hostile_page.rs reads pages claiming 2 GiB)
+const CLAIM: usize = 1 << 28;
+
+/// payloads of a few bytes that cannot produce `CLAIM` bytes, in every mode
+fn hostile() -> Vec<(&'static str, Vec<u8>)> {
+    let pco = pco_payload(PhysicalType::Int64, &i64s(&[1, 2, 3]));
+    let mut decimal = vec![1, 2, 5, 2, 0];
+    decimal.extend(&pco[3..]);
+    vec![
+        ("raw", vec![1, 0, 7]),
+        ("pco", pco),
+        ("pco garbage", vec![1, 1, 2, 0xff, 0xff]),
+        ("decimal", decimal),
+        // a single-segment frame with a content size of 2^28 and one RLE block of 128 KiB
+        ("zstd", vec![1, 3, 0x28, 0xB5, 0x2F, 0xFD, 0xA0, 0x00, 0x00, 0x00, 0x10, 0x03, 0x00, 0x10, 0x00]),
+    ]
+}
+
+#[test]
+fn a_claimed_size_the_payload_cannot_produce_allocates_nothing_for_it() {
+    for (name, p) in hostile() {
+        let (r, peak) = peak_of(|| decompress(&p, CLAIM));
+        assert!(r.is_err(), "{name}");
+        assert!(peak < OVERHEAD, "{name}: {peak} bytes for a {} byte payload claiming {CLAIM}", p.len());
+    }
+}
+
+/// a page of each mode: (name, payload, decoded bytes)
+fn pages() -> Vec<(&'static str, Vec<u8>, Vec<u8>)> {
+    let n = 1 << 17;
+    let ints = smooth(PhysicalType::Int64, n, 5);
+    let prices = f64s(&(0..n).map(|i| (i % 5_000) as f64 / 100.0).collect::<Vec<_>>());
+    let text: Vec<u8> = (0..n * 8).map(|i| b"abcdefgh"[i % 7]).collect();
+    let noise = Rng(9).bytes(n);
+    let mut pages = vec![];
+    for (name, src, hint, mode) in [
+        ("pco", ints, Some(PhysicalType::Int64), Mode::Pco),
+        ("decimal", prices, Some(PhysicalType::Double), Mode::Decimal),
+        ("zstd", text, None, Mode::Zstd),
+        ("raw", noise, None, Mode::Raw),
+    ] {
+        let p = compress(&src, &Options { hint, ..Options::default() }).unwrap();
+        assert_eq!(mode_of(&p), Ok(mode), "{name}");
+        pages.push((name, p, src));
+    }
+    pages
+}
+
+/// `f` with every allocation of this thread above `limit` bytes failing
+fn limited<R>(limit: usize, f: impl FnOnce() -> R) -> R {
+    LIMIT.with(|l| l.set(limit));
+    let r = f();
+    LIMIT.with(|l| l.set(usize::MAX));
+    r
+}
+
+#[test]
+fn memory_that_cannot_be_allocated_is_an_error_not_an_abort() {
+    assert!(limited(10, || Vec::<u8>::new().try_reserve(11)).is_err());
+    for (name, p, src) in pages() {
+        // the output grows past the limit at some point, whatever its growth strategy
+        let mut out = vec![1, 2, 3];
+        let r = limited(src.len() / 4, || decompress_append(&p, &mut out, src.len()));
+        assert_eq!(r, Err(Error::AllocationFailed(src.len())), "{name}");
+        assert_eq!(out, [1, 2, 3], "{name}: the output is restored");
+        assert_eq!(decompress(&p, src.len()).as_deref(), Ok(&src[..]), "{name}");
+    }
+}
+
+#[test]
+fn appending_allocates_the_page_and_little_more() {
+    for (name, p, src) in pages() {
+        let mut out = Vec::new();
+        let (r, peak) = peak_of(|| decompress_append(&p, &mut out, src.len()));
+        assert_eq!(r, Ok(()), "{name}");
+        assert!(out == src, "{name}: decoded bytes differ");
+        // a Vec that doubles holds at most twice its length, and the old buffer during a move
+        assert!(peak < 3 * src.len() + OVERHEAD, "{name}: {peak} bytes for a {} byte page", src.len());
+        // into room reserved beforehand (as a Parquet reader reserves the page), nothing more
+        let mut out = Vec::with_capacity(src.len());
+        let (r, peak) = peak_of(|| decompress_append(&p, &mut out, src.len()));
+        assert_eq!(r, Ok(()), "{name}");
+        assert!(out == src, "{name}: decoded bytes differ");
+        assert!(peak < OVERHEAD, "{name}: {peak} bytes for a {} byte page", src.len());
+    }
 }

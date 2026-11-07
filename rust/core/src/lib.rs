@@ -236,6 +236,8 @@ fn float_payload<F: Float + Plain>(
 trait Plain: Number {
     /// writes the value's little-endian bytes into `out`, which is exactly its width
     fn put(self, out: &mut [u8]);
+    /// appends the value's little-endian bytes to `out`
+    fn append(self, out: &mut Vec<u8>);
 }
 
 macro_rules! plain {
@@ -243,6 +245,9 @@ macro_rules! plain {
         impl Plain for $t {
             fn put(self, out: &mut [u8]) {
                 out.copy_from_slice(&self.to_le_bytes());
+            }
+            fn append(self, out: &mut Vec<u8>) {
+                out.extend_from_slice(&self.to_le_bytes());
             }
         }
     )*};
@@ -262,15 +267,28 @@ pub fn mode_of(payload: &[u8]) -> Result<Mode, Error> {
 
 /// Decodes a payload that must produce exactly `expected_len` bytes.
 ///
-/// `expected_len` is untrusted too (a page header): a size that cannot be allocated is
-/// [`Error::AllocationFailed`], after the payload header has been checked.
+/// `expected_len` is untrusted too (a page header): see [`decompress_append`].
 pub fn decompress(payload: &[u8], expected_len: usize) -> Result<Vec<u8>, Error> {
-    mode_of(payload)?;
     let mut out = Vec::new();
-    out.try_reserve_exact(expected_len).map_err(|_| Error::AllocationFailed(expected_len))?;
-    out.resize(expected_len, 0);
-    decompress_into(payload, &mut out)?;
+    decompress_append(payload, &mut out, expected_len)?;
     Ok(out)
+}
+
+/// Decodes a payload that must produce exactly `expected_len` bytes, appending them to `out`.
+/// On an error `out` is left as it was (its capacity may have grown).
+///
+/// `expected_len` is untrusted too (a page header): nothing proportional to it is allocated or
+/// written before the payload shows it can produce that many bytes. A RAW body must have that
+/// length, a ZSTD body must be long enough to hold that many bytes (each Zstandard block costs
+/// at least 4 bytes and decodes to at most 128 KiB), and PCO and DECIMAL output grows as the
+/// numbers are decoded. Memory that cannot be allocated is [`Error::AllocationFailed`].
+pub fn decompress_append(payload: &[u8], out: &mut Vec<u8>, expected_len: usize) -> Result<(), Error> {
+    let start = out.len();
+    let r = append(payload, &mut Tail { out, start, expected_len }, expected_len);
+    if r.is_err() {
+        out.truncate(start);
+    }
+    r
 }
 
 /// Decodes a payload into `dst`, which it must fill exactly.
@@ -283,29 +301,110 @@ pub fn decompress_into(payload: &[u8], dst: &mut [u8]) -> Result<(), Error> {
             dst.copy_from_slice(body);
             Ok(())
         }
-        Mode::Pco => {
-            let (&dtype, body) = body.split_first().ok_or(Error::Truncated)?;
-            match PhysicalType::from_dtype(dtype)? {
-                PhysicalType::Int32 => pco_into::<i32>(body, dst),
-                PhysicalType::Int64 => pco_into::<i64>(body, dst),
-                PhysicalType::Float => pco_into::<f32>(body, dst),
-                PhysicalType::Double => pco_into::<f64>(body, dst),
-            }
-        }
-        Mode::Decimal => {
-            let [dtype, e, ..] = *body else { return Err(Error::Truncated) };
-            let t = PhysicalType::from_dtype(dtype)?;
-            if e > decimal::MAX_EXPONENT {
-                return Err(Error::BadExponent(e));
-            }
-            let body = &body[2..];
-            match t {
-                PhysicalType::Float => decimal_into::<f32>(body, e, dst),
-                PhysicalType::Double => decimal_into::<f64>(body, e, dst),
-                PhysicalType::Int32 | PhysicalType::Int64 => Err(Error::UnknownDtype(dtype)),
-            }
-        }
         Mode::Zstd => zstd_into(body, dst),
+        Mode::Pco | Mode::Decimal => numbers(mode, body, dst, dst.len()),
+    }
+}
+
+/// [`decompress_append`] into `out`, which [`decompress_append`] restores on an error
+fn append(payload: &[u8], out: &mut Tail<'_>, len: usize) -> Result<(), Error> {
+    let mode = mode_of(payload)?;
+    let body = &payload[2..];
+    match mode {
+        Mode::Raw => {
+            check(len, body.len())?;
+            out.reserve(len)?;
+            out.out.extend_from_slice(body);
+            Ok(())
+        }
+        Mode::Zstd => {
+            // RFC 8878 3.1.1.2: a block that decodes to anything is a 3 byte header and at
+            // least one byte, and decodes to at most 128 KiB
+            if len > (body.len() / 4).saturating_mul(ZSTD_BLOCK_MAX) {
+                return Err(Error::Truncated);
+            }
+            out.reserve(len)?;
+            let at = out.out.len();
+            out.out.resize(at + len, 0);
+            zstd_into(body, &mut out.out[at..])
+        }
+        Mode::Pco | Mode::Decimal => numbers(mode, body, out, len),
+    }
+}
+
+/// the most one Zstandard block decodes to (RFC 8878 3.1.1.2, `Block_Maximum_Size`)
+const ZSTD_BLOCK_MAX: usize = 128 << 10;
+
+/// The PCO and DECIMAL bodies (spec 4.2, 4.3), decoded into `len` bytes of `dst`.
+fn numbers<S: Sink + ?Sized>(mode: Mode, body: &[u8], dst: &mut S, len: usize) -> Result<(), Error> {
+    if mode == Mode::Pco {
+        let (&dtype, body) = body.split_first().ok_or(Error::Truncated)?;
+        return match PhysicalType::from_dtype(dtype)? {
+            PhysicalType::Int32 => pco_into::<i32, S>(body, dst, len),
+            PhysicalType::Int64 => pco_into::<i64, S>(body, dst, len),
+            PhysicalType::Float => pco_into::<f32, S>(body, dst, len),
+            PhysicalType::Double => pco_into::<f64, S>(body, dst, len),
+        };
+    }
+    let [dtype, e, ..] = *body else { return Err(Error::Truncated) };
+    let t = PhysicalType::from_dtype(dtype)?;
+    if e > decimal::MAX_EXPONENT {
+        return Err(Error::BadExponent(e));
+    }
+    let body = &body[2..];
+    match t {
+        PhysicalType::Float => decimal_into::<f32, S>(body, e, dst, len),
+        PhysicalType::Double => decimal_into::<f64, S>(body, e, dst, len),
+        PhysicalType::Int32 | PhysicalType::Int64 => Err(Error::UnknownDtype(dtype)),
+    }
+}
+
+/// Where decoded numbers go: the caller's slice ([`decompress_into`]), or the end of a `Vec`
+/// that grows as the numbers are decoded ([`decompress_append`]).
+trait Sink {
+    /// writes numbers `i..i + nums.len()`; they arrive in order, from 0, and never beyond the
+    /// expected size
+    fn put<T: Plain>(&mut self, i: usize, nums: impl ExactSizeIterator<Item = T>) -> Result<(), Error>;
+    /// the bytes written so far
+    fn written(&mut self) -> &mut [u8];
+}
+
+impl Sink for [u8] {
+    fn put<T: Plain>(&mut self, i: usize, nums: impl ExactSizeIterator<Item = T>) -> Result<(), Error> {
+        let width = size_of::<T>();
+        for (out, v) in self[i * width..].chunks_exact_mut(width).zip(nums) {
+            v.put(out);
+        }
+        Ok(())
+    }
+    fn written(&mut self) -> &mut [u8] {
+        self
+    }
+}
+
+/// the end of a `Vec`, from its length `start` when decoding started
+struct Tail<'a> {
+    out: &'a mut Vec<u8>,
+    start: usize,
+    expected_len: usize,
+}
+
+impl Tail<'_> {
+    fn reserve(&mut self, additional: usize) -> Result<(), Error> {
+        self.out.try_reserve(additional).map_err(|_| Error::AllocationFailed(self.expected_len))
+    }
+}
+
+impl Sink for Tail<'_> {
+    fn put<T: Plain>(&mut self, _: usize, nums: impl ExactSizeIterator<Item = T>) -> Result<(), Error> {
+        self.reserve(nums.len() * size_of::<T>())?;
+        for v in nums {
+            v.append(self.out);
+        }
+        Ok(())
+    }
+    fn written(&mut self) -> &mut [u8] {
+        &mut self.out[self.start..]
     }
 }
 
@@ -344,7 +443,12 @@ fn pco_error(e: pco::errors::PcoError) -> Error {
 /// `src`, one batch at a time:
 /// `put(i, batch)` receives numbers `i..i + batch.len()`. Nothing proportional to `n` or to
 /// what the chunk headers claim is allocated; size errors count `width` bytes per number.
-fn pco_batches<T: Number>(src: &[u8], n: usize, width: usize, mut put: impl FnMut(usize, &[T])) -> Result<(), Error> {
+fn pco_batches<T: Number>(
+    src: &[u8],
+    n: usize,
+    width: usize,
+    mut put: impl FnMut(usize, &[T]) -> Result<(), Error>,
+) -> Result<(), Error> {
     let (file, mut src) = FileDecompressor::new(src).map_err(pco_error)?;
     let mut batch = [T::default(); FULL_BATCH_N];
     let mut done = 0;
@@ -361,7 +465,7 @@ fn pco_batches<T: Number>(src: &[u8], n: usize, width: usize, mut put: impl FnMu
         }
         loop {
             let progress = chunk.read(&mut batch).map_err(pco_error)?;
-            put(done, &batch[..progress.n_processed]);
+            put(done, &batch[..progress.n_processed])?;
             done += progress.n_processed;
             if progress.finished {
                 break;
@@ -372,19 +476,20 @@ fn pco_batches<T: Number>(src: &[u8], n: usize, width: usize, mut put: impl FnMu
     check(n * width, done * width)
 }
 
-fn pco_into<T: Plain>(src: &[u8], dst: &mut [u8]) -> Result<(), Error> {
+fn pco_into<T: Plain, S: Sink + ?Sized>(src: &[u8], dst: &mut S, len: usize) -> Result<(), Error> {
     let width = size_of::<T>();
-    let n = count(dst.len(), width)?;
-    pco_batches::<T>(src, n, width, |i, nums| {
-        for (out, v) in dst[i * width..].chunks_exact_mut(width).zip(nums) {
-            v.put(out);
-        }
-    })
+    let n = count(len, width)?;
+    pco_batches::<T>(src, n, width, |i, nums| dst.put(i, nums.iter().copied()))
 }
 
-fn decimal_into<F: Float + Plain>(mut body: &[u8], e: u8, dst: &mut [u8]) -> Result<(), Error> {
+fn decimal_into<F: Float + Plain, S: Sink + ?Sized>(
+    mut body: &[u8],
+    e: u8,
+    dst: &mut S,
+    len: usize,
+) -> Result<(), Error> {
     let width = size_of::<F>();
-    let n = count(dst.len(), width)?;
+    let n = count(len, width)?;
     let k = varint::get(&mut body)?;
     if k > n as u64 {
         return Err(Error::BadException);
@@ -400,13 +505,10 @@ fn decimal_into<F: Float + Plain>(mut body: &[u8], e: u8, dst: &mut [u8]) -> Res
         }
         next = p + 1;
     }
-    // k <= n, so this is at most dst.len()
+    // k <= n, so this is at most len
     let (exc, pco) = body.split_at_checked(k as usize * width).ok_or(Error::Truncated)?;
-    pco_batches::<i64>(pco, n, width, |i, qs| {
-        for (out, q) in dst[i * width..].chunks_exact_mut(width).zip(qs) {
-            F::decode(*q, e).put(out);
-        }
-    })?;
+    pco_batches::<i64>(pco, n, width, |i, qs| dst.put(i, qs.iter().map(|q| F::decode(*q, e))))?;
+    let dst = dst.written();
     let (mut deltas, mut next) = (deltas, 0);
     for bits in exc.chunks_exact(width) {
         // checked above: each delta is a valid varint and every position is below n
