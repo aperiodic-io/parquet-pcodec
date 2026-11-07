@@ -57,7 +57,7 @@ SOL-USD	393
 query I
 SELECT count(*) FROM read_tparquet('__TESTDATA__/*.parquet', union_by_name := true)
 ----
-22900
+35103
 
 query II
 SELECT count(DISTINCT filename), max(file_row_number) FROM read_tparquet(['__TESTDATA__/mixed.parquet', '__TESTDATA__/mixed.parquet'], filename := true, file_row_number := true)

@@ -204,9 +204,9 @@ def measure(
             encodings=encodings,
         )
     finally:
+        # abort() removes the file of a writer still open and does nothing once it is closed
         for w in (z9, auto):
-            if not w.closed:
-                w.abort()
+            w.abort()
         if tuned is not None and tuned.is_open:
             tuned.close()
         if not keep:

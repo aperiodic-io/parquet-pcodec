@@ -21,6 +21,10 @@ pub const FORMAT: &str = "tparquet";
 /// on more than one DuckDB vector.
 pub const SAMPLE_ROWS: usize = 128 * 1024;
 
+/// The most memory the held-back rows may take: long strings end the sample earlier (and stay
+/// below the 2 GiB that one Arrow string array can hold).
+pub const SAMPLE_BYTES: usize = 64 << 20;
+
 /// The highest pcodec level.
 pub const MAX_LEVEL: u32 = 12;
 
@@ -197,10 +201,11 @@ impl PolicySpec for String {
 /// A file being written by a COPY.
 pub struct CopyWriter {
     writer: Option<Writer<File>>,
-    /// Batches held back until [`SAMPLE_ROWS`] rows have arrived (the first write decides the
-    /// codecs).
+    /// Batches held back until [`SAMPLE_ROWS`] rows or [`SAMPLE_BYTES`] have arrived (the first
+    /// write decides the codecs).
     pending: Vec<RecordBatch>,
     pending_rows: usize,
+    pending_bytes: usize,
     sampled: bool,
     schema: SchemaRef,
     pub rows: u64,
@@ -216,6 +221,7 @@ impl CopyWriter {
             writer: Some(writer),
             pending: vec![],
             pending_rows: 0,
+            pending_bytes: 0,
             sampled: false,
             schema: options.schema.clone(),
             rows: 0,
@@ -233,6 +239,7 @@ impl CopyWriter {
         let batch = arrow_select::concat::concat_batches(&self.schema, &self.pending).map_err(|e| e.to_string())?;
         self.pending.clear();
         self.pending_rows = 0;
+        self.pending_bytes = 0;
         self.writer()?.write(&batch).map_err(|e| e.to_string())
     }
 
@@ -247,8 +254,9 @@ impl CopyWriter {
             return self.writer()?.write(&batch).map_err(|e| e.to_string());
         }
         self.pending_rows += n;
+        self.pending_bytes += batch.get_array_memory_size();
         self.pending.push(batch);
-        if self.pending_rows >= SAMPLE_ROWS {
+        if self.pending_rows >= SAMPLE_ROWS || self.pending_bytes >= SAMPLE_BYTES {
             self.sampled = true;
             self.write_pending()?;
         }
@@ -438,6 +446,33 @@ mod tests {
         assert_eq!(next, from);
         // Auto picks PCODEC for both columns of this sequence data
         assert!(codecs(&path).iter().all(|c| matches!(c, Compression::PCODEC(_))), "{:?}", codecs(&path));
+    }
+
+    #[test]
+    fn a_sample_of_long_strings_ends_at_sample_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("long.parquet");
+        let o = CopyOptions::parse(vec![SqlType::Varchar], &opts(&[("COLUMN_NAMES", s("doc"))])).unwrap();
+        let mut w = CopyWriter::create(path.to_str().unwrap(), &o).unwrap();
+        // vectors of 2048 strings of 4 KiB: 8 MiB each, far fewer rows than SAMPLE_ROWS
+        let doc = "x".repeat(4096);
+        let vector = || {
+            let docs: ArrayRef = Arc::new(arrow_array::StringArray::from_iter_values((0..2048).map(|_| doc.as_str())));
+            RecordBatch::try_new(o.schema.clone(), vec![docs]).unwrap()
+        };
+        let mut held = 0;
+        while !w.sampled {
+            w.write(vector()).unwrap();
+            held += 2048 * 4096;
+            assert!(held < 2 * SAMPLE_BYTES, "the sample holds {held} bytes");
+        }
+        assert!(w.rows < SAMPLE_ROWS as u64);
+        assert!(held >= SAMPLE_BYTES);
+        assert!(w.pending.is_empty());
+        w.write(vector()).unwrap();
+        w.finish().unwrap();
+        let rows: usize = tparquet::read::open(&path).unwrap().build().unwrap().map(|b| b.unwrap().num_rows()).sum();
+        assert_eq!(rows as u64, w.rows);
     }
 
     #[test]

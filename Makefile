@@ -80,9 +80,10 @@ python-mutants:
 	HYPOTHESIS_PROFILE=mutation TPARQUET_PYTHON=$(PYTHON_VENV) PYO3_PYTHON=$(PYTHON_VENV) \
 	  $(CARGO) mutants -p tparquet-python -j $(JOBS) $(MUTANTS_OK)
 
-# the Polars plugin (polars-tparquet/): uv builds tparquet from python/ into its own venv
+# the Polars plugin (polars-tparquet/): uv builds tparquet from python/ into its own venv,
+# rebuilt every time (uv does not notice changes to a path dependency by itself)
 polars-test:
-	cd polars-tparquet && uv sync --python 3.14 && uv run --no-sync pytest
+	cd polars-tparquet && uv sync --python 3.14 --reinstall-package tparquet && uv run --no-sync pytest
 
 # the benchmark harness (bench/): its offline tests, then the benchmark itself, which downloads
 # the providers' samples (about 1.2 GB, cached in bench/data) and rewrites bench/RESULTS.md

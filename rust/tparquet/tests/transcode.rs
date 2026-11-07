@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tparquet::parquet::arrow::ArrowWriter;
 use tparquet::parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use tparquet::parquet::basic::{Compression, GzipLevel};
-use tparquet::parquet::file::metadata::KeyValue;
+use tparquet::parquet::file::metadata::{KeyValue, SortingColumn};
 use tparquet::parquet::file::properties::WriterProperties;
 use tparquet::verify::verify;
 use tparquet::{Policy, Target, WriterOptions, transcode};
@@ -166,4 +166,178 @@ fn row_groups_without_rows_are_dropped() {
     w.close().unwrap();
     let out = run(Bytes::from(buf), &Target::Pcodec(WriterOptions::default()));
     assert_eq!(row_groups(&out), [10]);
+}
+
+/// The Parquet schema of a file, as text.
+fn parquet_schema(file: &Bytes) -> String {
+    let b = ParquetRecordBatchReaderBuilder::try_new(file.clone()).unwrap();
+    let mut s = Vec::new();
+    tparquet::parquet::schema::printer::print_schema(&mut s, b.parquet_schema().root_schema());
+    String::from_utf8(s).unwrap()
+}
+
+fn sorting(file: &Bytes) -> Vec<Option<Vec<SortingColumn>>> {
+    let b = ParquetRecordBatchReaderBuilder::try_new(file.clone()).unwrap();
+    b.metadata().row_groups().iter().map(|rg| rg.sorting_columns().cloned()).collect()
+}
+
+/// A standard file whose row groups say they are sorted by `id`, then `px` descending.
+fn sorted() -> Bytes {
+    let sort = vec![
+        SortingColumn { column_idx: 0, descending: false, nulls_first: false },
+        SortingColumn { column_idx: 1, descending: true, nulls_first: true },
+    ];
+    let props = WriterProperties::builder().set_sorting_columns(Some(sort)).build();
+    let mut out = Vec::new();
+    let mut w = ArrowWriter::try_new(&mut out, batch(0, 1).schema(), Some(props)).unwrap();
+    for (offset, rows) in [(0, 700), (700, 300)] {
+        w.write(&batch(offset, rows)).unwrap();
+        w.flush().unwrap();
+    }
+    w.close().unwrap();
+    Bytes::from(out)
+}
+
+#[test]
+fn sorting_columns_are_kept() {
+    let input = sorted();
+    assert!(sorting(&input).iter().all(|s| s.as_ref().is_some_and(|s| s.len() == 2)));
+    let pcodec = run(input.clone(), &Target::Pcodec(WriterOptions::default()));
+    assert_eq!(sorting(&pcodec), sorting(&input));
+    let back = run(pcodec, &Target::standard());
+    assert_eq!(sorting(&back), sorting(&input));
+    // row groups that disagree say nothing about the output's
+    let mixed = with_row_group_sorting(&input, 1, None);
+    let out = run(mixed.clone(), &Target::Pcodec(WriterOptions::default()));
+    assert_eq!(sorting(&out), [None, None]);
+    assert_eq!(lines(&out), lines(&input));
+    let first_only = with_row_group_sorting(&input, 0, Some(vec![]));
+    assert_eq!(sorting(&run(first_only, &Target::standard())), [None, None]);
+    let unsorted = run(standard(), &Target::Pcodec(WriterOptions::default()));
+    assert!(sorting(&unsorted).iter().all(|s| s.is_none()));
+}
+
+/// `file` with the sorting columns of row group `rg` replaced by `sort` in the footer.
+fn with_row_group_sorting(file: &Bytes, rg: usize, sort: Option<Vec<SortingColumn>>) -> Bytes {
+    use tparquet::parquet::file::metadata::{ParquetMetaDataReader, ParquetMetaDataWriter};
+    let metadata = ParquetMetaDataReader::new().parse_and_finish(file).unwrap();
+    let footer = 8 + u32::from_le_bytes(file[file.len() - 8..file.len() - 4].try_into().unwrap()) as usize;
+    let mut groups = metadata.row_groups().to_vec();
+    groups[rg] = groups[rg].clone().into_builder().set_sorting_columns(sort).build().unwrap();
+    let metadata = metadata.into_builder().set_row_groups(groups).build();
+    let mut out = file[..file.len() - footer].to_vec();
+    ParquetMetaDataWriter::new(&mut out, &metadata).finish().unwrap();
+    Bytes::from(out)
+}
+
+/// A file with field ids, logical types, nesting and nulls, in three row groups.
+fn rich() -> Bytes {
+    use arrow_array::builder::{Int64Builder, ListBuilder, MapBuilder, StringBuilder};
+    use arrow_array::{Array, Decimal128Array, Int32Array, StructArray, TimestampMicrosecondArray};
+    use arrow_schema::{DataType, Field};
+    let id = |f: Field, id: i32| f.with_metadata(HashMap::from([("PARQUET:field_id".to_string(), id.to_string())]));
+    let rows = 2500;
+    let ts = TimestampMicrosecondArray::from_iter_values((0..rows).map(|i| 1_700_000_000_000_000 + i * 1000))
+        .with_timezone("Europe/Paris");
+    let dec = Decimal128Array::from_iter((0..rows).map(|i| (i % 5 != 0).then_some(i as i128 * 25)))
+        .with_precision_and_scale(10, 2)
+        .unwrap();
+    let mut list = ListBuilder::new(Int64Builder::new());
+    let mut map = MapBuilder::new(None, StringBuilder::new(), Int64Builder::new());
+    for i in 0..rows {
+        list.append_value((0..i % 3).map(|k| Some(i * 10 + k)));
+        map.keys().append_value(format!("k{}", i % 2));
+        map.values().append_value(i);
+        map.append(i % 7 != 0).unwrap();
+    }
+    let st = StructArray::from(vec![(
+        Arc::new(id(Field::new("n", DataType::Int32, false), 11)),
+        Arc::new(Int32Array::from_iter_values((0..rows).map(|i| i as i32))) as ArrayRef,
+    )]);
+    let fields = vec![
+        id(Field::new("ts", ts.data_type().clone(), false), 1),
+        id(Field::new("dec", dec.data_type().clone(), true), 2),
+        id(Field::new("list", list.finish().data_type().clone(), false), 3),
+        id(Field::new("map", map.finish().data_type().clone(), true), 4),
+        id(Field::new("st", st.data_type().clone(), false), 5),
+    ];
+    let mut list = ListBuilder::new(Int64Builder::new());
+    let mut map = MapBuilder::new(None, StringBuilder::new(), Int64Builder::new());
+    for i in 0..rows {
+        list.append_value((0..i % 3).map(|k| Some(i * 10 + k)));
+        map.keys().append_value(format!("k{}", i % 2));
+        map.values().append_value(i);
+        map.append(i % 7 != 0).unwrap();
+    }
+    let schema = Arc::new(Schema::new(fields));
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![Arc::new(ts), Arc::new(dec), Arc::new(list.finish()), Arc::new(map.finish()), Arc::new(st)],
+    )
+    .unwrap();
+    let mut out = Vec::new();
+    let mut w = ArrowWriter::try_new(&mut out, schema, None).unwrap();
+    for (start, len) in [(0, 1000), (1000, 1), (1001, 1499)] {
+        w.write(&batch.slice(start, len)).unwrap();
+        w.flush().unwrap();
+    }
+    w.close().unwrap();
+    Bytes::from(out)
+}
+
+#[test]
+fn schema_field_ids_and_row_groups_are_kept_both_ways() {
+    let input = rich();
+    for target in [
+        Target::Pcodec(WriterOptions::default()),
+        Target::Pcodec(WriterOptions::default().with_policy(Policy::Pcodec)),
+        Target::Pcodec(WriterOptions::default().with_policy(Policy::Base)),
+    ] {
+        let out = run(input.clone(), &target);
+        assert_eq!(parquet_schema(&out), parquet_schema(&input));
+        assert!(parquet_schema(&out).contains("(TIMESTAMP(MICROS,true))"), "{}", parquet_schema(&out));
+        assert!(parquet_schema(&out).contains("[11]"), "field ids are kept");
+        assert_eq!(arrow_schema(&out), arrow_schema(&input));
+        assert_eq!(row_groups(&out), [1000, 1, 1499]);
+        assert_eq!(verify(input.clone(), out.clone()).unwrap(), None);
+        let back = run(out.clone(), &Target::standard());
+        assert_eq!(parquet_schema(&back), parquet_schema(&input));
+        assert_eq!(row_groups(&back), [1000, 1, 1499]);
+        assert!(codecs(&back).iter().all(|c| c.1 != "PCODEC"));
+        assert_eq!(verify(back, input.clone()).unwrap(), None);
+    }
+}
+
+#[test]
+fn transcoding_is_idempotent() {
+    for input in [standard(), rich()] {
+        for options in [WriterOptions::default(), WriterOptions::default().with_policy(Policy::Pcodec)] {
+            let target = Target::Pcodec(options);
+            let once = run(input.clone(), &target);
+            let twice = run(once.clone(), &target);
+            assert_eq!(twice, once);
+            let back = run(once.clone(), &Target::standard());
+            assert_eq!(run(back.clone(), &Target::standard()), back);
+            // standard -> PCODEC -> standard -> PCODEC gives the same file again
+            assert_eq!(run(back, &target), once);
+        }
+    }
+}
+
+#[test]
+fn the_target_options_are_used() {
+    // level, per-column policies and the base codec of Target::Pcodec reach the output
+    let input = standard();
+    let options = WriterOptions::default()
+        .with_policy(Policy::Pcodec)
+        .with_level(0)
+        .unwrap()
+        .with_column("px", Policy::Base)
+        .with_base(Compression::SNAPPY);
+    let out = run(input.clone(), &Target::Pcodec(options));
+    assert_eq!(codecs(&out).iter().map(|c| c.1.as_str()).collect::<Vec<_>>(), ["PCODEC", "SNAPPY", "SNAPPY"]);
+    let level8 = run(input.clone(), &Target::Pcodec(WriterOptions::default().with_policy(Policy::Pcodec)));
+    assert_ne!(report(&out).columns[0].compressed_bytes, report(&level8).columns[0].compressed_bytes);
+    let err = transcode(input, Vec::new(), &Target::Pcodec(WriterOptions::default().with_column("nope", Policy::Base)));
+    assert_eq!(err.unwrap_err().to_string(), "no column named \"nope\"");
 }

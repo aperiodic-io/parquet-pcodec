@@ -200,7 +200,8 @@ Use plain ZSTD Parquet when the files must be read by tools you don't control.
 - Every implementation reads the same conformance vectors in [`testdata/`](testdata/README.md):
   Parquet files with their expected rows in canonical JSON, and page payloads with their decoded
   bytes.
-- Rust, Go, Python, DuckDB, Java, C++ and DataFusion each read the files all of them wrote
+- Rust, Go, Python, DuckDB, Java, C++ and DataFusion each read the files all of them wrote,
+  including Python, DuckDB and the Rust CLI under each policy and in many row groups
   ([`acceptance/cross/run.sh`](acceptance/cross/run.sh)), on every pull request; Spark and
   Trino read every vector exactly as they read a standard copy of the same rows.
 - Every package is mutation tested: cargo-mutants for Rust (including the forks' changed

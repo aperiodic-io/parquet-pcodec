@@ -9,9 +9,9 @@
 //! - [`Scan`] hands out row groups, one at a time, to the threads DuckDB runs, and each thread
 //!   reads its row group in batches of at most one DuckDB vector.
 
-use crate::types::{SqlType, normalize};
+use crate::types::{SqlType, deduplicate, normalize, whole_intervals};
 use arrow_array::{ArrayRef, new_null_array};
-use arrow_schema::{DataType, SchemaRef};
+use arrow_schema::{DataType, Fields, Schema, SchemaRef};
 use parquet::arrow::ProjectionMask;
 use parquet::arrow::arrow_reader::{ArrowReaderMetadata, ArrowReaderOptions, ParquetRecordBatchReaderBuilder};
 use std::fs::File;
@@ -41,26 +41,36 @@ fn is_glob(pattern: &str) -> bool {
     pattern.contains(['*', '?', '['])
 }
 
+/// `pattern` with a leading `~/` replaced by the home directory, as DuckDB's file system (and so
+/// `COPY ... TO`) takes it.
+fn in_home(pattern: &str, home: Option<PathBuf>) -> String {
+    match (pattern.strip_prefix("~/"), home) {
+        (Some(rest), Some(home)) => home.join(rest).to_string_lossy().into_owned(),
+        _ => pattern.to_string(),
+    }
+}
+
 /// The files that `patterns` name, in order: a pattern with `*`, `?` or `[` is a glob whose
-/// matches are sorted; any other pattern is a file that must exist.
+/// matches are sorted; any other pattern is a file that must exist. `~/` is the home directory.
 pub fn expand(patterns: &[String]) -> Result<Vec<PathBuf>, String> {
     if patterns.is_empty() {
         return Err("no files given".into());
     }
     let mut files = vec![];
-    for pattern in patterns {
+    for given in patterns {
+        let pattern = &in_home(given, std::env::home_dir());
         if is_glob(pattern) {
-            let paths = glob::glob(pattern).map_err(|e| format!("invalid glob {pattern:?}: {e}"))?;
+            let paths = glob::glob(pattern).map_err(|e| format!("invalid glob {given:?}: {e}"))?;
             let mut matched = paths.filter_map(Result::ok).filter(|p| p.is_file()).collect::<Vec<PathBuf>>();
             if matched.is_empty() {
-                return Err(format!("no files match {pattern:?}"));
+                return Err(format!("no files match {given:?}"));
             }
             matched.sort();
             files.extend(matched);
         } else {
             let path = PathBuf::from(pattern);
             if !path.is_file() {
-                return Err(format!("no such file: {pattern:?}"));
+                return Err(format!("no such file: {given:?}"));
             }
             files.push(path);
         }
@@ -91,24 +101,45 @@ pub enum Slot {
     Other,
 }
 
+/// The footer of a file, with its intervals read whole ([`whole_intervals`]).
 fn open_metadata(path: &Path) -> Result<ArrowReaderMetadata, String> {
     let file = File::open(path).map_err(|e| format!("cannot open {}: {e}", path.display()))?;
-    ArrowReaderMetadata::load(&file, ArrowReaderOptions::new())
-        .map_err(|e| format!("cannot read {} as Parquet: {e}", path.display()))
+    let unreadable = |e: parquet::errors::ParquetError| format!("cannot read {} as Parquet: {e}", path.display());
+    let metadata = ArrowReaderMetadata::load(&file, ArrowReaderOptions::new()).map_err(unreadable)?;
+    let schema = metadata.schema();
+    let fields: Fields = schema
+        .fields()
+        .iter()
+        .map(|f| Arc::new(f.as_ref().clone().with_data_type(whole_intervals(f.data_type()))))
+        .collect();
+    if &fields == schema.fields() {
+        return Ok(metadata);
+    }
+    let hint = Arc::new(Schema::new_with_metadata(fields, schema.metadata().clone()));
+    ArrowReaderMetadata::try_new(metadata.metadata().clone(), ArrowReaderOptions::new().with_schema(hint))
+        .map_err(unreadable)
 }
 
+/// The columns of a file, named as DuckDB names them ([`deduplicate`]).
 fn columns_of(path: &Path, schema: &SchemaRef) -> Result<Vec<Column>, String> {
+    let names = deduplicate(schema.fields().iter().map(|f| f.name().clone()).collect());
     schema
         .fields()
         .iter()
-        .map(|f| {
+        .zip(names)
+        .map(|(f, name)| {
             Ok(Column {
-                name: f.name().clone(),
+                name,
                 sql: SqlType::from_arrow(f).map_err(|e| format!("{}: {e}", path.display()))?,
                 arrow: f.data_type().clone(),
             })
         })
         .collect()
+}
+
+/// Whether two column names are the same name in DuckDB (which ignores case).
+fn same_name(a: &str, b: &str) -> bool {
+    a.eq_ignore_ascii_case(b)
 }
 
 /// The result of binding: the files, the result columns and the options.
@@ -138,7 +169,7 @@ impl Bound {
             for (i, path) in files.iter().enumerate().skip(1) {
                 let meta = open_metadata(path)?;
                 for c in columns_of(path, meta.schema())? {
-                    match columns.iter().find(|have| have.name == c.name) {
+                    match columns.iter().find(|have| same_name(&have.name, &c.name)) {
                         None => columns.push(c),
                         Some(have) if have.sql != c.sql => {
                             return Err(format!(
@@ -160,9 +191,13 @@ impl Bound {
             rows *= files.len() as u64;
         }
         for extra in [(options.filename, FILENAME), (options.file_row_number, FILE_ROW_NUMBER)] {
-            if extra.0 && columns.iter().any(|c| c.name == extra.1) {
+            if extra.0 && columns.iter().any(|c| same_name(&c.name, extra.1)) {
                 return Err(format!("the files already have a column \"{}\"", extra.1));
             }
+        }
+        if columns.is_empty() && !options.filename && !options.file_row_number {
+            // DuckDB takes a table function without result columns for an internal error
+            return Err(format!("{} has no columns", first.display()));
         }
         let exact_rows = options.union_by_name || files.len() == 1;
         Ok(Self { files, columns, options, metadata, estimated_rows: rows, exact_rows })
@@ -227,7 +262,7 @@ impl OpenFile {
                 .iter()
                 .map(|&c| {
                     let want = &bound.columns[c];
-                    match file_columns.iter().position(|f| f.name == want.name) {
+                    match file_columns.iter().position(|f| same_name(&f.name, &want.name)) {
                         Some(i) if file_columns[i].sql != want.sql => Err(format!(
                             "column \"{}\" is {} in {}, but {} was bound",
                             want.name,
@@ -241,7 +276,7 @@ impl OpenFile {
                 .collect::<Result<Vec<_>, String>>()?
         } else {
             let same = file_columns.len() == bound.columns.len()
-                && file_columns.iter().zip(&bound.columns).all(|(a, b)| a.name == b.name && a.sql == b.sql);
+                && file_columns.iter().zip(&bound.columns).all(|(a, b)| same_name(&a.name, &b.name) && a.sql == b.sql);
             if !same {
                 let describe =
                     |cs: &[Column]| cs.iter().map(|c| format!("{} {}", c.name, c.sql)).collect::<Vec<_>>().join(", ");
@@ -386,7 +421,10 @@ impl Scan {
     pub fn next(&self, local: &mut Local) -> Result<Option<ScanBatch>, String> {
         loop {
             if let Some(r) = &mut local.reader {
-                match r.reader.next() {
+                // the Parquet reader panics on some damaged pages (its level decoder): say which file
+                let next = crate::ffi::guard(|| Ok(r.reader.next()))
+                    .map_err(|e| format!("cannot read {}: {e}", r.file.path.display()))?;
+                match next {
                     Some(Ok(batch)) if batch.num_rows() > 0 => {
                         let num_rows = batch.num_rows();
                         let columns = r
@@ -420,7 +458,7 @@ impl Scan {
 mod tests {
     use super::*;
     use arrow_array::{Array, Int32Array, Int64Array, RecordBatch, StringArray};
-    use arrow_schema::{Field, Schema};
+    use arrow_schema::Field;
     use parquet::file::properties::WriterProperties;
     use tparquet::{Policy, Writer, WriterOptions};
 
@@ -497,6 +535,28 @@ mod tests {
     }
 
     #[test]
+    fn a_leading_tilde_is_the_home_directory() {
+        let home = || Some(PathBuf::from("/home/me"));
+        assert_eq!(in_home("~/a/b.parquet", home()), "/home/me/a/b.parquet");
+        assert_eq!(in_home("~/*.parquet", home()), "/home/me/*.parquet");
+        for kept in ["~a.parquet", "a/~/b", "/x/~/y", "~", "./~/z", "a.parquet"] {
+            assert_eq!(in_home(kept, home()), kept);
+        }
+        assert_eq!(in_home("~/a", None), "~/a");
+        // expand finds files there, and names the pattern as given
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("f.parquet"), b"x").unwrap();
+        let home_dir = std::env::home_dir().unwrap();
+        let relative = dir.path().strip_prefix(&home_dir);
+        if let Ok(rest) = relative {
+            let p = format!("~/{}/f.parquet", rest.display());
+            assert_eq!(expand(std::slice::from_ref(&p)).unwrap(), vec![dir.path().join("f.parquet")]);
+        }
+        assert_eq!(expand(&["~/no/such.parquet".into()]).unwrap_err(), "no such file: \"~/no/such.parquet\"");
+        assert_eq!(expand(&["~/no/such/*.parquet".into()]).unwrap_err(), "no files match \"~/no/such/*.parquet\"");
+    }
+
+    #[test]
     fn binds_the_columns_of_the_first_file() {
         let dir = tempfile::tempdir().unwrap();
         let a = write(dir.path(), "a.parquet", &ints(10, 0), 4);
@@ -539,6 +599,23 @@ mod tests {
         assert_eq!(e, "the files already have a column \"filename\"");
         let e = Bound::bind(vec![f], ReadOptions { file_row_number: true, ..Default::default() }).unwrap_err();
         assert_eq!(e, "the files already have a column \"file_row_number\"");
+    }
+
+    #[test]
+    fn a_file_without_columns_needs_an_extra_column() {
+        let dir = tempfile::tempdir().unwrap();
+        let empty = RecordBatch::new_empty(Arc::new(Schema::empty()));
+        let f = write(dir.path(), "f.parquet", &empty, 10);
+        let e = Bound::bind(vec![f.clone()], ReadOptions::default()).unwrap_err();
+        assert_eq!(e, format!("{} has no columns", f.display()));
+        let e = Bound::bind(vec![f.clone(), f.clone()], ReadOptions { union_by_name: true, ..Default::default() });
+        assert!(e.is_err());
+        for opts in [
+            ReadOptions { filename: true, ..Default::default() },
+            ReadOptions { file_row_number: true, ..Default::default() },
+        ] {
+            assert_eq!(Bound::bind(vec![f.clone()], opts).unwrap().result_columns().len(), 1);
+        }
     }
 
     #[test]
@@ -690,6 +767,46 @@ mod tests {
 
         let e = Bound::bind(vec![a.clone(), c.clone()], opts).unwrap_err();
         assert_eq!(e, format!("column \"id\" is BIGINT in {} but INTEGER in {}", a.display(), c.display()));
+    }
+
+    fn one(name: &str, values: Vec<i64>) -> RecordBatch {
+        RecordBatch::try_from_iter([(name, Arc::new(Int64Array::from(values)) as ArrayRef)]).unwrap()
+    }
+
+    #[test]
+    fn names_are_deduplicated_and_matched_ignoring_case() {
+        let dir = tempfile::tempdir().unwrap();
+        let dup = RecordBatch::try_from_iter([
+            ("x", Arc::new(Int64Array::from(vec![1])) as ArrayRef),
+            ("X", Arc::new(Int64Array::from(vec![2])) as ArrayRef),
+        ])
+        .unwrap();
+        let d = write(dir.path(), "dup.parquet", &dup, 10);
+        assert_eq!(bound_names(&Bound::bind(vec![d.clone()], ReadOptions::default()).unwrap()), strings(&["x", "X_1"]));
+
+        let a = write(dir.path(), "a.parquet", &one("Price", vec![1]), 10);
+        let b = write(dir.path(), "b.parquet", &one("price", vec![2]), 10);
+        for union_by_name in [false, true] {
+            let opts = ReadOptions { union_by_name, ..Default::default() };
+            let bound = Arc::new(Bound::bind(vec![a.clone(), b.clone()], opts).unwrap());
+            assert_eq!(bound_names(&bound), strings(&["Price"]));
+            let scan = Scan::new(bound.clone(), &bound.slots(&[0]), 2048);
+            assert_eq!(ids(&all_rows(&scan), 0), vec![Some(1), Some(2)], "{union_by_name}");
+        }
+        // another name is still another column
+        let c = write(dir.path(), "c.parquet", &one("cost", vec![3]), 10);
+        let opts = ReadOptions { union_by_name: true, ..Default::default() };
+        let bound = Bound::bind(vec![a.clone(), c.clone()], opts).unwrap();
+        assert_eq!(bound_names(&bound), strings(&["Price", "cost"]));
+        let bound = Arc::new(Bound::bind(vec![a.clone(), c.clone()], ReadOptions::default()).unwrap());
+        let scan = Scan::new(bound.clone(), &bound.slots(&[0]), 2048);
+        let mut local = Local::default();
+        scan.next(&mut local).unwrap();
+        assert!(scan.next(&mut local).unwrap_err().contains("the files must have the same schema"));
+
+        let f = write(dir.path(), "f.parquet", &one("FileName", vec![1]), 10);
+        let e = Bound::bind(vec![f], ReadOptions { filename: true, ..Default::default() }).unwrap_err();
+        assert_eq!(e, "the files already have a column \"filename\"");
     }
 
     #[test]

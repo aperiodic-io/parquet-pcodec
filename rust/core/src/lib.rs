@@ -9,8 +9,9 @@ mod varint;
 
 use decimal::Float;
 use pco::ChunkConfig;
+use pco::FULL_BATCH_N;
 use pco::data_types::Number;
-use pco::standalone::{simple_compress, simple_decompress_into};
+use pco::standalone::{DecompressorItem, FileDecompressor, simple_compress};
 use std::fmt;
 
 /// `CompressionCodec` value of PCODEC in the Parquet footer.
@@ -119,9 +120,19 @@ pub enum Error {
     UnknownDtype(u8),
     BadExponent(u8),
     BadException,
-    SizeMismatch { expected: usize, actual: usize },
-    NotMultipleOfWidth { len: usize, width: usize },
+    SizeMismatch {
+        expected: usize,
+        actual: usize,
+    },
+    NotMultipleOfWidth {
+        len: usize,
+        width: usize,
+    },
     InvalidLevel(u8),
+    /// The expected size given to [`decompress`] cannot be allocated.
+    AllocationFailed(usize),
+    /// Bytes after the pcodec file, which must run to the end of the payload.
+    TrailingBytes(usize),
     Pco(String),
     Zstd(String),
 }
@@ -141,6 +152,8 @@ impl fmt::Display for Error {
                 write!(f, "expected size {len} is not a multiple of the value width {width}")
             }
             Self::InvalidLevel(l) => write!(f, "compression level {l} above {MAX_LEVEL}"),
+            Self::AllocationFailed(n) => write!(f, "cannot allocate the expected size of {n} bytes"),
+            Self::TrailingBytes(n) => write!(f, "{n} bytes after the pcodec file"),
             Self::Pco(e) => write!(f, "pcodec: {e}"),
             Self::Zstd(e) => write!(f, "zstd: {e}"),
         }
@@ -211,38 +224,30 @@ fn float_payload<F: Float + Plain>(
         next = i + 1;
     }
     for &i in &exc {
-        p.extend_from_slice(&le_bytes(v[i]));
+        let at = p.len();
+        p.resize(at + size_of::<F>(), 0);
+        v[i].put(&mut p[at..]);
     }
     p.extend(pco_bytes(&qs, cfg)?);
     Ok(if p.len() < plain.len() { p } else { plain })
 }
 
-/// little-endian bytes of a float (4 or 8)
-fn le_bytes<F: Plain>(v: F) -> Vec<u8> {
-    let mut out = Vec::with_capacity(8);
-    v.write_le(&mut out);
-    out
+/// pcodec numbers this crate writes as Parquet `PLAIN` bytes.
+trait Plain: Number {
+    /// writes the value's little-endian bytes into `out`, which is exactly its width
+    fn put(self, out: &mut [u8]);
 }
 
-/// Writing numbers back as Parquet `PLAIN` bytes.
-trait WriteLe {
-    fn write_le(self, out: &mut Vec<u8>);
-}
-
-macro_rules! write_le {
+macro_rules! plain {
     ($($t:ty),*) => {$(
-        impl WriteLe for $t {
-            fn write_le(self, out: &mut Vec<u8>) {
-                out.extend_from_slice(&self.to_le_bytes());
+        impl Plain for $t {
+            fn put(self, out: &mut [u8]) {
+                out.copy_from_slice(&self.to_le_bytes());
             }
         }
     )*};
 }
-write_le!(i32, i64, f32, f64);
-
-/// pcodec numbers this crate writes as `PLAIN` bytes.
-trait Plain: Number + WriteLe {}
-impl<T: Number + WriteLe> Plain for T {}
+plain!(i32, i64, f32, f64);
 
 // ---------------------------------------------------------------- decode
 
@@ -256,8 +261,14 @@ pub fn mode_of(payload: &[u8]) -> Result<Mode, Error> {
 }
 
 /// Decodes a payload that must produce exactly `expected_len` bytes.
+///
+/// `expected_len` is untrusted too (a page header): a size that cannot be allocated is
+/// [`Error::AllocationFailed`], after the payload header has been checked.
 pub fn decompress(payload: &[u8], expected_len: usize) -> Result<Vec<u8>, Error> {
-    let mut out = vec![0; expected_len];
+    mode_of(payload)?;
+    let mut out = Vec::new();
+    out.try_reserve_exact(expected_len).map_err(|_| Error::AllocationFailed(expected_len))?;
+    out.resize(expected_len, 0);
     decompress_into(payload, &mut out)?;
     Ok(out)
 }
@@ -275,10 +286,10 @@ pub fn decompress_into(payload: &[u8], dst: &mut [u8]) -> Result<(), Error> {
         Mode::Pco => {
             let (&dtype, body) = body.split_first().ok_or(Error::Truncated)?;
             match PhysicalType::from_dtype(dtype)? {
-                PhysicalType::Int32 => pco_into::<i32>(body, dst, 4),
-                PhysicalType::Int64 => pco_into::<i64>(body, dst, 8),
-                PhysicalType::Float => pco_into::<f32>(body, dst, 4),
-                PhysicalType::Double => pco_into::<f64>(body, dst, 8),
+                PhysicalType::Int32 => pco_into::<i32>(body, dst),
+                PhysicalType::Int64 => pco_into::<i64>(body, dst),
+                PhysicalType::Float => pco_into::<f32>(body, dst),
+                PhysicalType::Double => pco_into::<f64>(body, dst),
             }
         }
         Mode::Decimal => {
@@ -298,22 +309,21 @@ pub fn decompress_into(payload: &[u8], dst: &mut [u8]) -> Result<(), Error> {
     }
 }
 
-/// Zstandard frames into exactly `dst`, reading at most one byte past it
+/// Zstandard frames into exactly `dst`, decoded in one pass straight into it: the frames'
+/// declared window sizes cost no memory, and output past `dst.len()` is never produced
 fn zstd_into(body: &[u8], dst: &mut [u8]) -> Result<(), Error> {
-    use std::io::Read;
-    let zerr = |e: std::io::Error| Error::Zstd(e.to_string());
-    let mut d = zstd::stream::read::Decoder::with_buffer(body).map_err(zerr)?;
-    let mut filled = 0;
-    while filled < dst.len() {
-        match d.read(&mut dst[filled..]).map_err(zerr)? {
-            0 => return Err(Error::SizeMismatch { expected: dst.len(), actual: filled }),
-            r => filled += r,
-        }
+    use zstd::zstd_safe::{self, zstd_sys::ZSTD_ErrorCode};
+    if body.is_empty() {
+        // no frame at all (spec 4.4: one frame or several)
+        return Err(Error::Truncated);
     }
-    let mut extra = [0u8; 1];
-    match d.read(&mut extra).map_err(zerr)? {
-        0 => Ok(()),
-        _ => Err(Error::SizeMismatch { expected: dst.len(), actual: dst.len() + 1 }),
+    // zstd's error codes are the negated ZSTD_ErrorCode values (zstd_errors.h)
+    let too_small = (ZSTD_ErrorCode::ZSTD_error_dstSize_tooSmall as usize).wrapping_neg();
+    match zstd_safe::decompress(dst, body) {
+        Ok(n) => check(dst.len(), n),
+        // the frames hold more than the page: at least one byte more
+        Err(code) if code == too_small => Err(Error::SizeMismatch { expected: dst.len(), actual: dst.len() + 1 }),
+        Err(code) => Err(Error::Zstd(zstd_safe::get_error_name(code).to_string())),
     }
 }
 
@@ -326,30 +336,50 @@ fn count(len: usize, width: usize) -> Result<usize, Error> {
     if len.is_multiple_of(width) { Ok(len / width) } else { Err(Error::NotMultipleOfWidth { len, width }) }
 }
 
-/// exactly `n` pcodec numbers of type `T`; size errors in bytes of `width` per value
-fn pco_numbers<T: Number>(src: &[u8], n: usize, width: usize) -> Result<Vec<T>, Error> {
-    let mut nums = vec![T::default(); n];
-    let progress = simple_decompress_into(src, &mut nums).map_err(|e| Error::Pco(e.to_string()))?;
-    if !progress.finished {
-        // more numbers than the page has room for: the decoder stops one value past it
-        return Err(Error::SizeMismatch { expected: n * width, actual: (n + 1) * width });
-    }
-    check(n * width, progress.n_processed * width)?;
-    Ok(nums)
+fn pco_error(e: pco::errors::PcoError) -> Error {
+    Error::Pco(e.to_string())
 }
 
-fn pco_into<T: Plain>(src: &[u8], dst: &mut [u8], width: usize) -> Result<(), Error> {
-    let nums = pco_numbers::<T>(src, count(dst.len(), width)?, width)?;
-    write_plain(&nums, dst);
-    Ok(())
+/// Decodes the pcodec file `src`, which must hold exactly `n` numbers and run to the end of
+/// `src`, one batch at a time:
+/// `put(i, batch)` receives numbers `i..i + batch.len()`. Nothing proportional to `n` or to
+/// what the chunk headers claim is allocated; size errors count `width` bytes per number.
+fn pco_batches<T: Number>(src: &[u8], n: usize, width: usize, mut put: impl FnMut(usize, &[T])) -> Result<(), Error> {
+    let (file, mut src) = FileDecompressor::new(src).map_err(pco_error)?;
+    let mut batch = [T::default(); FULL_BATCH_N];
+    let mut done = 0;
+    loop {
+        let mut chunk = match file.chunk_decompressor::<T, _>(src).map_err(pco_error)? {
+            DecompressorItem::Chunk(chunk) => chunk,
+            DecompressorItem::EndOfData([]) => break,
+            DecompressorItem::EndOfData(rest) => return Err(Error::TrailingBytes(rest.len())),
+        };
+        let end = done + chunk.n();
+        if end > n {
+            // more numbers than the page has room for, refused before they are decoded
+            return Err(Error::SizeMismatch { expected: n * width, actual: end * width });
+        }
+        loop {
+            let progress = chunk.read(&mut batch).map_err(pco_error)?;
+            put(done, &batch[..progress.n_processed]);
+            done += progress.n_processed;
+            if progress.finished {
+                break;
+            }
+        }
+        src = chunk.into_src();
+    }
+    check(n * width, done * width)
 }
 
-fn write_plain<T: Plain>(nums: &[T], dst: &mut [u8]) {
-    let mut out = Vec::with_capacity(dst.len());
-    for v in nums {
-        v.write_le(&mut out);
-    }
-    dst.copy_from_slice(&out);
+fn pco_into<T: Plain>(src: &[u8], dst: &mut [u8]) -> Result<(), Error> {
+    let width = size_of::<T>();
+    let n = count(dst.len(), width)?;
+    pco_batches::<T>(src, n, width, |i, nums| {
+        for (out, v) in dst[i * width..].chunks_exact_mut(width).zip(nums) {
+            v.put(out);
+        }
+    })
 }
 
 fn decimal_into<F: Float + Plain>(mut body: &[u8], e: u8, dst: &mut [u8]) -> Result<(), Error> {
@@ -359,26 +389,30 @@ fn decimal_into<F: Float + Plain>(mut body: &[u8], e: u8, dst: &mut [u8]) -> Res
     if k > n as u64 {
         return Err(Error::BadException);
     }
-    let mut positions = Vec::with_capacity(k as usize);
+    // the positions are checked here and read again once the values are written, so that an
+    // exception count the payload does not back costs no allocation
+    let deltas = body;
     let mut next: u64 = 0;
     for _ in 0..k {
         let p = next.checked_add(varint::get(&mut body)?).ok_or(Error::BadException)?;
         if p >= n as u64 {
             return Err(Error::BadException);
         }
-        positions.push(p as usize);
         next = p + 1;
     }
-    let exc_len = k as usize * width;
-    if body.len() < exc_len {
-        return Err(Error::Truncated);
-    }
-    let (exc, pco) = body.split_at(exc_len);
-    let qs = pco_numbers::<i64>(pco, n, width)?;
-    let vals: Vec<F> = qs.into_iter().map(|q| F::decode(q, e)).collect();
-    write_plain(&vals, dst);
-    for (j, p) in positions.iter().enumerate() {
-        dst[p * width..(p + 1) * width].copy_from_slice(&exc[j * width..(j + 1) * width]);
+    // k <= n, so this is at most dst.len()
+    let (exc, pco) = body.split_at_checked(k as usize * width).ok_or(Error::Truncated)?;
+    pco_batches::<i64>(pco, n, width, |i, qs| {
+        for (out, q) in dst[i * width..].chunks_exact_mut(width).zip(qs) {
+            F::decode(*q, e).put(out);
+        }
+    })?;
+    let (mut deltas, mut next) = (deltas, 0);
+    for bits in exc.chunks_exact(width) {
+        // checked above: each delta is a valid varint and every position is below n
+        let p = next + varint::get(&mut deltas)? as usize;
+        dst[p * width..(p + 1) * width].copy_from_slice(bits);
+        next = p + 1;
     }
     Ok(())
 }

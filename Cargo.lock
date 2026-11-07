@@ -3464,12 +3464,16 @@ dependencies = [
  "base64",
  "bytes",
  "clap",
+ "futures",
  "parquet",
+ "pco",
  "predicates",
  "proptest",
  "serde_json",
  "tempfile",
+ "tokio",
  "tparquet-core",
+ "zstd",
 ]
 
 [[package]]
@@ -3533,6 +3537,7 @@ name = "tparquet-python"
 version = "0.1.0"
 dependencies = [
  "arrow-array",
+ "arrow-data",
  "arrow-schema",
  "bytes",
  "parquet",
