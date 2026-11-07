@@ -63,17 +63,18 @@ Speed, in MB/s of Arrow data (higher is faster; one thread per writer and reader
 ## What is measured
 
 Every dataset is read as its provider delivers it, typed as the provider documents it, and
-written three times:
+written four times:
 
 | File | Writer | Codecs and encodings |
 |---|---|---|
 | **ZSTD(9)** | tparquet's writer, `policy="base"` | ZSTD level 9 on every column, writer defaults otherwise (dictionary, then PLAIN): what you get without tuning |
 | **ZSTD(9) tuned** | pyarrow | ZSTD level 9, and per column the smallest on the first batch of the writer's default (dictionary, then PLAIN) and the encoding Parquet has for the type: DELTA_BINARY_PACKED for integers and timestamps, BYTE_STREAM_SPLIT for floating point, DELTA_BYTE_ARRAY or DELTA_LENGTH_BYTE_ARRAY for strings. This is what a careful writer does, and how several providers' own files are written |
+| **ZSTD(9) ALP** | tparquet's writer, `policy="base"` | ZSTD level 9, the tuned file's encodings, but ALP ([Adaptive Lossless floating-Point](https://github.com/apache/parquet-format/blob/master/Encodings.md), Parquet encoding 10) on every FLOAT and DOUBLE column. pyarrow 26 does not write ALP; the `parquet` crate (60.1) does, so this file comes from tparquet's writer with PCODEC off and per-column `encodings` |
 | **tparquet** | tparquet's writer, defaults | PCODEC or ZSTD level 3 per column, whichever is smaller on the first batch |
 
-Each writer gets batches of 2²⁰ rows (one row group). The run checks that the three
+Each writer gets batches of 2²⁰ rows (one row group). The run checks that the four
 files hold the same values (floats bit for bit), then reads each back in full with
-tparquet's reader (the same reader for all three, so only the format differs). The *As
+tparquet's reader (the same reader for all four, so only the format differs). The *As
 delivered* column is the size of the provider's file (CSV, gzip; Parquet with their codec).
 
 Speeds are MB/s of Arrow data: the in-memory size of the batches written, divided by the
