@@ -2,8 +2,9 @@
 
 One compact JSON object per row: integers (and everything stored as an integer: timestamps,
 dates, times, durations, unscaled decimals) as plain numbers, floats as the hex of their IEEE
-bits, binary as base64, lists as arrays, structs as objects, maps as arrays of entry objects,
-dictionaries and run-end encoded arrays decoded. Two rows are equal exactly when their lines are equal byte for byte.
+bits, intervals as months, days and nanoseconds, binary as base64, lists as arrays, structs as
+objects, maps as arrays of entry objects, dictionaries and run-end encoded arrays decoded. Two
+rows are equal exactly when their lines are equal byte for byte.
 """
 
 from __future__ import annotations
@@ -41,6 +42,10 @@ def _stored_integer(t: Any, pa: Any) -> Any:
     if pa.types.is_timestamp(t) or pa.types.is_date64(t) or pa.types.is_time64(t) or pa.types.is_duration(t):
         return pa.int64()
     return None
+
+
+def _interval(months: int, days: int, nanoseconds: int) -> str:
+    return f'{{"months":{months},"days":{days},"nanoseconds":{nanoseconds}}}'
 
 
 def _decimals(arr: Any) -> list[str]:
@@ -92,6 +97,10 @@ def _non_null_values(arr: Any, t: Any, pa: Any) -> list[str]:
         return [str(v) for v in arr.view(stored).to_pylist()]
     if pa.types.is_decimal(t):
         return _decimals(arr)
+    if pa.types.is_interval(t):
+        # month-day-nano: pyarrow has no array class for year-month and day-time intervals.
+        # `_values` replaces what a null gets here, so mutants of the (0, 0, 0) are equivalent
+        return [_interval(*(v or (0, 0, 0))) for v in arr.to_pylist()]  # pragma: no mutate
     if pa.types.is_string(t) or pa.types.is_large_string(t) or pa.types.is_string_view(t):
         return [_string(v or "") for v in arr.to_pylist()]
     if (

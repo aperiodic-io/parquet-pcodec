@@ -174,3 +174,13 @@ def test_unsupported_types() -> None:
         line(union)
     with pytest.raises(TypeError, match=r"^expected Arrow data \(a table, a record batch or a stream\), got int$"):
         list(canonical.lines(42))
+
+
+def test_intervals_are_months_days_and_nanoseconds() -> None:
+    mdn = pa.array([(1, -2, 3), None, (2**31 - 1, -(2**31), -(2**63))], pa.month_day_nano_interval())
+    assert line(mdn) == [
+        '{"x":{"months":1,"days":-2,"nanoseconds":3}}',
+        '{"x":null}',
+        '{"x":{"months":2147483647,"days":-2147483648,"nanoseconds":-9223372036854775808}}',
+    ]
+    assert line(mdn.slice(1)) == line(mdn)[1:]

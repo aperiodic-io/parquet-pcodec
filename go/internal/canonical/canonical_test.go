@@ -169,12 +169,51 @@ func TestNullType(t *testing.T) {
 	}
 }
 
+func TestIntervals(t *testing.T) {
+	rec := record(t, []arrow.Field{
+		{Name: "ym", Type: arrow.FixedWidthTypes.MonthInterval, Nullable: true},
+		{Name: "dt", Type: arrow.FixedWidthTypes.DayTimeInterval},
+		{Name: "mdn", Type: arrow.FixedWidthTypes.MonthDayNanoInterval},
+	}, func(b *array.RecordBuilder) {
+		ym := b.Field(0).(*array.MonthIntervalBuilder)
+		ym.Append(14)
+		ym.AppendNull()
+		ym.Append(math.MinInt32)
+		dt := b.Field(1).(*array.DayTimeIntervalBuilder)
+		dt.Append(arrow.DayTimeInterval{Days: 3, Milliseconds: 1500})
+		dt.Append(arrow.DayTimeInterval{Days: math.MinInt32, Milliseconds: math.MaxInt32})
+		dt.Append(arrow.DayTimeInterval{Days: 2, Milliseconds: -7})
+		mdn := b.Field(2).(*array.MonthDayNanoIntervalBuilder)
+		mdn.Append(arrow.MonthDayNanoInterval{Months: 1, Days: -2, Nanoseconds: 3})
+		mdn.Append(arrow.MonthDayNanoInterval{Months: math.MaxInt32, Days: math.MinInt32, Nanoseconds: math.MinInt64})
+		mdn.Append(arrow.MonthDayNanoInterval{Days: 2, Nanoseconds: -7_000_000})
+	})
+	defer rec.Release()
+	want := `{"ym":{"months":14,"days":0,"nanoseconds":0},"dt":{"months":0,"days":3,"nanoseconds":1500000000},"mdn":{"months":1,"days":-2,"nanoseconds":3}}
+{"ym":null,"dt":{"months":0,"days":-2147483648,"nanoseconds":2147483647000000},"mdn":{"months":2147483647,"days":-2147483648,"nanoseconds":-9223372036854775808}}
+{"ym":{"months":-2147483648,"days":0,"nanoseconds":0},"dt":{"months":0,"days":2,"nanoseconds":-7000000},"mdn":{"months":0,"days":2,"nanoseconds":-7000000}}
+`
+	if got := jsonl(t, rec); got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+// unsupported is a record of a type canonical JSON does not cover: run-end encoded.
+func unsupported(t *testing.T) arrow.RecordBatch {
+	ree := arrow.RunEndEncodedOf(arrow.PrimitiveTypes.Int32, arrow.PrimitiveTypes.Int64)
+	return record(t, []arrow.Field{{Name: "r", Type: ree}},
+		func(b *array.RecordBuilder) {
+			rb := b.Field(0).(*array.RunEndEncodedBuilder)
+			rb.Append(1)
+			rb.ValueBuilder().(*array.Int64Builder).Append(5)
+		})
+}
+
 func TestUnsupportedType(t *testing.T) {
-	rec := record(t, []arrow.Field{{Name: "m", Type: arrow.FixedWidthTypes.MonthInterval}},
-		func(b *array.RecordBuilder) { b.Field(0).(*array.MonthIntervalBuilder).Append(1) })
+	rec := unsupported(t)
 	defer rec.Release()
 	var buf bytes.Buffer
-	if err := WriteRecord(&buf, rec); err == nil || !strings.Contains(err.Error(), "canonical: no JSON form for month_interval") {
+	if err := WriteRecord(&buf, rec); err == nil || !strings.Contains(err.Error(), "canonical: no JSON form for run_end_encoded") {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -224,8 +263,7 @@ func TestWriteTable(t *testing.T) {
 		t.Fatalf("got %q", buf.String())
 	}
 
-	m := record(t, []arrow.Field{{Name: "m", Type: arrow.FixedWidthTypes.MonthInterval}},
-		func(b *array.RecordBuilder) { b.Field(0).(*array.MonthIntervalBuilder).Append(1) })
+	m := unsupported(t)
 	defer m.Release()
 	mt := array.NewTableFromRecords(m.Schema(), []arrow.RecordBatch{m})
 	defer mt.Release()

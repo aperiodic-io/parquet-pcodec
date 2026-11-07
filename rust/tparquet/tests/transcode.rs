@@ -341,3 +341,104 @@ fn the_target_options_are_used() {
     let err = transcode(input, Vec::new(), &Target::Pcodec(WriterOptions::default().with_column("nope", Policy::Base)));
     assert_eq!(err.unwrap_err().to_string(), "no column named \"nope\"");
 }
+
+/// What the footer records about how each column chunk was written, per row group and leaf:
+/// (path, chunk statistics, distinct count, column index, offset index, bloom filter: its
+/// header and bitset as written)
+type Footer = Vec<Vec<(String, bool, bool, bool, bool, Option<Vec<u8>>)>>;
+
+fn footer(file: &Bytes) -> Footer {
+    use tparquet::parquet::bloom_filter::Sbbf;
+    let b = ParquetRecordBatchReaderBuilder::try_new(file.clone()).unwrap();
+    b.metadata()
+        .row_groups()
+        .iter()
+        .map(|rg| {
+            rg.columns()
+                .iter()
+                .map(|c| {
+                    let bloom = Sbbf::read_from_column_chunk(c, file).unwrap().map(|f| {
+                        let mut v = Vec::new();
+                        f.write(&mut v).unwrap();
+                        v
+                    });
+                    (
+                        c.column_path().string(),
+                        c.statistics().is_some(),
+                        c.statistics().is_some_and(|s| s.distinct_count_opt().is_some()),
+                        c.column_index_offset().is_some(),
+                        c.offset_index_offset().is_some(),
+                        bloom,
+                    )
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// `batch(0, rows)` written with `props`, in one row group
+fn written_with(props: WriterProperties, rows: i64) -> Bytes {
+    let mut out = Vec::new();
+    let mut w = ArrowWriter::try_new(&mut out, batch(0, 1).schema(), Some(props)).unwrap();
+    w.write(&batch(0, rows)).unwrap();
+    w.close().unwrap();
+    Bytes::from(out)
+}
+
+#[test]
+fn statistics_settings_and_bloom_filters_are_kept_both_ways() {
+    use tparquet::parquet::file::properties::EnabledStatistics;
+    use tparquet::parquet::schema::types::ColumnPath;
+    let col = |s: &str| ColumnPath::from(s);
+    let page_stats = WriterProperties::builder()
+        .set_column_statistics_enabled(col("id"), EnabledStatistics::None)
+        .set_column_statistics_enabled(col("px"), EnabledStatistics::Chunk)
+        .set_column_bloom_filter_fpp(col("id"), 0.001)
+        .set_column_bloom_filter_enabled(col("name"), true)
+        .set_write_row_group_number_distinct_values(true)
+        .build();
+    let no_page_index = WriterProperties::builder()
+        .set_statistics_enabled(EnabledStatistics::Chunk)
+        .set_column_statistics_enabled(col("name"), EnabledStatistics::None)
+        .set_offset_index_disabled(true)
+        .set_column_bloom_filter_fpp(col("px"), 0.2)
+        // 64 bytes for 3000 values: a full filter
+        .set_column_bloom_filter_max_ndv(col("px"), 64)
+        .build();
+    for props in [page_stats, no_page_index] {
+        let input = written_with(props, 3000);
+        let want = footer(&input);
+        for options in [WriterOptions::default(), WriterOptions::default().with_policy(Policy::Pcodec)] {
+            let out = run(input.clone(), &Target::Pcodec(options));
+            assert!(codecs(&out).iter().any(|c| c.1 == "PCODEC"));
+            assert_eq!(footer(&out), want);
+            assert_eq!(footer(&run(out, &Target::standard())), want);
+        }
+    }
+}
+
+#[test]
+fn bloom_filters_are_kept_in_every_row_group() {
+    // row groups of different sizes: each gets a filter, at least as large as the input's
+    // largest needed (the writer sizes them per column, not per row group)
+    let props = WriterProperties::builder().set_bloom_filter_enabled(true).set_bloom_filter_fpp(0.01).build();
+    let mut out = Vec::new();
+    let mut w = ArrowWriter::try_new(&mut out, batch(0, 1).schema(), Some(props)).unwrap();
+    for (offset, rows) in [(0, 5000), (5000, 10), (5010, 700)] {
+        w.write(&batch(offset, rows)).unwrap();
+        w.flush().unwrap();
+    }
+    w.close().unwrap();
+    let input = Bytes::from(out);
+    let bloom =
+        |f: &Footer| f.iter().map(|rg| rg.iter().map(|c| c.5.is_some()).collect::<Vec<_>>()).collect::<Vec<_>>();
+    let out = run(input.clone(), &Target::Pcodec(WriterOptions::default()));
+    assert_eq!(bloom(&footer(&out)), vec![vec![true; 3]; 3]);
+    assert_eq!(bloom(&footer(&run(out.clone(), &Target::standard()))), vec![vec![true; 3]; 3]);
+    // every id of every row group passes its row group's filter
+    let b = ParquetRecordBatchReaderBuilder::try_new(out.clone()).unwrap();
+    for (rg, (offset, rows)) in b.metadata().row_groups().iter().zip([(0i64, 5000i64), (5000, 10), (5010, 700)]) {
+        let f = tparquet::parquet::bloom_filter::Sbbf::read_from_column_chunk(rg.column(0), &out).unwrap().unwrap();
+        assert!((offset..offset + rows).all(|i| f.check(&(i * 3))), "row group at {offset}");
+    }
+}
