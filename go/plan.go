@@ -126,6 +126,9 @@ type Plan struct {
 // record batch of the file, used to resolve Auto columns; with a nil or empty sample Auto
 // columns use the base codec.
 func NewPlan(sc *arrow.Schema, sample arrow.RecordBatch, opts ...Option) (*Plan, error) {
+	if abiErr != nil {
+		return nil, abiErr
+	}
 	cfg := newConfig(opts)
 	if err := checkPolicy(cfg.defPolicy); err != nil {
 		return nil, err
