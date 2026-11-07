@@ -85,7 +85,9 @@ The codec is specified in [`spec/FORMAT.md`](spec/FORMAT.md), so anyone can impl
 ## Install
 
 The packages are not on PyPI or crates.io yet. Build them from a checkout of this repository
-(the Python and Go packages need a Rust toolchain):
+(every package needs a Rust toolchain). [`INSTALL.md`](INSTALL.md) has the prerequisites, the
+steps for each use case on Linux, macOS and Windows, using the packages from your own project
+(Cargo, pip and uv, Go modules, Maven and Gradle, CMake), and troubleshooting. In short:
 
 ```sh
 cargo install --path rust/tparquet           # CLI
